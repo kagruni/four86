@@ -1,0 +1,87 @@
+import { RunnableSequence } from "@langchain/core/runnables";
+import { tradingPrompt } from "../prompts/system";
+import { tradeDecisionParser } from "../parsers/tradeDecision";
+import { ZhipuAI } from "../models/zhipuai";
+import { OpenRouterChat } from "../models/openrouter";
+
+export function createTradingChain(
+  modelType: "zhipuai" | "openrouter",
+  modelName: string,
+  apiKey: string,
+  config: {
+    maxLeverage: number;
+    maxPositionSize: number;
+  }
+) {
+  // Select the appropriate model
+  const model = modelType === "zhipuai"
+    ? new ZhipuAI({ apiKey, model: "glm-4-plus" })
+    : new OpenRouterChat({ apiKey, model: modelName });
+
+  // Create the chain
+  const chain = RunnableSequence.from([
+    {
+      // Format the input
+      marketDataFormatted: (input: any) => formatMarketData(input.marketData),
+      positionsFormatted: (input: any) => formatPositions(input.positions),
+      accountValue: (input: any) => input.accountState.accountValue,
+      availableCash: (input: any) => input.accountState.withdrawable,
+      marginUsed: (input: any) => input.accountState.totalMarginUsed,
+      positionCount: (input: any) => input.positions.length,
+      timestamp: () => new Date().toISOString(),
+      maxLeverage: () => config.maxLeverage,
+      maxPositionSize: () => config.maxPositionSize,
+    },
+    tradingPrompt,
+    model,
+    tradeDecisionParser,
+  ]);
+
+  return chain;
+}
+
+function formatMarketData(marketData: Record<string, any>): string {
+  let formatted = "";
+
+  for (const [symbol, data] of Object.entries(marketData)) {
+    formatted += `
+### ${symbol}
+- Price: $${data.price.toFixed(2)}
+- 24h Volume: $${data.volume_24h?.toFixed(0) || 'N/A'}
+- RSI: ${data.indicators.rsi.toFixed(1)} ${getRSISignal(data.indicators.rsi)}
+- MACD: ${data.indicators.macd.toFixed(2)} (Signal: ${data.indicators.macd_signal.toFixed(2)})
+- Trend (10min): ${data.indicators.price_change_short >= 0 ? '+' : ''}${data.indicators.price_change_short.toFixed(2)}%
+- Trend (4h): ${data.indicators.price_change_medium >= 0 ? '+' : ''}${data.indicators.price_change_medium.toFixed(2)}%
+`;
+  }
+
+  return formatted;
+}
+
+function formatPositions(positions: any[]): string {
+  if (positions.length === 0) {
+    return "\n## Current Positions\n\nNo open positions.";
+  }
+
+  let formatted = "\n## Current Positions\n";
+
+  for (const pos of positions) {
+    formatted += `
+**${pos.symbol}** - ${pos.side}
+- Size: $${pos.size.toFixed(2)} (${pos.leverage}x leverage)
+- Entry: $${pos.entryPrice.toFixed(2)}
+- Current: $${pos.currentPrice.toFixed(2)}
+- P&L: $${pos.unrealizedPnl.toFixed(2)} (${pos.unrealizedPnlPct.toFixed(2)}%)
+- Stop Loss: $${pos.stopLoss?.toFixed(2) || 'None'}
+- Take Profit: $${pos.takeProfit?.toFixed(2) || 'None'}
+`;
+  }
+
+  return formatted;
+}
+
+function getRSISignal(rsi: number): string {
+  if (rsi < 30) return "(OVERSOLD)";
+  if (rsi > 70) return "(OVERBOUGHT)";
+  return "(NEUTRAL)";
+}
