@@ -4,6 +4,7 @@ import { detailedTradingPrompt, formatCoinMarketData, formatPositionsDetailed } 
 import { tradeDecisionParser } from "../parsers/tradeDecision";
 import { ZhipuAI } from "../models/zhipuai";
 import { OpenRouterChat } from "../models/openrouter";
+import { getTradingTools } from "../tools/tradingTools";
 import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
 
 export function createTradingChain(
@@ -100,9 +101,12 @@ export function createDetailedTradingChain(
     maxPositionSize: number;
   }
 ) {
-  // Select the appropriate model
+  // Get trading tools for function calling
+  const tools = getTradingTools();
+
+  // Select the appropriate model with tool calling enabled
   const model = modelType === "zhipuai"
-    ? new ZhipuAI({ apiKey, model: modelName })
+    ? new ZhipuAI({ apiKey, model: modelName, tools })
     : new OpenRouterChat({ apiKey, model: modelName });
 
   // Create the chain with detailed prompts

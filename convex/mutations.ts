@@ -235,6 +235,40 @@ export const closePosition = mutation({
   },
 });
 
+// Sync positions with Hyperliquid (remove positions that don't exist on exchange)
+export const syncPositions = mutation({
+  args: {
+    userId: v.string(),
+    hyperliquidSymbols: v.array(v.string()), // Array of symbols that actually exist on Hyperliquid
+  },
+  handler: async (ctx, args) => {
+    console.log(`[syncPositions] Syncing for user ${args.userId}`);
+    console.log(`[syncPositions] Hyperliquid has positions: ${args.hyperliquidSymbols.join(", ") || "none"}`);
+
+    // Get all database positions for this user
+    const dbPositions = await ctx.db
+      .query("positions")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    console.log(`[syncPositions] Database has ${dbPositions.length} positions`);
+
+    // Find positions in database that don't exist on Hyperliquid
+    const positionsToRemove = dbPositions.filter(
+      (dbPos) => !args.hyperliquidSymbols.includes(dbPos.symbol)
+    );
+
+    // Remove stale positions
+    for (const position of positionsToRemove) {
+      console.log(`[syncPositions] Removing stale position: ${position.symbol}`);
+      await ctx.db.delete(position._id);
+    }
+
+    console.log(`[syncPositions] Removed ${positionsToRemove.length} stale positions`);
+    console.log(`[syncPositions] Sync complete - ${dbPositions.length - positionsToRemove.length} positions remain`);
+  },
+});
+
 // Save account snapshot
 export const saveAccountSnapshot = mutation({
   args: {

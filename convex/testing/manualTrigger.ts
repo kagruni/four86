@@ -3,6 +3,82 @@ import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 
 /**
+ * Manually sync positions with Hyperliquid (fixes database sync issues)
+ */
+export const syncPositionsWithHyperliquid = action({
+  args: {
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      console.log(`[Manual Sync] Starting position sync for user ${args.userId}`);
+
+      // Get credentials
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
+        console.error("[Manual Sync] Missing credentials");
+        return { success: false, error: "Missing Hyperliquid credentials" };
+      }
+
+      // Get actual positions from Hyperliquid
+      const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      console.log(`[Manual Sync] Hyperliquid has ${hyperliquidPositions.length} total positions`);
+
+      // Extract symbols of actual positions on Hyperliquid (with non-zero size)
+      const hyperliquidSymbols = hyperliquidPositions
+        .map((p: any) => {
+          const coin = p.position?.coin || p.coin;
+          const szi = p.position?.szi || p.szi || "0";
+          const size = parseFloat(szi);
+
+          console.log(`[Manual Sync] ${coin}: size=${szi}`);
+
+          // Only include positions with non-zero size
+          return size !== 0 ? coin : null;
+        })
+        .filter((s: string | null): s is string => s !== null);
+
+      console.log(`[Manual Sync] Active positions (non-zero): ${hyperliquidSymbols.join(", ") || "none"}`);
+
+      // Sync database with reality
+      await ctx.runMutation(api.mutations.syncPositions, {
+        userId: args.userId,
+        hyperliquidSymbols,
+      });
+
+      // Get updated positions from database
+      const positions = await ctx.runQuery(api.queries.getPositions, {
+        userId: args.userId,
+      });
+
+      console.log(`[Manual Sync] Database now has ${positions.length} positions`);
+
+      return {
+        success: true,
+        message: "Positions synced successfully",
+        hyperliquidPositions: hyperliquidSymbols.length,
+        databasePositions: positions.length,
+        symbols: hyperliquidSymbols,
+      };
+
+    } catch (error) {
+      console.error("[Manual Sync] Error:", error);
+      return {
+        success: false,
+        error: String(error),
+      };
+    }
+  },
+});
+
+/**
  * Manually trigger the trading cycle for a specific user (for testing)
  * This bypasses the cron schedule and runs the loop immediately
  */

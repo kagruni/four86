@@ -16,6 +16,7 @@ import type * as ai_parsers_schemas from "../ai/parsers/schemas.js";
 import type * as ai_parsers_tradeDecision from "../ai/parsers/tradeDecision.js";
 import type * as ai_prompts_detailedSystem from "../ai/prompts/detailedSystem.js";
 import type * as ai_prompts_system from "../ai/prompts/system.js";
+import type * as ai_tools_tradingTools from "../ai/tools/tradingTools.js";
 import type * as crons from "../crons.js";
 import type * as hyperliquid_candles from "../hyperliquid/candles.js";
 import type * as hyperliquid_client from "../hyperliquid/client.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "ai/parsers/tradeDecision": typeof ai_parsers_tradeDecision;
   "ai/prompts/detailedSystem": typeof ai_prompts_detailedSystem;
   "ai/prompts/system": typeof ai_prompts_system;
+  "ai/tools/tradingTools": typeof ai_tools_tradingTools;
   crons: typeof crons;
   "hyperliquid/candles": typeof hyperliquid_candles;
   "hyperliquid/client": typeof hyperliquid_client;

@@ -51,7 +51,29 @@ export const runTradingCycle = internalAction({
           testnet: credentials.hyperliquidTestnet,
         });
 
-        // 4. Get current positions from database
+        // 3.5. Sync positions with Hyperliquid (remove stale positions from database)
+        const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+          address: credentials.hyperliquidAddress,
+          testnet: credentials.hyperliquidTestnet,
+        });
+
+        // Extract symbols of actual positions on Hyperliquid
+        const hyperliquidSymbols = hyperliquidPositions
+          .map((p: any) => {
+            const coin = p.position?.coin || p.coin;
+            const szi = p.position?.szi || p.szi || "0";
+            // Only include positions with non-zero size
+            return parseFloat(szi) !== 0 ? coin : null;
+          })
+          .filter((s: string | null): s is string => s !== null);
+
+        // Sync database with reality
+        await ctx.runMutation(api.mutations.syncPositions, {
+          userId: bot.userId,
+          hyperliquidSymbols,
+        });
+
+        // 4. Get current positions from database (now synced with Hyperliquid)
         const positions = await ctx.runQuery(api.queries.getPositions, {
           userId: bot.userId,
         });
@@ -140,14 +162,46 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
         return;
       }
 
-      // Close existing position
+      // Get actual position size from Hyperliquid (not from database)
+      const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      // Find the actual position on Hyperliquid
+      const actualPosition = hyperliquidPositions.find((p: any) => {
+        // Position info comes in format like { position: { coin: "BTC", szi: "0.01" } }
+        const coin = p.position?.coin || p.coin;
+        return coin === decision.symbol;
+      });
+
+      if (!actualPosition) {
+        console.log(`No actual position found on Hyperliquid for ${decision.symbol}, removing from database`);
+        await ctx.runMutation(api.mutations.closePosition, {
+          userId: bot.userId,
+          symbol: decision.symbol,
+        });
+        return;
+      }
+
+      // Get the actual size from Hyperliquid
+      // szi is the signed size (positive for long, negative for short)
+      const szi = actualPosition.position?.szi || actualPosition.szi || "0";
+      const actualSize = Math.abs(parseFloat(szi));
+
+      console.log(`Closing ${decision.symbol} position:`);
+      console.log(`  Database size: ${positionToClose.size} USD`);
+      console.log(`  Actual Hyperliquid size: ${actualSize} coins`);
+      console.log(`  Side: ${positionToClose.side}`);
+
+      // Close existing position with actual size from Hyperliquid
       // To close a LONG position, we SELL (isBuy=false)
       // To close a SHORT position, we BUY (isBuy=true)
       const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
         symbol: decision.symbol,
-        size: positionToClose.size,
+        size: actualSize, // Use actual size from Hyperliquid, not database
         isBuy: positionToClose.side === "SHORT", // Opposite of position side
         testnet: credentials.hyperliquidTestnet,
       });
@@ -174,17 +228,74 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
       });
 
     } else if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
+      // Get current market price to convert USD to coin size
+      const currentPrice = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+        symbols: [decision.symbol!],
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      const entryPrice = currentPrice[decision.symbol!]?.price || 0;
+      if (entryPrice === 0) {
+        throw new Error(`Cannot get market price for ${decision.symbol}`);
+      }
+
+      // Convert USD size to coin size
+      // Example: $7327 / $934 BNB = 7.84 BNB
+      const sizeInCoins = decision.size_usd! / entryPrice;
+
+      console.log(`Opening position: ${decision.symbol} ${decision.decision}`);
+      console.log(`  Size: $${decision.size_usd} / $${entryPrice} = ${sizeInCoins.toFixed(4)} coins`);
+      console.log(`  Leverage: ${decision.leverage}x`);
+
       // Open new position
       const result = await ctx.runAction(api.hyperliquid.client.placeOrder, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
         symbol: decision.symbol!,
         isBuy: decision.decision === "OPEN_LONG",
-        size: decision.size_usd! / accountState.accountValue,
+        size: sizeInCoins,
         leverage: decision.leverage!,
-        price: decision.price,
+        price: entryPrice,
         testnet: credentials.hyperliquidTestnet,
       });
+
+      const isLongPosition = decision.decision === "OPEN_LONG";
+
+      // Place stop-loss order if specified
+      if (decision.stop_loss) {
+        try {
+          console.log(`Placing stop-loss order at $${decision.stop_loss}...`);
+          await ctx.runAction(api.hyperliquid.client.placeStopLoss, {
+            privateKey: credentials.hyperliquidPrivateKey,
+            symbol: decision.symbol!,
+            size: sizeInCoins,
+            triggerPrice: decision.stop_loss,
+            isLongPosition,
+            testnet: credentials.hyperliquidTestnet,
+          });
+        } catch (error) {
+          console.error(`Failed to place stop-loss order:`, error);
+          // Don't fail the entire trade if SL order fails - position is still open
+        }
+      }
+
+      // Place take-profit order if specified
+      if (decision.take_profit) {
+        try {
+          console.log(`Placing take-profit order at $${decision.take_profit}...`);
+          await ctx.runAction(api.hyperliquid.client.placeTakeProfit, {
+            privateKey: credentials.hyperliquidPrivateKey,
+            symbol: decision.symbol!,
+            size: sizeInCoins,
+            triggerPrice: decision.take_profit,
+            isLongPosition,
+            testnet: credentials.hyperliquidTestnet,
+          });
+        } catch (error) {
+          console.error(`Failed to place take-profit order:`, error);
+          // Don't fail the entire trade if TP order fails - position is still open
+        }
+      }
 
       // Save trade record
       await ctx.runMutation(api.mutations.saveTrade, {

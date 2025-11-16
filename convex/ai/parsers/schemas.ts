@@ -7,7 +7,7 @@ export const TradeDecisionSchema = z.object({
   decision: z.enum(["OPEN_LONG", "OPEN_SHORT", "CLOSE", "HOLD"])
     .describe("The action to take"),
 
-  symbol: z.enum(["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"])
+  symbol: z.enum(["BTC", "ETH", "SOL", "BNB", "DOGE"])
     .optional()
     .describe("Symbol to trade (required for OPEN actions)"),
 

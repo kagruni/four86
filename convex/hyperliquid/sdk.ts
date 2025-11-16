@@ -2,15 +2,26 @@
 
 import * as hl from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
+import { formatPrice, formatSize } from "@nktkas/hyperliquid/utils";
 
-// Symbol to Hyperliquid asset ID mapping
+// Cache for asset metadata (avoids repeated API calls)
+let metadataCache: {
+  universe: any[];
+  ctx: any[];
+  timestamp: number;
+  testnet: boolean;
+} | null = null;
+
+const METADATA_CACHE_TTL = 60000; // 1 minute cache
+
+// Symbol to Hyperliquid asset ID mapping (DEPRECATED - use getAssetId instead)
+// These are fallback mainnet IDs - actual IDs are fetched from meta endpoint
 const SYMBOL_TO_ASSET_ID: Record<string, number> = {
   BTC: 0,
   ETH: 1,
   SOL: 2,
   BNB: 3,
   DOGE: 4,
-  XRP: 5,
 };
 
 interface PlaceOrderParams {
@@ -42,7 +53,77 @@ export function getHyperliquidUrl(testnet: boolean): string {
 }
 
 /**
- * Get asset ID from symbol
+ * Fetch asset metadata from Hyperliquid
+ * Returns universe (asset info) and ctx (market context) for all assets
+ */
+export async function getAssetMetadata(testnet: boolean): Promise<{
+  universe: any[];
+  ctx: any[];
+}> {
+  // Check cache first
+  const now = Date.now();
+  if (
+    metadataCache &&
+    metadataCache.testnet === testnet &&
+    now - metadataCache.timestamp < METADATA_CACHE_TTL
+  ) {
+    return {
+      universe: metadataCache.universe,
+      ctx: metadataCache.ctx,
+    };
+  }
+
+  // Fetch fresh metadata
+  console.log(`[getAssetMetadata] Fetching metadata for ${testnet ? "testnet" : "mainnet"}...`);
+  const infoClient = createInfoClient(testnet);
+  const [meta, ctx] = await infoClient.metaAndAssetCtxs();
+
+  // Cache the result
+  metadataCache = {
+    universe: meta.universe,
+    ctx,
+    timestamp: now,
+    testnet,
+  };
+
+  console.log(`[getAssetMetadata] Fetched ${meta.universe.length} assets`);
+  return {
+    universe: meta.universe,
+    ctx,
+  };
+}
+
+/**
+ * Get asset ID and metadata from symbol
+ * Queries the Hyperliquid meta endpoint to get correct asset ID for current network
+ */
+export async function getAssetInfo(
+  symbol: string,
+  testnet: boolean
+): Promise<{
+  assetId: number;
+  szDecimals: number;
+  maxLeverage: number;
+}> {
+  const { universe } = await getAssetMetadata(testnet);
+
+  // Find asset by symbol
+  const assetIndex = universe.findIndex((asset) => asset.name === symbol);
+  if (assetIndex === -1) {
+    throw new Error(`Asset ${symbol} not found in universe`);
+  }
+
+  const asset = universe[assetIndex];
+
+  return {
+    assetId: assetIndex,
+    szDecimals: asset.szDecimals,
+    maxLeverage: asset.maxLeverage,
+  };
+}
+
+/**
+ * Get asset ID from symbol (legacy function - uses hardcoded mapping as fallback)
  */
 export function getAssetId(symbol: string): number {
   const assetId = SYMBOL_TO_ASSET_ID[symbol];
@@ -68,11 +149,14 @@ export function createWallet(privateKey: string) {
  */
 export function createExchangeClient(
   privateKey: string,
-  _testnet: boolean
+  testnet: boolean
 ): hl.ExchangeClient {
   const wallet = createWallet(privateKey);
-  // Note: The SDK handles testnet/mainnet URLs internally
-  const transport = new hl.HttpTransport();
+
+  // Configure transport with testnet flag
+  const transport = new hl.HttpTransport({
+    isTestnet: testnet, // This is the key property!
+  });
 
   return new hl.ExchangeClient({
     wallet,
@@ -83,13 +167,44 @@ export function createExchangeClient(
 /**
  * Create InfoClient instance for market data
  */
-export function createInfoClient(_testnet: boolean): hl.InfoClient {
-  // Note: The SDK handles testnet/mainnet URLs internally
-  const transport = new hl.HttpTransport();
+export function createInfoClient(testnet: boolean): hl.InfoClient {
+  // Configure transport with testnet flag
+  const transport = new hl.HttpTransport({
+    isTestnet: testnet, // This is the key property!
+  });
 
   return new hl.InfoClient({
     transport,
   });
+}
+
+/**
+ * Set leverage for an asset
+ */
+export async function setLeverage(
+  privateKey: string,
+  symbol: string,
+  leverage: number,
+  testnet: boolean
+): Promise<void> {
+  try {
+    // Get correct asset ID from meta endpoint
+    const assetInfo = await getAssetInfo(symbol, testnet);
+    const exchangeClient = createExchangeClient(privateKey, testnet);
+
+    console.log(`[setLeverage] Setting leverage for ${symbol} (asset ${assetInfo.assetId}) to ${leverage}x (max: ${assetInfo.maxLeverage}x)`);
+
+    await exchangeClient.updateLeverage({
+      asset: assetInfo.assetId,
+      isCross: true, // Use cross margin (isolated = false)
+      leverage,
+    });
+
+    console.log(`[setLeverage] Successfully set leverage for ${symbol} to ${leverage}x`);
+  } catch (error) {
+    console.error(`[setLeverage] Error setting leverage for ${symbol}:`, error);
+    // Don't throw - continue with order even if leverage set fails
+  }
 }
 
 /**
@@ -101,17 +216,40 @@ export async function placeOrder(
   const { privateKey, symbol, isBuy, size, price, testnet, reduceOnly = false } = params;
 
   try {
-    const assetId = getAssetId(symbol);
+    // Get asset info with correct ID and szDecimals from meta endpoint
+    const assetInfo = await getAssetInfo(symbol, testnet);
+    const { assetId, szDecimals } = assetInfo;
+
     const exchangeClient = createExchangeClient(privateKey, testnet);
 
-    // Place the order
-    const result = await exchangeClient.order({
+    // Format price and size according to Hyperliquid requirements
+    // - Price: ≤5 significant figures, ≤(6 - szDecimals) decimals for perps
+    // - Size: rounded to szDecimals
+    const formattedPrice = formatPrice(price.toString(), szDecimals, false);
+    const formattedSize = formatSize(size.toString(), szDecimals);
+
+    // Log all parameters before creating order
+    console.log(`[placeOrder] Input parameters:`, {
+      symbol,
+      assetId,
+      szDecimals,
+      isBuy,
+      rawSize: size,
+      rawPrice: price,
+      formattedSize,
+      formattedPrice,
+      testnet,
+      reduceOnly,
+    });
+
+    // Create order object
+    const orderRequest = {
       orders: [
         {
           a: assetId, // Asset ID
           b: isBuy, // true = buy/long, false = sell/short
-          p: price.toString(), // Limit price as string
-          s: size.toString(), // Size as string
+          p: formattedPrice, // Limit price (formatted string)
+          s: formattedSize, // Size (formatted string)
           r: reduceOnly, // Reduce-only flag
           t: {
             limit: {
@@ -121,7 +259,12 @@ export async function placeOrder(
         },
       ],
       grouping: "na", // Not using order grouping
-    });
+    };
+
+    console.log(`[placeOrder] Order request object:`, JSON.stringify(orderRequest, null, 2));
+
+    // Place the order
+    const result = await exchangeClient.order(orderRequest);
 
     // Extract order ID from response
     const status = result?.response?.data?.statuses?.[0];
@@ -143,6 +286,164 @@ export async function placeOrder(
   } catch (error) {
     console.error("Error placing order on Hyperliquid:", error);
     throw new Error(`Failed to place order: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Place a stop-loss order (trigger order that closes position when price hits stop level)
+ */
+export async function placeStopLoss(
+  privateKey: string,
+  symbol: string,
+  size: number,
+  triggerPrice: number,
+  isLongPosition: boolean,
+  testnet: boolean
+): Promise<{ success: boolean; txHash: string }> {
+  try {
+    // Get asset info
+    const assetInfo = await getAssetInfo(symbol, testnet);
+    const { assetId, szDecimals } = assetInfo;
+
+    const exchangeClient = createExchangeClient(privateKey, testnet);
+
+    // Format trigger price and size
+    const formattedTriggerPrice = formatPrice(triggerPrice.toString(), szDecimals, false);
+    const formattedSize = formatSize(size.toString(), szDecimals);
+
+    console.log(`[placeStopLoss] Placing stop-loss for ${symbol}:`, {
+      assetId,
+      size: formattedSize,
+      triggerPrice: formattedTriggerPrice,
+      isLongPosition,
+    });
+
+    // For LONG positions: sell when price drops (b=false)
+    // For SHORT positions: buy when price rises (b=true)
+    const orderRequest = {
+      orders: [
+        {
+          a: assetId,
+          b: !isLongPosition, // Opposite side to close position
+          s: formattedSize,
+          r: true, // Reduce-only (only close, don't open reverse position)
+          p: formattedTriggerPrice, // Limit price (same as trigger for market-like execution)
+          t: {
+            trigger: {
+              isMarket: true, // Execute at market when triggered (10% slippage)
+              tpsl: "sl", // Stop loss
+              triggerPx: formattedTriggerPrice,
+            },
+          },
+        },
+      ],
+      grouping: "na",
+    };
+
+    console.log(`[placeStopLoss] Order request:`, JSON.stringify(orderRequest, null, 2));
+
+    const result = await exchangeClient.order(orderRequest);
+
+    // Extract order ID
+    const status = result?.response?.data?.statuses?.[0];
+    let txHash = "pending";
+
+    if (status) {
+      if ("filled" in status) {
+        txHash = `sl_filled_${status.filled.oid}`;
+      } else if ("resting" in status) {
+        txHash = `sl_resting_${status.resting.oid}`;
+      }
+    }
+
+    console.log(`[placeStopLoss] Successfully placed stop-loss order: ${txHash}`);
+
+    return {
+      success: true,
+      txHash,
+    };
+  } catch (error) {
+    console.error(`[placeStopLoss] Error:`, error);
+    throw new Error(`Failed to place stop-loss: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Place a take-profit order (trigger order that closes position when price hits target)
+ */
+export async function placeTakeProfit(
+  privateKey: string,
+  symbol: string,
+  size: number,
+  triggerPrice: number,
+  isLongPosition: boolean,
+  testnet: boolean
+): Promise<{ success: boolean; txHash: string }> {
+  try {
+    // Get asset info
+    const assetInfo = await getAssetInfo(symbol, testnet);
+    const { assetId, szDecimals } = assetInfo;
+
+    const exchangeClient = createExchangeClient(privateKey, testnet);
+
+    // Format trigger price and size
+    const formattedTriggerPrice = formatPrice(triggerPrice.toString(), szDecimals, false);
+    const formattedSize = formatSize(size.toString(), szDecimals);
+
+    console.log(`[placeTakeProfit] Placing take-profit for ${symbol}:`, {
+      assetId,
+      size: formattedSize,
+      triggerPrice: formattedTriggerPrice,
+      isLongPosition,
+    });
+
+    // For LONG positions: sell when price rises (b=false)
+    // For SHORT positions: buy when price drops (b=true)
+    const orderRequest = {
+      orders: [
+        {
+          a: assetId,
+          b: !isLongPosition, // Opposite side to close position
+          s: formattedSize,
+          r: true, // Reduce-only
+          p: formattedTriggerPrice, // Limit price
+          t: {
+            trigger: {
+              isMarket: true, // Execute at market when triggered
+              tpsl: "tp", // Take profit
+              triggerPx: formattedTriggerPrice,
+            },
+          },
+        },
+      ],
+      grouping: "na",
+    };
+
+    console.log(`[placeTakeProfit] Order request:`, JSON.stringify(orderRequest, null, 2));
+
+    const result = await exchangeClient.order(orderRequest);
+
+    // Extract order ID
+    const status = result?.response?.data?.statuses?.[0];
+    let txHash = "pending";
+
+    if (status) {
+      if ("filled" in status) {
+        txHash = `tp_filled_${status.filled.oid}`;
+      } else if ("resting" in status) {
+        txHash = `tp_resting_${status.resting.oid}`;
+      }
+    }
+
+    console.log(`[placeTakeProfit] Successfully placed take-profit order: ${txHash}`);
+
+    return {
+      success: true,
+      txHash,
+    };
+  } catch (error) {
+    console.error(`[placeTakeProfit] Error:`, error);
+    throw new Error(`Failed to place take-profit: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

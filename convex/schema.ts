@@ -30,7 +30,7 @@ export default defineSchema({
     currentCapital: v.number(),
 
     // Trading settings
-    symbols: v.array(v.string()), // ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]
+    symbols: v.array(v.string()), // ["BTC", "ETH", "SOL", "BNB", "DOGE"]
     maxLeverage: v.number(),
     maxPositionSize: v.number(),
     stopLossEnabled: v.boolean(),

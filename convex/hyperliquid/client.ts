@@ -196,6 +196,14 @@ export const placeOrder = action({
         console.log(`Using market price for ${args.symbol}: ${orderPrice}`);
       }
 
+      // Set leverage before placing order
+      await sdk.setLeverage(
+        args.privateKey,
+        args.symbol,
+        args.leverage,
+        args.testnet
+      );
+
       // Place the order using the SDK
       const result = await sdk.placeOrder({
         privateKey: args.privateKey,
@@ -222,6 +230,84 @@ export const placeOrder = action({
     } catch (error) {
       console.error("Error placing order:", error);
       throw new Error(`Failed to place order: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+// Place stop-loss order
+export const placeStopLoss = action({
+  args: {
+    privateKey: v.string(),
+    symbol: v.string(),
+    size: v.number(),
+    triggerPrice: v.number(),
+    isLongPosition: v.boolean(),
+    testnet: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      const result = await sdk.placeStopLoss(
+        args.privateKey,
+        args.symbol,
+        args.size,
+        args.triggerPrice,
+        args.isLongPosition,
+        args.testnet
+      );
+
+      console.log("Stop-loss order placed successfully:", {
+        symbol: args.symbol,
+        size: args.size,
+        triggerPrice: args.triggerPrice,
+        txHash: result.txHash,
+      });
+
+      return {
+        success: result.success,
+        txHash: result.txHash,
+      };
+    } catch (error) {
+      console.error("Error placing stop-loss:", error);
+      throw new Error(`Failed to place stop-loss: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+// Place take-profit order
+export const placeTakeProfit = action({
+  args: {
+    privateKey: v.string(),
+    symbol: v.string(),
+    size: v.number(),
+    triggerPrice: v.number(),
+    isLongPosition: v.boolean(),
+    testnet: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      const result = await sdk.placeTakeProfit(
+        args.privateKey,
+        args.symbol,
+        args.size,
+        args.triggerPrice,
+        args.isLongPosition,
+        args.testnet
+      );
+
+      console.log("Take-profit order placed successfully:", {
+        symbol: args.symbol,
+        size: args.size,
+        triggerPrice: args.triggerPrice,
+        txHash: result.txHash,
+      });
+
+      return {
+        success: result.success,
+        txHash: result.txHash,
+      };
+    } catch (error) {
+      console.error("Error placing take-profit:", error);
+      throw new Error(`Failed to place take-profit: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });
@@ -265,6 +351,23 @@ export const closePosition = action({
     } catch (error) {
       console.error("Error closing position:", error);
       throw new Error(`Failed to close position: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+// Get user positions from Hyperliquid
+export const getUserPositions = action({
+  args: {
+    address: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      const positions = await sdk.getUserPositions(args.address, args.testnet);
+      return positions;
+    } catch (error) {
+      console.error("Error fetching user positions:", error);
+      throw new Error(`Failed to fetch user positions: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });

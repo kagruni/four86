@@ -9,6 +9,7 @@ export interface ZhipuAIInput {
   temperature?: number;
   maxTokens?: number;
   baseURL?: string; // Allow custom base URL
+  tools?: any[]; // Tool/function definitions
 }
 
 export class ZhipuAI extends BaseChatModel {
@@ -17,6 +18,7 @@ export class ZhipuAI extends BaseChatModel {
   temperature: number = 0.7;
   maxTokens: number = 2000;
   baseURL: string = "https://api.z.ai/api/paas/v4"; // Z.AI platform (OpenAI-compatible)
+  tools?: any[]; // Tool definitions for function calling
 
   constructor(fields: ZhipuAIInput) {
     super(fields);
@@ -25,6 +27,7 @@ export class ZhipuAI extends BaseChatModel {
     this.temperature = fields.temperature ?? this.temperature;
     this.maxTokens = fields.maxTokens ?? this.maxTokens;
     this.baseURL = fields.baseURL ?? this.baseURL;
+    this.tools = fields.tools;
   }
 
   _llmType(): string {
@@ -58,8 +61,23 @@ export class ZhipuAI extends BaseChatModel {
           model: this.model,
           temperature: this.temperature,
           max_tokens: this.maxTokens,
-          message_count: formattedMessages.length
+          message_count: formattedMessages.length,
+          tools_enabled: !!this.tools
         }));
+
+        // Prepare request body
+        const requestBody: any = {
+          model: this.model,
+          messages: formattedMessages,
+          temperature: this.temperature,
+          max_tokens: this.maxTokens,
+        };
+
+        // Add tools if provided (OpenAI-compatible function calling)
+        if (this.tools && this.tools.length > 0) {
+          requestBody.tools = this.tools;
+          requestBody.tool_choice = "auto"; // Let model decide when to use tools
+        }
 
         // Call ZhipuAI API
         const response = await fetch(apiEndpoint, {
@@ -68,12 +86,7 @@ export class ZhipuAI extends BaseChatModel {
             "Authorization": `Bearer ${this.apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            model: this.model,
-            messages: formattedMessages,
-            temperature: this.temperature,
-            max_tokens: this.maxTokens,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         console.log(`[ZhipuAI] Response status: ${response.status} ${response.statusText}`);
@@ -109,11 +122,42 @@ export class ZhipuAI extends BaseChatModel {
           throw new Error(`ZhipuAI API returned invalid response format: ${JSON.stringify(data)}`);
         }
 
-        const text = data.choices[0].message.content;
+        const message = data.choices[0].message;
+        const toolCalls = message.tool_calls;
 
         console.log(`[ZhipuAI] Success! Generated ${data.usage?.total_tokens || 0} tokens`);
+        console.log(`[ZhipuAI] Has tool_calls:`, !!toolCalls);
+
+        // Handle tool calls (function calling)
+        if (toolCalls && toolCalls.length > 0) {
+          console.log(`[ZhipuAI] Tool calls:`, JSON.stringify(toolCalls));
+
+          // Extract the first tool call (for trading decisions, we expect only one)
+          const toolCall = toolCalls[0];
+          const functionName = toolCall.function.name;
+          const functionArgs = JSON.parse(toolCall.function.arguments);
+
+          console.log(`[ZhipuAI] Function: ${functionName}`);
+          console.log(`[ZhipuAI] Arguments:`, JSON.stringify(functionArgs, null, 2));
+
+          // Return the function arguments as structured data
+          // Convert tool call to text format for compatibility with LangChain parsers
+          const text = JSON.stringify(functionArgs);
+
+          return {
+            generations: [
+              {
+                text,
+                message: new AIMessage(text),
+              },
+            ],
+          };
+        }
+
+        // Regular text response (no tool calls)
+        const text = message.content || "";
+
         console.log(`[ZhipuAI] Response preview:`, text.substring(0, 500));
-        console.log(`[ZhipuAI] Has tool_calls:`, !!data.choices[0].message.tool_calls);
 
         return {
           generations: [
