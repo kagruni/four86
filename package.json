@@ -8,7 +8,13 @@
     "start": "next start",
     "lint": "next lint",
     "convex:dev": "convex dev --env-file .env.local",
-    "convex:deploy": "convex deploy --env-file .env.local"
+    "convex:deploy": "convex deploy --env-file .env.local",
+    "docker:up": "docker-compose up",
+    "docker:up:d": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:build": "docker-compose up --build",
+    "docker:logs": "docker-compose logs -f",
+    "docker:clean": "docker-compose down -v"
   },
   "dependencies": {
     "@clerk/nextjs": "^5.7.1",

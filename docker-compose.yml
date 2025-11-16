@@ -1,0 +1,44 @@
+services:
+  # Next.js development server
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: four86-nextjs
+    ports:
+      - "3006:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    env_file:
+      - .env.local
+    environment:
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+    command: bun run dev
+    networks:
+      - four86-network
+    restart: unless-stopped
+
+  # Convex development server
+  convex:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: four86-convex
+    volumes:
+      - .:/app
+      - /app/node_modules
+    env_file:
+      - .env.local
+    environment:
+      - NODE_ENV=development
+    command: bun run convex:dev
+    networks:
+      - four86-network
+    restart: unless-stopped
+
+networks:
+  four86-network:
+    driver: bridge
