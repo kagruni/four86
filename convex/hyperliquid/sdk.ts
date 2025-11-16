@@ -32,6 +32,7 @@ interface PlaceOrderParams {
   price: number;
   testnet: boolean;
   reduceOnly?: boolean;
+  timeInForce?: "Gtc" | "Ioc" | "Alo"; // Good-Till-Cancel, Immediate-Or-Cancel, Add-Liquidity-Only
 }
 
 interface ClosePositionParams {
@@ -213,7 +214,7 @@ export async function setLeverage(
 export async function placeOrder(
   params: PlaceOrderParams
 ): Promise<{ success: boolean; txHash: string; price: number }> {
-  const { privateKey, symbol, isBuy, size, price, testnet, reduceOnly = false } = params;
+  const { privateKey, symbol, isBuy, size, price, testnet, reduceOnly = false, timeInForce = "Gtc" } = params;
 
   try {
     // Get asset info with correct ID and szDecimals from meta endpoint
@@ -240,6 +241,7 @@ export async function placeOrder(
       formattedPrice,
       testnet,
       reduceOnly,
+      timeInForce,
     });
 
     // Create order object
@@ -253,7 +255,7 @@ export async function placeOrder(
           r: reduceOnly, // Reduce-only flag
           t: {
             limit: {
-              tif: "Gtc", // Good-till-cancel
+              tif: timeInForce, // Time-in-force: Gtc (default), Ioc (immediate), Alo (add liquidity)
             },
           },
         },
@@ -464,6 +466,7 @@ export async function closePosition(
       price,
       testnet,
       reduceOnly: true, // Important: this ensures we only close, not open a reverse position
+      timeInForce: "Ioc", // Immediate-Or-Cancel: execute immediately at market or cancel
     });
 
     return {
@@ -514,5 +517,24 @@ export async function getUserPositions(
   } catch (error) {
     console.error("Error fetching user positions:", error);
     throw new Error(`Failed to fetch user positions: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get user's open orders (pending/resting orders)
+ */
+export async function getUserOpenOrders(
+  address: string,
+  testnet: boolean
+): Promise<any[]> {
+  try {
+    const infoClient = createInfoClient(testnet);
+    const openOrders = await infoClient.openOrders({ user: address });
+
+    console.log(`[getUserOpenOrders] Found ${openOrders.length} open orders for ${address}`);
+    return openOrders;
+  } catch (error) {
+    console.error("Error fetching user open orders:", error);
+    throw new Error(`Failed to fetch user open orders: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

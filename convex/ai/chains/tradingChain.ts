@@ -106,7 +106,7 @@ export function createDetailedTradingChain(
 
   // Select the appropriate model with tool calling enabled
   const model = modelType === "zhipuai"
-    ? new ZhipuAI({ apiKey, model: modelName, tools })
+    ? new ZhipuAI({ apiKey, model: modelName, tools, maxTokens: 8000 }) // Increased from 2000 to prevent truncation
     : new OpenRouterChat({ apiKey, model: modelName });
 
   // Create the chain with detailed prompts

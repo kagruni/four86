@@ -13,7 +13,7 @@ Your role is to analyze market conditions and make informed trading decisions fo
 - Never risk more than 2% of account on a single trade
 
 ## Trading Symbols
-You can trade: BTC, ETH, SOL, BNB, DOGE
+You can trade: BTC, ETH, SOL, BNB, DOGE, XRP
 
 ## Analysis Framework
 1. Evaluate technical indicators (RSI, MACD, EMA)
@@ -34,7 +34,7 @@ You must respond with valid JSON matching this structure exactly:
 {{
   "reasoning": "Detailed analysis...",
   "decision": "OPEN_LONG" | "OPEN_SHORT" | "CLOSE" | "HOLD",
-  "symbol": "BTC" | "ETH" | "SOL" | "BNB" | "DOGE",
+  "symbol": "BTC" | "ETH" | "SOL" | "BNB" | "DOGE" | "XRP",
   "confidence": 0.75,
   "leverage": 10,
   "size_usd": 1000,

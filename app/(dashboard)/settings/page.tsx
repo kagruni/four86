@@ -32,7 +32,7 @@ const AI_MODELS = [
   { value: "google/gemini-pro-1.5", label: "Gemini Pro 1.5" },
 ] as const;
 
-const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE"] as const;
+const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
 
 const botConfigSchema = z.object({
   modelName: z.string().min(1, "AI model is required"),
@@ -491,6 +491,9 @@ export default function SettingsPage() {
                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-gray-900"
                   >
                     {symbol}
+                    {symbol === "XRP" && (
+                      <span className="ml-2 text-xs text-gray-500">(Mainnet only)</span>
+                    )}
                   </Label>
                 </div>
               ))}

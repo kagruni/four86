@@ -162,10 +162,34 @@ export const getAccountState = action({
 
       const data = await response.json();
 
+      console.log("[getAccountState] Raw response:", JSON.stringify(data, null, 2));
+
+      // Extract account value - try multiple fields as the structure varies
+      let accountValue = 0;
+
+      // Try marginSummary.accountValue first
+      if (data.marginSummary?.accountValue) {
+        accountValue = parseFloat(data.marginSummary.accountValue);
+      }
+      // Fallback to crossMarginSummary.accountValue
+      else if (data.crossMarginSummary?.accountValue) {
+        accountValue = parseFloat(data.crossMarginSummary.accountValue);
+      }
+      // Last resort: use withdrawable balance
+      else if (data.withdrawable) {
+        accountValue = parseFloat(data.withdrawable);
+      }
+
+      const totalMarginUsed = data.marginSummary?.totalMarginUsed
+        ? parseFloat(data.marginSummary.totalMarginUsed)
+        : data.crossMarginSummary?.totalMarginUsed
+          ? parseFloat(data.crossMarginSummary.totalMarginUsed)
+          : 0;
+
       return {
-        accountValue: parseFloat(data.marginSummary.accountValue),
-        totalMarginUsed: parseFloat(data.marginSummary.totalMarginUsed),
-        withdrawable: parseFloat(data.withdrawable),
+        accountValue,
+        totalMarginUsed,
+        withdrawable: parseFloat(data.withdrawable || "0"),
         positions: data.assetPositions || [],
       };
     } catch (error) {
@@ -368,6 +392,23 @@ export const getUserPositions = action({
     } catch (error) {
       console.error("Error fetching user positions:", error);
       throw new Error(`Failed to fetch user positions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+// Get user open orders from Hyperliquid
+export const getUserOpenOrders = action({
+  args: {
+    address: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      const openOrders = await sdk.getUserOpenOrders(args.address, args.testnet);
+      return openOrders;
+    } catch (error) {
+      console.error("Error fetching user open orders:", error);
+      throw new Error(`Failed to fetch user open orders: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });

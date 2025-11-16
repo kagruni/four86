@@ -1,6 +1,6 @@
 import { query, internalQuery, action } from "./_generated/server";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 // Get user credentials (NEVER return private keys to frontend - use internal queries)
 export const getUserCredentials = query({
@@ -147,12 +147,16 @@ export const getLivePositions = action({
       return [];
     }
 
-    // Get bot config to determine testnet
-    const botConfig = await ctx.runQuery(api.queries.getBotConfig, {
+    // Get user credentials to fetch from Hyperliquid
+    const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
       userId: args.userId,
     });
 
-    const testnet = botConfig?.hyperliquidTestnet ?? true;
+    if (!credentials || !credentials.hyperliquidAddress) {
+      return positions; // Return database positions if no credentials
+    }
+
+    const testnet = credentials.hyperliquidTestnet ?? true;
 
     // Get unique symbols from positions
     const symbols = [...new Set(positions.map((p) => p.symbol))];
@@ -163,22 +167,54 @@ export const getLivePositions = action({
       testnet,
     });
 
+    // Fetch actual positions from Hyperliquid to get real leverage
+    let hyperliquidPositions = [];
+    try {
+      hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+        address: credentials.hyperliquidAddress,
+        testnet,
+      });
+    } catch (error) {
+      console.error("[getLivePositions] Error fetching Hyperliquid positions:", error);
+      // Continue without leverage update if fetch fails
+    }
+
+    // Create a map of Hyperliquid positions by symbol
+    const hlPositionMap = new Map();
+    if (hyperliquidPositions && Array.isArray(hyperliquidPositions)) {
+      hyperliquidPositions.forEach((hlPos: any) => {
+        const coin = hlPos.position?.coin || hlPos.coin;
+        if (coin) {
+          hlPositionMap.set(coin, hlPos.position || hlPos);
+        }
+      });
+    }
+
     // Update positions with live prices and calculate real-time P&L
     const livePositions = positions.map((position) => {
       const livePrice = marketData[position.symbol]?.price || position.currentPrice;
+      const hlPosition = hlPositionMap.get(position.symbol);
+
+      // Get actual leverage from Hyperliquid if available
+      const actualLeverage = hlPosition?.leverage?.value || position.leverage;
+
+      // Convert USD size to coin size
+      // position.size is stored as USD value, but P&L calculation needs coin amount
+      const coinSize = position.size / position.entryPrice;
 
       // Calculate real-time P&L
       let unrealizedPnl = 0;
       if (position.side === "LONG") {
-        unrealizedPnl = (livePrice - position.entryPrice) * position.size;
+        unrealizedPnl = (livePrice - position.entryPrice) * coinSize;
       } else {
-        unrealizedPnl = (position.entryPrice - livePrice) * position.size;
+        unrealizedPnl = (position.entryPrice - livePrice) * coinSize;
       }
 
-      const unrealizedPnlPct = (unrealizedPnl / (position.entryPrice * position.size)) * 100;
+      const unrealizedPnlPct = (unrealizedPnl / position.size) * 100;
 
       return {
         ...position,
+        leverage: actualLeverage, // Use actual leverage from Hyperliquid
         currentPrice: livePrice,
         unrealizedPnl,
         unrealizedPnlPct,

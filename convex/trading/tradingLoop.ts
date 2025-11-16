@@ -40,8 +40,13 @@ export const runTradingCycle = internalAction({
         }
 
         // 2. Fetch detailed multi-timeframe market data for all symbols
+        // Filter out XRP on testnet (not available)
+        const symbols = credentials.hyperliquidTestnet
+          ? bot.symbols.filter((s: string) => s !== "XRP")
+          : bot.symbols;
+
         const detailedMarketData = await ctx.runAction(api.hyperliquid.detailedMarketData.getDetailedMarketData, {
-          symbols: bot.symbols,
+          symbols,
           testnet: credentials.hyperliquidTestnet,
         });
 

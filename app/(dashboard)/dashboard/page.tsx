@@ -38,6 +38,7 @@ export default function DashboardPage() {
 
   // Fetch data from Convex
   const botConfig = useQuery(api.queries.getBotConfig, { userId });
+  const userCredentials = useQuery(api.queries.getUserCredentials, { userId });
   const recentTrades = useQuery(api.queries.getRecentTrades, {
     userId,
     limit: 10
@@ -52,40 +53,81 @@ export default function DashboardPage() {
   const [positions, setPositions] = useState<any[]>([]);
   const [isLoadingPositions, setIsLoadingPositions] = useState(false);
 
+  // Fetch open orders from Hyperliquid
+  const getUserOpenOrders = useAction(api.hyperliquid.client.getUserOpenOrders);
+  const [openOrders, setOpenOrders] = useState<any[]>([]);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+
+  // Fetch live account state from Hyperliquid
+  const getAccountState = useAction(api.hyperliquid.client.getAccountState);
+  const [accountState, setAccountState] = useState<any>(null);
+  const [isLoadingAccount, setIsLoadingAccount] = useState(false);
+
   // Mutation to toggle bot
   const toggleBot = useMutation(api.mutations.toggleBot);
   const [isToggling, setIsToggling] = useState(false);
   const { toast } = useToast();
 
-  // Fetch live positions on mount and every 10 seconds
-  useEffect(() => {
-    if (!userId) return;
+  // Extract stable values from userCredentials
+  const hyperliquidAddress = userCredentials?.hyperliquidAddress;
+  const hyperliquidTestnet = userCredentials?.hyperliquidTestnet ?? true;
 
-    const fetchLivePositions = async () => {
+  // Fetch live positions, open orders, and account state on mount and every 10 seconds
+  useEffect(() => {
+    if (!userId || !hyperliquidAddress) {
+      console.log("[Dashboard] Skipping data fetch:", { userId: !!userId, hyperliquidAddress: !!hyperliquidAddress });
+      return;
+    }
+
+    console.log("[Dashboard] Fetching live data for address:", hyperliquidAddress);
+
+    const fetchLiveData = async () => {
       setIsLoadingPositions(true);
+      setIsLoadingOrders(true);
+      setIsLoadingAccount(true);
       try {
-        const livePositions = await getLivePositions({ userId });
+        // Fetch positions, orders, and account state in parallel
+        const [livePositions, orders, account] = await Promise.all([
+          getLivePositions({ userId }),
+          getUserOpenOrders({
+            address: hyperliquidAddress,
+            testnet: hyperliquidTestnet,
+          }),
+          getAccountState({
+            address: hyperliquidAddress,
+            testnet: hyperliquidTestnet,
+          }),
+        ]);
+        console.log("[Dashboard] Fetched data:", {
+          positions: livePositions.length,
+          orders: orders.length,
+          accountValue: account.accountValue
+        });
         setPositions(livePositions);
+        setOpenOrders(orders);
+        setAccountState(account);
       } catch (error) {
-        console.error("Error fetching live positions:", error);
+        console.error("[Dashboard] Error fetching live data:", error);
       } finally {
         setIsLoadingPositions(false);
+        setIsLoadingOrders(false);
+        setIsLoadingAccount(false);
       }
     };
 
     // Initial fetch
-    fetchLivePositions();
+    fetchLiveData();
 
     // Auto-refresh every 10 seconds
-    const interval = setInterval(fetchLivePositions, 10000);
+    const interval = setInterval(fetchLiveData, 10000);
 
     return () => clearInterval(interval);
-  }, [userId, getLivePositions]);
+  }, [userId, hyperliquidAddress, hyperliquidTestnet, getLivePositions, getUserOpenOrders, getAccountState]);
 
-  // Calculate P&L
-  const currentCapital = botConfig?.currentCapital || 0;
+  // Calculate P&L using live account value from Hyperliquid
+  const liveAccountValue = accountState?.accountValue || 0;
   const startingCapital = botConfig?.startingCapital || 0;
-  const totalPnl = currentCapital - startingCapital;
+  const totalPnl = liveAccountValue - startingCapital;
   const totalPnlPct = startingCapital > 0
     ? ((totalPnl / startingCapital) * 100)
     : 0;
@@ -128,6 +170,35 @@ export default function DashboardPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
+  };
+
+  // Format crypto prices with appropriate decimal places
+  const formatPrice = (value: number) => {
+    if (value < 1) {
+      // For prices less than $1, show 4-5 decimal places
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 5,
+      }).format(value);
+    } else if (value < 100) {
+      // For prices $1-$100, show 3 decimal places
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 3,
+      }).format(value);
+    } else {
+      // For prices $100+, show 2 decimal places
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value);
+    }
   };
 
   const formatPercent = (value: number) => {
@@ -243,14 +314,23 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="border-black">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-black">
-              Current Capital
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-gray-500" />
+            <div>
+              <CardTitle className="text-sm font-medium text-black">
+                Current Capital
+              </CardTitle>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Live from Hyperliquid
+              </p>
+            </div>
+            {isLoadingAccount ? (
+              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+            ) : (
+              <DollarSign className="h-4 w-4 text-gray-500" />
+            )}
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-black">
-              {formatCurrency(currentCapital)}
+              {formatCurrency(liveAccountValue)}
             </div>
             <p className="text-xs text-gray-500 mt-1">
               Starting: {formatCurrency(startingCapital)}
@@ -260,10 +340,17 @@ export default function DashboardPage() {
 
         <Card className="border-black">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-black">
-              Total P&L
-            </CardTitle>
-            {totalPnl >= 0 ? (
+            <div>
+              <CardTitle className="text-sm font-medium text-black">
+                Total P&L
+              </CardTitle>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Live from Hyperliquid
+              </p>
+            </div>
+            {isLoadingAccount ? (
+              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+            ) : totalPnl >= 0 ? (
               <TrendingUp className="h-4 w-4 text-black" />
             ) : (
               <TrendingDown className="h-4 w-4 text-black" />
@@ -318,63 +405,215 @@ export default function DashboardPage() {
               No open positions
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="border-black hover:bg-gray-50">
-                  <TableHead className="text-black font-semibold">Symbol</TableHead>
-                  <TableHead className="text-black font-semibold">Side</TableHead>
-                  <TableHead className="text-black font-semibold">Size</TableHead>
-                  <TableHead className="text-black font-semibold">Entry Price</TableHead>
-                  <TableHead className="text-black font-semibold">Current Price</TableHead>
-                  <TableHead className="text-black font-semibold">P&L</TableHead>
-                  <TableHead className="text-black font-semibold">P&L %</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {positions.map((position) => (
-                  <TableRow
-                    key={position._id}
-                    className="border-gray-300 hover:bg-gray-50"
-                  >
-                    <TableCell className="font-medium text-black">
-                      {position.symbol}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={
-                          position.side === "LONG"
-                            ? "border-black text-black bg-white"
-                            : "border-gray-600 text-gray-600 bg-white"
-                        }
-                      >
-                        {position.side === "LONG" ? (
-                          <ArrowUpRight className="mr-1 h-3 w-3" />
-                        ) : (
-                          <ArrowDownRight className="mr-1 h-3 w-3" />
-                        )}
-                        {position.side}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-black">
-                      {position.size.toFixed(4)}
-                    </TableCell>
-                    <TableCell className="text-black">
-                      {formatCurrency(position.entryPrice)}
-                    </TableCell>
-                    <TableCell className="text-black">
-                      {formatCurrency(position.currentPrice)}
-                    </TableCell>
-                    <TableCell className={position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
-                      {formatCurrency(position.unrealizedPnl)}
-                    </TableCell>
-                    <TableCell className={position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
-                      {formatPercent(position.unrealizedPnlPct)}
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-black hover:bg-gray-50">
+                    <TableHead className="text-black font-semibold">Symbol</TableHead>
+                    <TableHead className="text-black font-semibold">Side</TableHead>
+                    <TableHead className="text-black font-semibold">Leverage</TableHead>
+                    <TableHead className="text-black font-semibold">Size (USD)</TableHead>
+                    <TableHead className="text-black font-semibold">Entry</TableHead>
+                    <TableHead className="text-black font-semibold">Current</TableHead>
+                    <TableHead className="text-black font-semibold">Stop Loss</TableHead>
+                    <TableHead className="text-black font-semibold">Take Profit</TableHead>
+                    <TableHead className="text-black font-semibold">Liq. Price</TableHead>
+                    <TableHead className="text-black font-semibold">P&L</TableHead>
+                    <TableHead className="text-black font-semibold">P&L %</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {positions.map((position) => (
+                    <TableRow
+                      key={position._id}
+                      className="border-gray-300 hover:bg-gray-50"
+                    >
+                      <TableCell className="font-medium text-black">
+                        {position.symbol}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            position.side === "LONG"
+                              ? "border-black text-black bg-white"
+                              : "border-gray-600 text-gray-600 bg-white"
+                          }
+                        >
+                          {position.side === "LONG" ? (
+                            <ArrowUpRight className="mr-1 h-3 w-3" />
+                          ) : (
+                            <ArrowDownRight className="mr-1 h-3 w-3" />
+                          )}
+                          {position.side}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-black font-medium">
+                        {position.leverage}x
+                      </TableCell>
+                      <TableCell className="text-black">
+                        {formatCurrency(position.size)}
+                      </TableCell>
+                      <TableCell className="text-black">
+                        {formatPrice(position.entryPrice)}
+                      </TableCell>
+                      <TableCell className="text-black">
+                        {formatPrice(position.currentPrice)}
+                      </TableCell>
+                      <TableCell className="text-red-600 font-medium text-xs">
+                        {position.stopLoss ? formatPrice(position.stopLoss) : '-'}
+                      </TableCell>
+                      <TableCell className="text-green-600 font-medium text-xs">
+                        {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
+                      </TableCell>
+                      <TableCell className="text-gray-500 text-xs">
+                        {position.liquidationPrice ? formatPrice(position.liquidationPrice) : '-'}
+                      </TableCell>
+                      <TableCell className={position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
+                        {formatCurrency(position.unrealizedPnl)}
+                      </TableCell>
+                      <TableCell className={position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
+                        {formatPercent(position.unrealizedPnlPct)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Open Orders Table */}
+      <Card className="border-black">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-black">Open Orders</CardTitle>
+              <p className="text-xs text-gray-500 mt-1">
+                Pending orders on Hyperliquid • Auto-refreshes every 10s
+              </p>
+            </div>
+            {isLoadingOrders && (
+              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!openOrders || openOrders.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-500">
+              No open orders
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-black hover:bg-gray-50">
+                    <TableHead className="text-black font-semibold">Symbol</TableHead>
+                    <TableHead className="text-black font-semibold">Side</TableHead>
+                    <TableHead className="text-black font-semibold">Type</TableHead>
+                    <TableHead className="text-black font-semibold">Size</TableHead>
+                    <TableHead className="text-black font-semibold">Limit Price</TableHead>
+                    <TableHead className="text-black font-semibold">Trigger Price</TableHead>
+                    <TableHead className="text-black font-semibold">Status</TableHead>
+                    <TableHead className="text-black font-semibold">Order ID</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {openOrders.map((order: any, index: number) => {
+                    // Parse order data from Hyperliquid response
+                    const isBuy = order.order?.side === "B" || order.side === "B";
+                    const sz = order.order?.sz || order.sz;
+                    const coin = order.coin;
+                    const oid = order.oid;
+
+                    // Determine if this is a trigger order (TP/SL)
+                    const isTrigger = order.order?.trigger || order.trigger;
+                    const limitPx = order.order?.limitPx || order.limitPx;
+                    const triggerPx = order.order?.triggerPx || order.triggerPx;
+                    const tpsl = isTrigger ? (order.order?.trigger?.tpsl || order.trigger?.tpsl) : null;
+
+                    // Determine order type
+                    let orderType = "Limit";
+                    let triggerCondition = null;
+
+                    if (isTrigger) {
+                      if (tpsl === "sl") {
+                        orderType = "Stop Market";
+                        triggerCondition = isBuy ? "Price above" : "Price above";
+                      } else if (tpsl === "tp") {
+                        orderType = "Take Profit Market";
+                        triggerCondition = isBuy ? "Price below" : "Price below";
+                      } else {
+                        orderType = "Trigger Market";
+                      }
+                    }
+
+                    return (
+                      <TableRow
+                        key={oid || index}
+                        className="border-gray-300 hover:bg-gray-50"
+                      >
+                        <TableCell className="font-medium text-black">
+                          {coin || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              isBuy
+                                ? "border-black text-black bg-white"
+                                : "border-gray-600 text-gray-600 bg-white"
+                            }
+                          >
+                            {isBuy ? (
+                              <ArrowUpRight className="mr-1 h-3 w-3" />
+                            ) : (
+                              <ArrowDownRight className="mr-1 h-3 w-3" />
+                            )}
+                            {isBuy ? "BUY" : "SELL"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-black text-xs">
+                          {orderType}
+                        </TableCell>
+                        <TableCell className="text-black">
+                          {sz || "-"}
+                        </TableCell>
+                        <TableCell className="text-black">
+                          {limitPx ? formatPrice(parseFloat(limitPx)) : "-"}
+                        </TableCell>
+                        <TableCell className="text-black text-xs">
+                          {triggerPx ? (
+                            <div>
+                              {triggerCondition && <div className="text-gray-500">{triggerCondition}</div>}
+                              <div>{formatPrice(parseFloat(triggerPx))}</div>
+                            </div>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              tpsl === "tp"
+                                ? "border-green-600 text-green-600 bg-white text-xs"
+                                : tpsl === "sl"
+                                ? "border-red-600 text-red-600 bg-white text-xs"
+                                : "border-gray-400 text-gray-600 bg-white text-xs"
+                            }
+                          >
+                            {tpsl === "tp" ? "TP" : tpsl === "sl" ? "SL" : "Resting"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-gray-500 text-xs font-mono">
+                          {oid ? oid.toString().substring(0, 10) + "..." : "-"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
