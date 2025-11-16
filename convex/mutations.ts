@@ -1,7 +1,60 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-// Create or update bot configuration
+// Save or update user credentials
+export const saveUserCredentials = mutation({
+  args: {
+    userId: v.string(),
+    zhipuaiApiKey: v.optional(v.string()),
+    openrouterApiKey: v.optional(v.string()),
+    hyperliquidPrivateKey: v.optional(v.string()),
+    hyperliquidAddress: v.optional(v.string()),
+    hyperliquidTestnet: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("userCredentials")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    const now = Date.now();
+
+    if (existing) {
+      // Update existing credentials
+      await ctx.db.patch(existing._id, {
+        ...args,
+        updatedAt: now,
+      });
+      return existing._id;
+    } else {
+      // Create new credentials
+      return await ctx.db.insert("userCredentials", {
+        ...args,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  },
+});
+
+// Delete user credentials
+export const deleteUserCredentials = mutation({
+  args: {
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const credentials = await ctx.db
+      .query("userCredentials")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (credentials) {
+      await ctx.db.delete(credentials._id);
+    }
+  },
+});
+
+// Create or update bot configuration (without credentials)
 export const upsertBotConfig = mutation({
   args: {
     userId: v.string(),
@@ -14,8 +67,6 @@ export const upsertBotConfig = mutation({
     stopLossEnabled: v.boolean(),
     maxDailyLoss: v.number(),
     minAccountValue: v.number(),
-    hyperliquidPrivateKey: v.string(),
-    hyperliquidAddress: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -127,6 +178,16 @@ export const savePosition = mutation({
     stopLoss: v.optional(v.number()),
     takeProfit: v.optional(v.number()),
     liquidationPrice: v.number(),
+
+    // Exit plan and invalidation
+    invalidationCondition: v.optional(v.string()),
+    entryReasoning: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+
+    // Order tracking
+    entryOrderId: v.optional(v.string()),
+    takeProfitOrderId: v.optional(v.string()),
+    stopLossOrderId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db

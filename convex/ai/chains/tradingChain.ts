@@ -1,8 +1,10 @@
 import { RunnableSequence } from "@langchain/core/runnables";
 import { tradingPrompt } from "../prompts/system";
+import { detailedTradingPrompt, formatCoinMarketData, formatPositionsDetailed } from "../prompts/detailedSystem";
 import { tradeDecisionParser } from "../parsers/tradeDecision";
 import { ZhipuAI } from "../models/zhipuai";
 import { OpenRouterChat } from "../models/openrouter";
+import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
 
 export function createTradingChain(
   modelType: "zhipuai" | "openrouter",
@@ -15,7 +17,7 @@ export function createTradingChain(
 ) {
   // Select the appropriate model
   const model = modelType === "zhipuai"
-    ? new ZhipuAI({ apiKey, model: "glm-4-plus" })
+    ? new ZhipuAI({ apiKey, model: modelName })
     : new OpenRouterChat({ apiKey, model: modelName });
 
   // Create the chain
@@ -84,4 +86,100 @@ function getRSISignal(rsi: number): string {
   if (rsi < 30) return "(OVERSOLD)";
   if (rsi > 70) return "(OVERBOUGHT)";
   return "(NEUTRAL)";
+}
+
+/**
+ * Create detailed trading chain with multi-timeframe analysis
+ */
+export function createDetailedTradingChain(
+  modelType: "zhipuai" | "openrouter",
+  modelName: string,
+  apiKey: string,
+  config: {
+    maxLeverage: number;
+    maxPositionSize: number;
+  }
+) {
+  // Select the appropriate model
+  const model = modelType === "zhipuai"
+    ? new ZhipuAI({ apiKey, model: modelName })
+    : new OpenRouterChat({ apiKey, model: modelName });
+
+  // Create the chain with detailed prompts
+  const chain = RunnableSequence.from([
+    {
+      // Format all coins market data
+      allCoinsMarketData: (input: any) => formatAllCoinsMarketData(input.detailedMarketData),
+
+      // Format positions with detailed exit plans
+      currentPositionsDetailed: (input: any) => formatPositionsDetailed(input.positions || []),
+
+      // Account information
+      accountValue: (input: any) => input.accountState.accountValue.toFixed(2),
+      availableCash: (input: any) => input.accountState.withdrawable.toFixed(2),
+      marginUsed: (input: any) => input.accountState.totalMarginUsed.toFixed(2),
+
+      // Performance metrics
+      totalReturnPct: (input: any) => calculateTotalReturnPct(input),
+      positionCount: (input: any) => (input.positions || []).length,
+
+      // Session info
+      timestamp: () => new Date().toISOString(),
+      invocationCount: (input: any) => input.invocationCount || 0,
+
+      // Config
+      maxLeverage: () => config.maxLeverage,
+      maxPositionSize: () => config.maxPositionSize,
+    },
+    detailedTradingPrompt,
+    model,
+    tradeDecisionParser,
+  ]);
+
+  return chain;
+}
+
+/**
+ * Format all coins market data using the detailed format
+ */
+function formatAllCoinsMarketData(marketData: Record<string, DetailedCoinData>): string {
+  let formatted = "";
+
+  for (const [symbol, data] of Object.entries(marketData)) {
+    formatted += formatCoinMarketData(symbol, data);
+  }
+
+  return formatted || "No market data available.";
+}
+
+/**
+ * Calculate total return percentage
+ * If initial account value is available, calculate return
+ * Otherwise return 0 or estimate from current positions
+ */
+function calculateTotalReturnPct(input: any): string {
+  // If we have initial account value in accountState
+  if (input.accountState.initialAccountValue && input.accountState.initialAccountValue > 0) {
+    const initial = input.accountState.initialAccountValue;
+    const current = input.accountState.accountValue;
+    const returnPct = ((current - initial) / initial) * 100;
+    return returnPct.toFixed(2);
+  }
+
+  // If we have positions with unrealized P&L
+  if (input.positions && input.positions.length > 0) {
+    const totalUnrealizedPnl = input.positions.reduce((sum: number, pos: any) => {
+      return sum + (pos.unrealizedPnl || 0);
+    }, 0);
+    const accountValue = input.accountState.accountValue;
+    const estimatedInitial = accountValue - totalUnrealizedPnl;
+
+    if (estimatedInitial > 0) {
+      const returnPct = (totalUnrealizedPnl / estimatedInitial) * 100;
+      return returnPct.toFixed(2);
+    }
+  }
+
+  // Default: no return data available
+  return "0.00";
 }

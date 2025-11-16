@@ -116,7 +116,7 @@ const decision: TradeDecision = await tradingChain.invoke(input);
 - Automatic validation
 
 ### Automated Trading
-- Runs every 3 minutes via Convex crons
+- Runs every 2 minutes via Convex crons
 - LangChain agent analyzes market data
 - Executes trades based on AI decisions
 - Risk management built-in

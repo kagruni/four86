@@ -1,8 +1,14 @@
+"use node";
+
 import { action } from "../_generated/server";
 import { v } from "convex/values";
-
-// Note: The hyperliquid package doesn't work well in Convex edge runtime
-// So we'll use fetch API directly
+import * as sdk from "./sdk";
+import { fetchCandlesInternal, extractClosePrices } from "./candles";
+import {
+  calculateRSI,
+  calculateMACD,
+  calculatePriceChange,
+} from "../indicators/technicalIndicators";
 
 interface MarketData {
   symbol: string;
@@ -23,7 +29,7 @@ export const getMarketData = action({
     symbols: v.array(v.string()),
     testnet: v.boolean(),
   },
-  handler: async (ctx, args) => {
+  handler: async (_ctx, args) => {
     const baseUrl = args.testnet
       ? "https://api.hyperliquid-testnet.xyz"
       : "https://api.hyperliquid.xyz";
@@ -42,29 +48,87 @@ export const getMarketData = action({
 
       const prices = await priceResponse.json();
 
-      // Get meta info for each symbol
+      // Fetch candle data and calculate indicators for each symbol
       for (const symbol of args.symbols) {
         const price = parseFloat(prices[symbol] || "0");
 
-        // Calculate mock indicators (in production, you'd fetch real data)
-        // For now, we'll use simple calculations
-        const rsi = 50 + (Math.random() * 40 - 20); // Mock RSI between 30-70
-        const macd = Math.random() * 200 - 100;
-        const macd_signal = macd * 0.9;
-        const price_change_short = Math.random() * 6 - 3; // -3% to +3%
-        const price_change_medium = Math.random() * 20 - 10; // -10% to +10%
+        try {
+          // Fetch 1-hour candles (need at least 50 for all indicators)
+          const candles = await fetchCandlesInternal(
+            symbol,
+            "1h",
+            100, // Fetch extra for better accuracy
+            args.testnet
+          );
 
-        marketData[symbol] = {
-          symbol,
-          price,
-          indicators: {
-            rsi,
-            macd,
-            macd_signal,
-            price_change_short,
-            price_change_medium,
-          },
-        };
+          // Extract closing prices for indicator calculations
+          const closePrices = extractClosePrices(candles);
+
+          // Calculate real technical indicators
+          let rsi = -1;
+          let macd = -1;
+          let macd_signal = -1;
+          let price_change_short = 0;
+          let price_change_medium = 0;
+
+          if (closePrices.length >= 15) {
+            // Calculate RSI (14-period)
+            rsi = calculateRSI(closePrices, 14);
+          }
+
+          if (closePrices.length >= 35) {
+            // Calculate MACD (12, 26, 9)
+            const macdData = calculateMACD(closePrices);
+            macd = macdData.macd;
+            macd_signal = macdData.signal;
+          }
+
+          if (closePrices.length >= 5) {
+            // Short-term price change (last 4 periods = 4 hours)
+            price_change_short = calculatePriceChange(closePrices, 4);
+          }
+
+          if (closePrices.length >= 25) {
+            // Medium-term price change (last 24 periods = 24 hours/1 day)
+            price_change_medium = calculatePriceChange(closePrices, 24);
+          }
+
+          marketData[symbol] = {
+            symbol,
+            price,
+            indicators: {
+              rsi,
+              macd,
+              macd_signal,
+              price_change_short,
+              price_change_medium,
+            },
+          };
+
+          console.log(`Calculated indicators for ${symbol}:`, {
+            rsi: rsi === -1 ? "insufficient data" : rsi.toFixed(2),
+            macd: macd === -1 ? "insufficient data" : macd.toFixed(2),
+            macd_signal: macd_signal === -1 ? "insufficient data" : macd_signal.toFixed(2),
+            price_change_short: price_change_short.toFixed(2) + "%",
+            price_change_medium: price_change_medium.toFixed(2) + "%",
+            candles: closePrices.length,
+          });
+        } catch (error) {
+          console.error(`Error calculating indicators for ${symbol}:`, error);
+
+          // Fallback to default values if indicator calculation fails
+          marketData[symbol] = {
+            symbol,
+            price,
+            indicators: {
+              rsi: -1,
+              macd: -1,
+              macd_signal: -1,
+              price_change_short: 0,
+              price_change_medium: 0,
+            },
+          };
+        }
       }
 
       return marketData;
@@ -124,33 +188,40 @@ export const placeOrder = action({
     testnet: v.boolean(),
   },
   handler: async (ctx, args) => {
-    // Note: This is a placeholder. In production, you need to:
-    // 1. Sign the order with the private key
-    // 2. Send it to Hyperliquid's exchange endpoint
-    // The hyperliquid SDK handles this, but it may not work in Convex edge runtime
-
-    const baseUrl = args.testnet
-      ? "https://api.hyperliquid-testnet.xyz"
-      : "https://api.hyperliquid.xyz";
-
     try {
-      // For now, return a mock response
-      // TODO: Implement proper order signing and submission
-      console.log("Order placed (mock):", {
+      // Get current market price if not provided
+      let orderPrice = args.price;
+      if (!orderPrice) {
+        orderPrice = await sdk.getMarketPrice(args.symbol, args.testnet);
+        console.log(`Using market price for ${args.symbol}: ${orderPrice}`);
+      }
+
+      // Place the order using the SDK
+      const result = await sdk.placeOrder({
+        privateKey: args.privateKey,
         symbol: args.symbol,
         isBuy: args.isBuy,
         size: args.size,
-        leverage: args.leverage,
+        price: orderPrice,
+        testnet: args.testnet,
+      });
+
+      console.log("Order placed successfully:", {
+        symbol: args.symbol,
+        isBuy: args.isBuy,
+        size: args.size,
+        price: orderPrice,
+        txHash: result.txHash,
       });
 
       return {
-        success: true,
-        price: args.price || 0,
-        txHash: "mock_tx_hash",
+        success: result.success,
+        price: orderPrice,
+        txHash: result.txHash,
       };
     } catch (error) {
       console.error("Error placing order:", error);
-      throw new Error(`Failed to place order: ${error}`);
+      throw new Error(`Failed to place order: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });
@@ -161,16 +232,39 @@ export const closePosition = action({
     privateKey: v.string(),
     address: v.string(),
     symbol: v.string(),
+    size: v.number(),
+    isBuy: v.boolean(), // Opposite of the current position side
     testnet: v.boolean(),
   },
   handler: async (ctx, args) => {
-    // Similar to placeOrder, this needs proper implementation
-    // For now, returning mock response
-    console.log("Position closed (mock):", args.symbol);
+    try {
+      // Get current market price for closing
+      const closePrice = await sdk.getMarketPrice(args.symbol, args.testnet);
 
-    return {
-      success: true,
-      txHash: "mock_close_tx_hash",
-    };
+      // Close the position using the SDK
+      const result = await sdk.closePosition({
+        privateKey: args.privateKey,
+        symbol: args.symbol,
+        size: args.size,
+        price: closePrice,
+        isBuy: args.isBuy, // Opposite side to close
+        testnet: args.testnet,
+      });
+
+      console.log("Position closed successfully:", {
+        symbol: args.symbol,
+        size: args.size,
+        price: closePrice,
+        txHash: result.txHash,
+      });
+
+      return {
+        success: result.success,
+        txHash: result.txHash,
+      };
+    } catch (error) {
+      console.error("Error closing position:", error);
+      throw new Error(`Failed to close position: ${error instanceof Error ? error.message : String(error)}`);
+    }
   },
 });

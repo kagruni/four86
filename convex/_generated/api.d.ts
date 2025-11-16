@@ -14,11 +14,18 @@ import type * as ai_models_openrouter from "../ai/models/openrouter.js";
 import type * as ai_models_zhipuai from "../ai/models/zhipuai.js";
 import type * as ai_parsers_schemas from "../ai/parsers/schemas.js";
 import type * as ai_parsers_tradeDecision from "../ai/parsers/tradeDecision.js";
+import type * as ai_prompts_detailedSystem from "../ai/prompts/detailedSystem.js";
 import type * as ai_prompts_system from "../ai/prompts/system.js";
 import type * as crons from "../crons.js";
+import type * as hyperliquid_candles from "../hyperliquid/candles.js";
 import type * as hyperliquid_client from "../hyperliquid/client.js";
+import type * as hyperliquid_detailedMarketData from "../hyperliquid/detailedMarketData.js";
+import type * as hyperliquid_sdk from "../hyperliquid/sdk.js";
+import type * as indicators_technicalIndicators from "../indicators/technicalIndicators.js";
 import type * as mutations from "../mutations.js";
 import type * as queries from "../queries.js";
+import type * as testing_manualTrigger from "../testing/manualTrigger.js";
+import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
 import type * as trading_tradingLoop from "../trading/tradingLoop.js";
 
 import type {
@@ -42,11 +49,18 @@ declare const fullApi: ApiFromModules<{
   "ai/models/zhipuai": typeof ai_models_zhipuai;
   "ai/parsers/schemas": typeof ai_parsers_schemas;
   "ai/parsers/tradeDecision": typeof ai_parsers_tradeDecision;
+  "ai/prompts/detailedSystem": typeof ai_prompts_detailedSystem;
   "ai/prompts/system": typeof ai_prompts_system;
   crons: typeof crons;
+  "hyperliquid/candles": typeof hyperliquid_candles;
   "hyperliquid/client": typeof hyperliquid_client;
+  "hyperliquid/detailedMarketData": typeof hyperliquid_detailedMarketData;
+  "hyperliquid/sdk": typeof hyperliquid_sdk;
+  "indicators/technicalIndicators": typeof indicators_technicalIndicators;
   mutations: typeof mutations;
   queries: typeof queries;
+  "testing/manualTrigger": typeof testing_manualTrigger;
+  "trading/performanceMetrics": typeof trading_performanceMetrics;
   "trading/tradingLoop": typeof trading_tradingLoop;
 }>;
 declare const fullApiWithMounts: typeof fullApi;

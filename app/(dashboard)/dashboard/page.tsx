@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useQuery } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,12 @@ import {
   PauseCircle,
   ArrowUpRight,
   ArrowDownRight,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { useMutation } from "convex/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -35,7 +38,6 @@ export default function DashboardPage() {
 
   // Fetch data from Convex
   const botConfig = useQuery(api.queries.getBotConfig, { userId });
-  const positions = useQuery(api.queries.getPositions, { userId });
   const recentTrades = useQuery(api.queries.getRecentTrades, {
     userId,
     limit: 10
@@ -44,6 +46,41 @@ export default function DashboardPage() {
     userId,
     limit: 5
   });
+
+  // Fetch LIVE positions with real-time prices
+  const getLivePositions = useAction(api.queries.getLivePositions);
+  const [positions, setPositions] = useState<any[]>([]);
+  const [isLoadingPositions, setIsLoadingPositions] = useState(false);
+
+  // Mutation to toggle bot
+  const toggleBot = useMutation(api.mutations.toggleBot);
+  const [isToggling, setIsToggling] = useState(false);
+  const { toast } = useToast();
+
+  // Fetch live positions on mount and every 10 seconds
+  useEffect(() => {
+    if (!userId) return;
+
+    const fetchLivePositions = async () => {
+      setIsLoadingPositions(true);
+      try {
+        const livePositions = await getLivePositions({ userId });
+        setPositions(livePositions);
+      } catch (error) {
+        console.error("Error fetching live positions:", error);
+      } finally {
+        setIsLoadingPositions(false);
+      }
+    };
+
+    // Initial fetch
+    fetchLivePositions();
+
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(fetchLivePositions, 10000);
+
+    return () => clearInterval(interval);
+  }, [userId, getLivePositions]);
 
   // Calculate P&L
   const currentCapital = botConfig?.currentCapital || 0;
@@ -55,6 +92,34 @@ export default function DashboardPage() {
 
   const isLoading = botConfig === undefined;
   const isBotActive = botConfig?.isActive || false;
+
+  const handleToggleBot = async () => {
+    if (!userId) return;
+
+    setIsToggling(true);
+    try {
+      await toggleBot({
+        userId,
+        isActive: !isBotActive,
+      });
+
+      toast({
+        title: isBotActive ? "Bot Stopped" : "Bot Started",
+        description: isBotActive
+          ? "Your trading bot has been deactivated."
+          : "Your trading bot is now active and will execute trades every 3 minutes.",
+      });
+    } catch (error) {
+      console.error("Error toggling bot:", error);
+      toast({
+        title: "Error",
+        description: "Failed to toggle bot. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsToggling(false);
+    }
+  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -76,6 +141,28 @@ export default function DashboardPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const handleRefreshPositions = async () => {
+    if (!userId) return;
+    setIsLoadingPositions(true);
+    try {
+      const livePositions = await getLivePositions({ userId });
+      setPositions(livePositions);
+      toast({
+        title: "Refreshed",
+        description: "Live positions updated from Hyperliquid",
+      });
+    } catch (error) {
+      console.error("Error refreshing positions:", error);
+      toast({
+        title: "Error",
+        description: "Failed to refresh live positions",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPositions(false);
+    }
   };
 
   if (isLoading) {
@@ -111,14 +198,33 @@ export default function DashboardPage() {
             {isBotActive ? "ACTIVE" : "INACTIVE"}
           </Badge>
           <Button
+            variant="outline"
+            className="border-black text-black hover:bg-black hover:text-white"
+            onClick={handleRefreshPositions}
+            disabled={isLoadingPositions}
+          >
+            {isLoadingPositions ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
             variant={isBotActive ? "outline" : "default"}
             className={
               isBotActive
                 ? "border-black text-black hover:bg-black hover:text-white"
                 : "bg-black text-white hover:bg-gray-800"
             }
+            onClick={handleToggleBot}
+            disabled={isToggling}
           >
-            {isBotActive ? (
+            {isToggling ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {isBotActive ? "Stopping..." : "Starting..."}
+              </>
+            ) : isBotActive ? (
               <>
                 <PauseCircle className="mr-2 h-4 w-4" />
                 Stop Bot
@@ -194,7 +300,17 @@ export default function DashboardPage() {
       {/* Positions Table */}
       <Card className="border-black">
         <CardHeader>
-          <CardTitle className="text-black">Open Positions</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-black">Open Positions</CardTitle>
+              <p className="text-xs text-gray-500 mt-1">
+                Live prices from Hyperliquid • Auto-refreshes every 10s
+              </p>
+            </div>
+            {isLoadingPositions && (
+              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {!positions || positions.length === 0 ? (

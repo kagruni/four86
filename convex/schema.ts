@@ -2,6 +2,25 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // User credentials (API keys and secrets)
+  userCredentials: defineTable({
+    userId: v.string(), // Clerk user ID
+
+    // ZhipuAI credentials
+    zhipuaiApiKey: v.optional(v.string()),
+
+    // OpenRouter credentials
+    openrouterApiKey: v.optional(v.string()),
+
+    // Hyperliquid credentials
+    hyperliquidPrivateKey: v.optional(v.string()),
+    hyperliquidAddress: v.optional(v.string()),
+    hyperliquidTestnet: v.boolean(), // true for testnet, false for mainnet
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
+
   // Bot configuration and status
   botConfig: defineTable({
     userId: v.string(), // Clerk user ID
@@ -19,10 +38,6 @@ export default defineSchema({
     // Risk management
     maxDailyLoss: v.number(),
     minAccountValue: v.number(),
-
-    // API keys (encrypted)
-    hyperliquidPrivateKey: v.string(),
-    hyperliquidAddress: v.string(),
 
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -42,6 +57,16 @@ export default defineSchema({
     stopLoss: v.optional(v.number()),
     takeProfit: v.optional(v.number()),
     liquidationPrice: v.number(),
+
+    // Exit plan and invalidation
+    invalidationCondition: v.optional(v.string()), // Description of when position should be closed
+    entryReasoning: v.optional(v.string()), // Why this position was entered
+    confidence: v.optional(v.number()), // AI confidence level (0-1)
+
+    // Order tracking
+    entryOrderId: v.optional(v.string()), // Hyperliquid entry order ID
+    takeProfitOrderId: v.optional(v.string()), // TP order ID
+    stopLossOrderId: v.optional(v.string()), // SL order ID
 
     openedAt: v.number(),
     lastUpdated: v.number(),

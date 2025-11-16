@@ -1,0 +1,8 @@
+{
+  "node": {
+    "externalPackages": [
+      "@nktkas/hyperliquid",
+      "viem"
+    ]
+  }
+}
