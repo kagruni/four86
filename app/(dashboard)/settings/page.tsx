@@ -45,7 +45,7 @@ const botConfigSchema = z.object({
   isActive: z.boolean(),
 
   // Tier 1: Essential Risk Controls
-  perTradeRiskPct: z.number().min(0.5).max(5),
+  perTradeRiskPct: z.number().min(0.5).max(10),
   maxTotalPositions: z.number().min(1).max(5),
   maxSameDirectionPositions: z.number().min(1).max(3),
   consecutiveLossLimit: z.number().min(2).max(5),
@@ -138,7 +138,7 @@ export default function SettingsPage() {
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isSavingCredentials, setIsSavingCredentials] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [riskWarnings, setRiskWarnings] = useState<string[]>([]);
 
   // Load existing bot config
   useEffect(() => {
@@ -188,26 +188,26 @@ export default function SettingsPage() {
     }
   }, [userCredentials]);
 
-  // Real-time validation - check constraints whenever values change
+  // Real-time risk warnings - informational only, doesn't block saving
   useEffect(() => {
     const warnings: string[] = [];
 
-    // Constraint 1: Per-trade risk × max positions ≤ daily loss limit
+    // Warning 1: High combined risk exposure (informational)
     const maxPossibleRisk = botConfigData.perTradeRiskPct * botConfigData.maxTotalPositions;
     if (maxPossibleRisk > botConfigData.maxDailyLoss) {
       warnings.push(
-        `Risk too high: ${botConfigData.perTradeRiskPct}% per trade × ${botConfigData.maxTotalPositions} positions = ${maxPossibleRisk.toFixed(1)}% total risk exceeds ${botConfigData.maxDailyLoss}% daily loss limit. Reduce per-trade risk or max positions.`
+        `⚠️ High risk exposure: ${botConfigData.perTradeRiskPct}% per trade × ${botConfigData.maxTotalPositions} positions = ${maxPossibleRisk.toFixed(1)}% total exposure exceeds ${botConfigData.maxDailyLoss}% daily loss limit. This may trigger early stop-out.`
       );
     }
 
-    // Constraint 2: Max same-direction positions ≤ max total positions
+    // Warning 2: Same-direction exceeds total (logical inconsistency)
     if (botConfigData.maxSameDirectionPositions > botConfigData.maxTotalPositions) {
       warnings.push(
-        `Invalid setting: Max same-direction positions (${botConfigData.maxSameDirectionPositions}) cannot exceed max total positions (${botConfigData.maxTotalPositions}).`
+        `⚠️ Logical inconsistency: Max same-direction positions (${botConfigData.maxSameDirectionPositions}) exceeds max total positions (${botConfigData.maxTotalPositions}). The lower limit will apply.`
       );
     }
 
-    setValidationWarnings(warnings);
+    setRiskWarnings(warnings);
   }, [
     botConfigData.perTradeRiskPct,
     botConfigData.maxTotalPositions,
@@ -268,19 +268,8 @@ export default function SettingsPage() {
 
       const validatedData = botConfigSchema.parse(botConfigData);
 
-      // Additional validation constraints
-      const maxPossibleRisk = validatedData.perTradeRiskPct * validatedData.maxTotalPositions;
-      if (maxPossibleRisk > validatedData.maxDailyLoss) {
-        throw new Error(
-          `Risk constraint violated: Per-trade risk (${validatedData.perTradeRiskPct}%) × Max positions (${validatedData.maxTotalPositions}) = ${maxPossibleRisk.toFixed(1)}% exceeds daily loss limit (${validatedData.maxDailyLoss}%). Please adjust these settings.`
-        );
-      }
-
-      if (validatedData.maxSameDirectionPositions > validatedData.maxTotalPositions) {
-        throw new Error(
-          `Max same-direction positions (${validatedData.maxSameDirectionPositions}) cannot exceed max total positions (${validatedData.maxTotalPositions}).`
-        );
-      }
+      // Note: Risk warnings are shown in UI but don't block saving
+      // This allows experimentation with different risk parameters
 
       // Explicitly construct the mutation payload with only expected fields
       const mutationPayload = {
@@ -775,14 +764,14 @@ export default function SettingsPage() {
               <Slider
                 id="per-trade-risk"
                 min={0.5}
-                max={5}
+                max={10}
                 step={0.1}
                 value={[botConfigData.perTradeRiskPct]}
                 onValueChange={([value]) =>
                   setBotConfigData((prev) => ({ ...prev, perTradeRiskPct: value }))
                 }
               />
-              <p className="text-xs text-gray-500">How much of your account to risk per trade</p>
+              <p className="text-xs text-gray-500">How much of your account to risk per trade (0.5% - 10%)</p>
             </div>
 
             <div className="space-y-2">
@@ -1067,14 +1056,15 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        {/* Validation Warnings */}
-        {validationWarnings.length > 0 && (
-          <Alert className="border-red-400 bg-red-50">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertTitle className="text-red-800">Configuration Errors</AlertTitle>
-            <AlertDescription className="text-red-700">
-              <ul className="list-disc list-inside space-y-1 mt-2">
-                {validationWarnings.map((warning, index) => (
+        {/* Risk Warnings - Informational Only */}
+        {riskWarnings.length > 0 && (
+          <Alert className="border-yellow-400 bg-yellow-50">
+            <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            <AlertTitle className="text-yellow-800">Risk Warnings (Informational)</AlertTitle>
+            <AlertDescription className="text-yellow-700">
+              <p className="mb-2 text-sm">The following settings may increase risk. You can still save and experiment:</p>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                {riskWarnings.map((warning, index) => (
                   <li key={index}>{warning}</li>
                 ))}
               </ul>
@@ -1086,7 +1076,7 @@ export default function SettingsPage() {
         <div className="flex justify-end">
           <Button
             onClick={handleSaveBotConfig}
-            disabled={isSavingConfig || validationWarnings.length > 0}
+            disabled={isSavingConfig}
             className="bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSavingConfig && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
