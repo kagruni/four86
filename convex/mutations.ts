@@ -271,10 +271,27 @@ export const syncPositions = mutation({
 
     console.log(`[syncPositions] Database has ${dbPositions.length} positions`);
 
+    const now = Date.now();
+    const GRACE_PERIOD_MS = 3 * 60 * 1000; // 3 minutes
+
     // Find positions in database that don't exist on Hyperliquid
-    const positionsToRemove = dbPositions.filter(
-      (dbPos) => !args.hyperliquidSymbols.includes(dbPos.symbol)
-    );
+    // BUT: Don't remove positions opened less than 3 minutes ago (order might still be filling)
+    const positionsToRemove = dbPositions.filter((dbPos) => {
+      const isOnHyperliquid = args.hyperliquidSymbols.includes(dbPos.symbol);
+      const age = now - dbPos.openedAt;
+      const isOldEnough = age > GRACE_PERIOD_MS;
+
+      if (!isOnHyperliquid) {
+        if (isOldEnough) {
+          console.log(`[syncPositions] ${dbPos.symbol} not on HL and old enough (${Math.floor(age / 1000)}s) - will remove`);
+          return true; // Remove it
+        } else {
+          console.log(`[syncPositions] ${dbPos.symbol} not on HL but too new (${Math.floor(age / 1000)}s) - keeping for now (grace period)`);
+          return false; // Keep it (grace period)
+        }
+      }
+      return false; // It's on Hyperliquid, keep it
+    });
 
     // Remove stale positions
     for (const position of positionsToRemove) {

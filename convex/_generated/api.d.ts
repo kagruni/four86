@@ -28,8 +28,10 @@ import type * as migrations_removeStopLossEnabled from "../migrations/removeStop
 import type * as migrations_runMigration from "../migrations/runMigration.js";
 import type * as mutations from "../mutations.js";
 import type * as queries from "../queries.js";
+import type * as testing_diagnosticPositions from "../testing/diagnosticPositions.js";
 import type * as testing_manualPositionSync from "../testing/manualPositionSync.js";
 import type * as testing_manualTrigger from "../testing/manualTrigger.js";
+import type * as testing_recoverPositions from "../testing/recoverPositions.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
 import type * as trading_positionSync from "../trading/positionSync.js";
 import type * as trading_tradingLoop from "../trading/tradingLoop.js";
@@ -69,8 +71,10 @@ declare const fullApi: ApiFromModules<{
   "migrations/runMigration": typeof migrations_runMigration;
   mutations: typeof mutations;
   queries: typeof queries;
+  "testing/diagnosticPositions": typeof testing_diagnosticPositions;
   "testing/manualPositionSync": typeof testing_manualPositionSync;
   "testing/manualTrigger": typeof testing_manualTrigger;
+  "testing/recoverPositions": typeof testing_recoverPositions;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
   "trading/positionSync": typeof trading_positionSync;
   "trading/tradingLoop": typeof trading_tradingLoop;
