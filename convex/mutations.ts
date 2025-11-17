@@ -64,9 +64,27 @@ export const upsertBotConfig = mutation({
     symbols: v.array(v.string()),
     maxLeverage: v.number(),
     maxPositionSize: v.number(),
-    stopLossEnabled: v.boolean(),
     maxDailyLoss: v.number(),
     minAccountValue: v.number(),
+
+    // Tier 1: Essential Risk Controls (optional for backward compatibility)
+    perTradeRiskPct: v.optional(v.number()),
+    maxTotalPositions: v.optional(v.number()),
+    maxSameDirectionPositions: v.optional(v.number()),
+    consecutiveLossLimit: v.optional(v.number()),
+
+    // Tier 2: Trading Behavior (optional for backward compatibility)
+    tradingMode: v.optional(v.string()),
+    minEntryConfidence: v.optional(v.number()),
+    minRiskRewardRatio: v.optional(v.number()),
+    stopOutCooldownHours: v.optional(v.number()),
+
+    // Tier 3: Advanced (optional for backward compatibility)
+    minEntrySignals: v.optional(v.number()),
+    require4hAlignment: v.optional(v.boolean()),
+    tradeVolatileMarkets: v.optional(v.boolean()),
+    volatilitySizeReduction: v.optional(v.number()),
+    stopLossAtrMultiplier: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db

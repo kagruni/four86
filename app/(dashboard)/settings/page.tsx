@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, Eye, EyeOff } from "lucide-react";
+import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff, ChevronDown, ChevronUp } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const AI_MODELS = [
@@ -43,7 +43,25 @@ const botConfigSchema = z.object({
   minAccountValue: z.number().min(0),
   startingCapital: z.number().min(0),
   isActive: z.boolean(),
-  stopLossEnabled: z.boolean(),
+
+  // Tier 1: Essential Risk Controls
+  perTradeRiskPct: z.number().min(0.5).max(5),
+  maxTotalPositions: z.number().min(1).max(5),
+  maxSameDirectionPositions: z.number().min(1).max(3),
+  consecutiveLossLimit: z.number().min(2).max(5),
+
+  // Tier 2: Trading Behavior
+  tradingMode: z.enum(["conservative", "balanced", "aggressive"]),
+  minEntryConfidence: z.number().min(0.50).max(0.80),
+  minRiskRewardRatio: z.number().min(1.0).max(3.0),
+  stopOutCooldownHours: z.number().min(0).max(24),
+
+  // Tier 3: Advanced
+  minEntrySignals: z.number().min(1).max(4),
+  require4hAlignment: z.boolean(),
+  tradeVolatileMarkets: z.boolean(),
+  volatilitySizeReduction: z.number().min(25).max(75),
+  stopLossAtrMultiplier: z.number().min(1.0).max(3.0),
 });
 
 const credentialsSchema = z.object({
@@ -80,7 +98,25 @@ export default function SettingsPage() {
     minAccountValue: 100,
     startingCapital: 1000,
     isActive: false,
-    stopLossEnabled: true,
+
+    // Tier 1: Essential Risk Controls (Balanced defaults)
+    perTradeRiskPct: 2.0,
+    maxTotalPositions: 3,
+    maxSameDirectionPositions: 2,
+    consecutiveLossLimit: 3,
+
+    // Tier 2: Trading Behavior (Balanced defaults)
+    tradingMode: "balanced",
+    minEntryConfidence: 0.60,
+    minRiskRewardRatio: 2.0,
+    stopOutCooldownHours: 6,
+
+    // Tier 3: Advanced (Balanced defaults)
+    minEntrySignals: 2,
+    require4hAlignment: false,
+    tradeVolatileMarkets: true,
+    volatilitySizeReduction: 50,
+    stopLossAtrMultiplier: 1.5,
   });
 
   // Credentials state
@@ -101,6 +137,8 @@ export default function SettingsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isSavingCredentials, setIsSavingCredentials] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
 
   // Load existing bot config
   useEffect(() => {
@@ -114,7 +152,25 @@ export default function SettingsPage() {
         minAccountValue: botConfig.minAccountValue,
         startingCapital: botConfig.startingCapital,
         isActive: botConfig.isActive,
-        stopLossEnabled: botConfig.stopLossEnabled,
+
+        // Tier 1: Essential Risk Controls
+        perTradeRiskPct: botConfig.perTradeRiskPct ?? 2.0,
+        maxTotalPositions: botConfig.maxTotalPositions ?? 3,
+        maxSameDirectionPositions: botConfig.maxSameDirectionPositions ?? 2,
+        consecutiveLossLimit: botConfig.consecutiveLossLimit ?? 3,
+
+        // Tier 2: Trading Behavior
+        tradingMode: botConfig.tradingMode ?? "balanced",
+        minEntryConfidence: botConfig.minEntryConfidence ?? 0.60,
+        minRiskRewardRatio: botConfig.minRiskRewardRatio ?? 2.0,
+        stopOutCooldownHours: botConfig.stopOutCooldownHours ?? 6,
+
+        // Tier 3: Advanced
+        minEntrySignals: botConfig.minEntrySignals ?? 2,
+        require4hAlignment: botConfig.require4hAlignment ?? false,
+        tradeVolatileMarkets: botConfig.tradeVolatileMarkets ?? true,
+        volatilitySizeReduction: botConfig.volatilitySizeReduction ?? 50,
+        stopLossAtrMultiplier: botConfig.stopLossAtrMultiplier ?? 1.5,
       });
     }
   }, [botConfig]);
@@ -132,6 +188,33 @@ export default function SettingsPage() {
     }
   }, [userCredentials]);
 
+  // Real-time validation - check constraints whenever values change
+  useEffect(() => {
+    const warnings: string[] = [];
+
+    // Constraint 1: Per-trade risk × max positions ≤ daily loss limit
+    const maxPossibleRisk = botConfigData.perTradeRiskPct * botConfigData.maxTotalPositions;
+    if (maxPossibleRisk > botConfigData.maxDailyLoss) {
+      warnings.push(
+        `Risk too high: ${botConfigData.perTradeRiskPct}% per trade × ${botConfigData.maxTotalPositions} positions = ${maxPossibleRisk.toFixed(1)}% total risk exceeds ${botConfigData.maxDailyLoss}% daily loss limit. Reduce per-trade risk or max positions.`
+      );
+    }
+
+    // Constraint 2: Max same-direction positions ≤ max total positions
+    if (botConfigData.maxSameDirectionPositions > botConfigData.maxTotalPositions) {
+      warnings.push(
+        `Invalid setting: Max same-direction positions (${botConfigData.maxSameDirectionPositions}) cannot exceed max total positions (${botConfigData.maxTotalPositions}).`
+      );
+    }
+
+    setValidationWarnings(warnings);
+  }, [
+    botConfigData.perTradeRiskPct,
+    botConfigData.maxTotalPositions,
+    botConfigData.maxDailyLoss,
+    botConfigData.maxSameDirectionPositions,
+  ]);
+
   const handleSymbolToggle = (symbol: string) => {
     setBotConfigData((prev) => ({
       ...prev,
@@ -141,6 +224,43 @@ export default function SettingsPage() {
     }));
   };
 
+  // Trading mode preset handler - auto-fills related settings
+  const handleTradingModeChange = (mode: "conservative" | "balanced" | "aggressive") => {
+    setBotConfigData((prev) => {
+      const baseUpdate = { ...prev, tradingMode: mode };
+
+      if (mode === "conservative") {
+        return {
+          ...baseUpdate,
+          perTradeRiskPct: 1.5,
+          minEntryConfidence: 0.70,
+          minRiskRewardRatio: 2.5,
+          minEntrySignals: 3,
+          require4hAlignment: true,
+        };
+      } else if (mode === "aggressive") {
+        return {
+          ...baseUpdate,
+          perTradeRiskPct: 3.0,
+          minEntryConfidence: 0.55,
+          minRiskRewardRatio: 1.5,
+          minEntrySignals: 2,
+          require4hAlignment: false,
+        };
+      } else {
+        // Balanced
+        return {
+          ...baseUpdate,
+          perTradeRiskPct: 2.0,
+          minEntryConfidence: 0.60,
+          minRiskRewardRatio: 2.0,
+          minEntrySignals: 2,
+          require4hAlignment: false,
+        };
+      }
+    });
+  };
+
   const handleSaveBotConfig = async () => {
     try {
       setIsSavingConfig(true);
@@ -148,16 +268,62 @@ export default function SettingsPage() {
 
       const validatedData = botConfigSchema.parse(botConfigData);
 
-      await upsertBotConfig({
+      // Additional validation constraints
+      const maxPossibleRisk = validatedData.perTradeRiskPct * validatedData.maxTotalPositions;
+      if (maxPossibleRisk > validatedData.maxDailyLoss) {
+        throw new Error(
+          `Risk constraint violated: Per-trade risk (${validatedData.perTradeRiskPct}%) × Max positions (${validatedData.maxTotalPositions}) = ${maxPossibleRisk.toFixed(1)}% exceeds daily loss limit (${validatedData.maxDailyLoss}%). Please adjust these settings.`
+        );
+      }
+
+      if (validatedData.maxSameDirectionPositions > validatedData.maxTotalPositions) {
+        throw new Error(
+          `Max same-direction positions (${validatedData.maxSameDirectionPositions}) cannot exceed max total positions (${validatedData.maxTotalPositions}).`
+        );
+      }
+
+      // Explicitly construct the mutation payload with only expected fields
+      const mutationPayload = {
         userId,
-        ...validatedData,
-      });
+        modelName: validatedData.modelName,
+        isActive: validatedData.isActive,
+        startingCapital: validatedData.startingCapital,
+        symbols: validatedData.symbols,
+        maxLeverage: validatedData.maxLeverage,
+        maxPositionSize: validatedData.maxPositionSize,
+        maxDailyLoss: validatedData.maxDailyLoss,
+        minAccountValue: validatedData.minAccountValue,
+
+        // Tier 1: Essential Risk Controls
+        perTradeRiskPct: validatedData.perTradeRiskPct,
+        maxTotalPositions: validatedData.maxTotalPositions,
+        maxSameDirectionPositions: validatedData.maxSameDirectionPositions,
+        consecutiveLossLimit: validatedData.consecutiveLossLimit,
+
+        // Tier 2: Trading Behavior
+        tradingMode: validatedData.tradingMode,
+        minEntryConfidence: validatedData.minEntryConfidence,
+        minRiskRewardRatio: validatedData.minRiskRewardRatio,
+        stopOutCooldownHours: validatedData.stopOutCooldownHours,
+
+        // Tier 3: Advanced
+        minEntrySignals: validatedData.minEntrySignals,
+        require4hAlignment: validatedData.require4hAlignment,
+        tradeVolatileMarkets: validatedData.tradeVolatileMarkets,
+        volatilitySizeReduction: validatedData.volatilitySizeReduction,
+        stopLossAtrMultiplier: validatedData.stopLossAtrMultiplier,
+      };
+
+      console.log("Saving bot config:", mutationPayload);
+
+      await upsertBotConfig(mutationPayload);
 
       toast({
         title: "Bot configuration saved",
         description: "Your trading bot settings have been updated successfully.",
       });
     } catch (error) {
+      console.error("Error saving bot config:", error);
       if (error instanceof z.ZodError) {
         const fieldErrors: Record<string, string> = {};
         error.errors.forEach((err) => {
@@ -169,6 +335,12 @@ export default function SettingsPage() {
         toast({
           title: "Validation error",
           description: "Please check the form for errors.",
+          variant: "destructive",
+        });
+      } else if (error instanceof Error) {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to save bot configuration. Please try again.",
           variant: "destructive",
         });
       } else {
@@ -588,55 +760,334 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Starting Capital */}
+            {/* Starting Capital - Hidden (used internally for tracking only) */}
+
+            {/* Stop Loss - Removed (always enabled for safety) */}
+
+            <Separator className="bg-gray-200" />
+
+            {/* Tier 1: Essential Risk Controls */}
             <div className="space-y-2">
-              <Label htmlFor="starting-capital" className="text-gray-900">Starting Capital ($)</Label>
-              <Input
-                id="starting-capital"
-                type="number"
-                value={botConfigData.startingCapital}
-                onChange={(e) =>
-                  setBotConfigData((prev) => ({
-                    ...prev,
-                    startingCapital: parseFloat(e.target.value) || 0,
-                  }))
+              <div className="flex justify-between">
+                <Label htmlFor="per-trade-risk" className="text-gray-900">Per-Trade Risk</Label>
+                <span className="text-sm text-gray-600">{botConfigData.perTradeRiskPct.toFixed(1)}%</span>
+              </div>
+              <Slider
+                id="per-trade-risk"
+                min={0.5}
+                max={5}
+                step={0.1}
+                value={[botConfigData.perTradeRiskPct]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, perTradeRiskPct: value }))
                 }
-                placeholder="1000"
-                className="text-gray-900 placeholder:text-gray-400"
               />
-              {errors.startingCapital && (
-                <p className="text-sm text-red-600">{errors.startingCapital}</p>
-              )}
+              <p className="text-xs text-gray-500">How much of your account to risk per trade</p>
             </div>
 
-            {/* Stop Loss */}
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="stop-loss"
-                checked={botConfigData.stopLossEnabled}
-                onCheckedChange={(checked) =>
-                  setBotConfigData((prev) => ({
-                    ...prev,
-                    stopLossEnabled: checked === true,
-                  }))
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="max-total-positions" className="text-gray-900">Max Total Positions</Label>
+                <span className="text-sm text-gray-600">{botConfigData.maxTotalPositions}</span>
+              </div>
+              <Slider
+                id="max-total-positions"
+                min={1}
+                max={5}
+                step={1}
+                value={[botConfigData.maxTotalPositions]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, maxTotalPositions: value }))
                 }
               />
-              <Label
-                htmlFor="stop-loss"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-gray-900"
-              >
-                Enable Stop Loss
-              </Label>
+              <p className="text-xs text-gray-500">Maximum concurrent positions</p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="max-same-dir" className="text-gray-900">Max Same-Direction Positions</Label>
+                <span className="text-sm text-gray-600">{botConfigData.maxSameDirectionPositions}</span>
+              </div>
+              <Slider
+                id="max-same-dir"
+                min={1}
+                max={3}
+                step={1}
+                value={[botConfigData.maxSameDirectionPositions]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, maxSameDirectionPositions: value }))
+                }
+              />
+              <p className="text-xs text-gray-500">Max LONG or SHORT positions at once</p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="consecutive-loss" className="text-gray-900">Consecutive Loss Limit</Label>
+                <span className="text-sm text-gray-600">{botConfigData.consecutiveLossLimit}</span>
+              </div>
+              <Slider
+                id="consecutive-loss"
+                min={2}
+                max={5}
+                step={1}
+                value={[botConfigData.consecutiveLossLimit]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, consecutiveLossLimit: value }))
+                }
+              />
+              <p className="text-xs text-gray-500">Reduce risk after X losses in a row</p>
             </div>
           </CardContent>
         </Card>
+
+        {/* Trading Strategy (NEW CARD) */}
+        <Card className="bg-white border-gray-200">
+          <CardHeader>
+            <CardTitle className="text-gray-900">Trading Strategy</CardTitle>
+            <CardDescription className="text-gray-600">
+              Configure trading behavior and entry requirements
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Trading Mode Preset */}
+            <div className="space-y-2">
+              <Label htmlFor="trading-mode" className="text-gray-900">Trading Mode</Label>
+              <Select
+                value={botConfigData.tradingMode}
+                onValueChange={(value: "conservative" | "balanced" | "aggressive") =>
+                  handleTradingModeChange(value)
+                }
+              >
+                <SelectTrigger id="trading-mode" className="text-gray-900">
+                  <SelectValue placeholder="Select trading mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="conservative">Conservative (Higher confidence, fewer trades)</SelectItem>
+                  <SelectItem value="balanced">Balanced (Standard settings)</SelectItem>
+                  <SelectItem value="aggressive">Aggressive (More trades, lower confidence)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">
+                Preset adjusts confidence, risk/reward, and signal requirements
+              </p>
+            </div>
+
+            {/* Min Entry Confidence */}
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="min-confidence" className="text-gray-900">Minimum Entry Confidence</Label>
+                <span className="text-sm text-gray-600">{botConfigData.minEntryConfidence.toFixed(2)}</span>
+              </div>
+              <Slider
+                id="min-confidence"
+                min={0.50}
+                max={0.80}
+                step={0.01}
+                value={[botConfigData.minEntryConfidence]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, minEntryConfidence: value }))
+                }
+              />
+              <p className="text-xs text-gray-500">Minimum AI confidence to enter trades</p>
+            </div>
+
+            {/* Min Risk/Reward Ratio */}
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="min-rr" className="text-gray-900">Minimum Risk/Reward Ratio</Label>
+                <span className="text-sm text-gray-600">{botConfigData.minRiskRewardRatio.toFixed(1)}:1</span>
+              </div>
+              <Slider
+                id="min-rr"
+                min={1.0}
+                max={3.0}
+                step={0.1}
+                value={[botConfigData.minRiskRewardRatio]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, minRiskRewardRatio: value }))
+                }
+              />
+              <p className="text-xs text-gray-500">Minimum reward per unit of risk</p>
+            </div>
+
+            {/* Stop-Out Cooldown */}
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="cooldown" className="text-gray-900">Stop-Out Cooldown Period</Label>
+                <span className="text-sm text-gray-600">{botConfigData.stopOutCooldownHours}h</span>
+              </div>
+              <Slider
+                id="cooldown"
+                min={0}
+                max={24}
+                step={1}
+                value={[botConfigData.stopOutCooldownHours]}
+                onValueChange={([value]) =>
+                  setBotConfigData((prev) => ({ ...prev, stopOutCooldownHours: value }))
+                }
+              />
+              <p className="text-xs text-gray-500">Wait time before re-entering same symbol after stop loss</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Advanced Settings (Collapsible) */}
+        <Card className="bg-white border-gray-200">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-gray-900">Advanced Settings</CardTitle>
+                <CardDescription className="text-gray-600">
+                  Technical analysis parameters (modify with caution)
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                className="text-gray-900"
+              >
+                {showAdvancedSettings ? (
+                  <>
+                    <ChevronUp className="h-4 w-4 mr-1" />
+                    Hide
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-4 w-4 mr-1" />
+                    Show
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          {showAdvancedSettings && (
+            <CardContent className="space-y-6">
+              <Alert className="border-yellow-400 bg-yellow-50">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                <AlertTitle className="text-yellow-800">Warning</AlertTitle>
+                <AlertDescription className="text-yellow-700">
+                  Only modify these settings if you understand technical analysis. Incorrect values can lead to losses.
+                </AlertDescription>
+              </Alert>
+
+              {/* Min Entry Signals */}
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Label htmlFor="min-signals" className="text-gray-900">Minimum Entry Signals</Label>
+                  <span className="text-sm text-gray-600">{botConfigData.minEntrySignals}</span>
+                </div>
+                <Slider
+                  id="min-signals"
+                  min={1}
+                  max={4}
+                  step={1}
+                  value={[botConfigData.minEntrySignals]}
+                  onValueChange={([value]) =>
+                    setBotConfigData((prev) => ({ ...prev, minEntrySignals: value }))
+                  }
+                />
+                <p className="text-xs text-gray-500">How many indicators must align to enter a trade</p>
+              </div>
+
+              {/* Require 4H Alignment */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="require-4h" className="text-gray-900">Require 4-Hour Trend Alignment</Label>
+                  <p className="text-sm text-gray-500">
+                    Only enter trades aligned with 4-hour trend (more conservative)
+                  </p>
+                </div>
+                <Switch
+                  id="require-4h"
+                  checked={botConfigData.require4hAlignment}
+                  onCheckedChange={(checked) =>
+                    setBotConfigData((prev) => ({ ...prev, require4hAlignment: checked }))
+                  }
+                />
+              </div>
+
+              {/* Trade Volatile Markets */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="trade-volatile" className="text-gray-900">Trade in Volatile Markets</Label>
+                  <p className="text-sm text-gray-500">
+                    Allow trading when ATR3 {'>'} 1.5x ATR14 (volatile conditions)
+                  </p>
+                </div>
+                <Switch
+                  id="trade-volatile"
+                  checked={botConfigData.tradeVolatileMarkets}
+                  onCheckedChange={(checked) =>
+                    setBotConfigData((prev) => ({ ...prev, tradeVolatileMarkets: checked }))
+                  }
+                />
+              </div>
+
+              {/* Volatility Size Reduction */}
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Label htmlFor="volatility-reduction" className="text-gray-900">Volatility Position Size Reduction</Label>
+                  <span className="text-sm text-gray-600">{botConfigData.volatilitySizeReduction}%</span>
+                </div>
+                <Slider
+                  id="volatility-reduction"
+                  min={25}
+                  max={75}
+                  step={5}
+                  value={[botConfigData.volatilitySizeReduction]}
+                  onValueChange={([value]) =>
+                    setBotConfigData((prev) => ({ ...prev, volatilitySizeReduction: value }))
+                  }
+                />
+                <p className="text-xs text-gray-500">Reduce position size by X% in volatile conditions</p>
+              </div>
+
+              {/* Stop Loss ATR Multiplier */}
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Label htmlFor="atr-multiplier" className="text-gray-900">Stop Loss ATR Multiplier</Label>
+                  <span className="text-sm text-gray-600">{botConfigData.stopLossAtrMultiplier.toFixed(1)}x</span>
+                </div>
+                <Slider
+                  id="atr-multiplier"
+                  min={1.0}
+                  max={3.0}
+                  step={0.1}
+                  value={[botConfigData.stopLossAtrMultiplier]}
+                  onValueChange={([value]) =>
+                    setBotConfigData((prev) => ({ ...prev, stopLossAtrMultiplier: value }))
+                  }
+                />
+                <p className="text-xs text-gray-500">Stop loss = Entry ± (ATR × multiplier)</p>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Validation Warnings */}
+        {validationWarnings.length > 0 && (
+          <Alert className="border-red-400 bg-red-50">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <AlertTitle className="text-red-800">Configuration Errors</AlertTitle>
+            <AlertDescription className="text-red-700">
+              <ul className="list-disc list-inside space-y-1 mt-2">
+                {validationWarnings.map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Save Bot Configuration Button */}
         <div className="flex justify-end">
           <Button
             onClick={handleSaveBotConfig}
-            disabled={isSavingConfig}
-            className="bg-gray-900 text-white hover:bg-gray-800"
+            disabled={isSavingConfig || validationWarnings.length > 0}
+            className="bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSavingConfig && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {isSavingConfig ? "Saving..." : "Save Bot Configuration"}

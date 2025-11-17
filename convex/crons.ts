@@ -10,18 +10,11 @@ crons.interval(
   internal.trading.tradingLoop.runTradingCycle
 );
 
-// Position monitoring - runs every 1 minute
-// crons.interval(
-//   "position-monitor",
-//   { minutes: 1 },
-//   internal.trading.positionMonitor.checkPositions
-// );
-
-// Account sync - runs every 5 minutes
-// crons.interval(
-//   "account-sync",
-//   { minutes: 5 },
-//   internal.trading.accountSync.syncAllAccounts
-// );
+// Position sync - runs every 1 minute to catch positions closed on exchange
+crons.interval(
+  "position-sync",
+  { minutes: 1 },
+  internal.trading.positionSync.syncAllPositions
+);
 
 export default crons;

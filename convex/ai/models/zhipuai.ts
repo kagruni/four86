@@ -1,9 +1,9 @@
-import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { BaseChatModel, BaseChatModelParams } from "@langchain/core/language_models/chat_models";
 import { BaseMessage, AIMessage } from "@langchain/core/messages";
 import { ChatResult } from "@langchain/core/outputs";
 import { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";
 
-export interface ZhipuAIInput {
+export interface ZhipuAIInput extends BaseChatModelParams {
   apiKey: string;
   model?: string;
   temperature?: number;

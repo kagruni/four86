@@ -15,6 +15,7 @@ import type * as ai_models_zhipuai from "../ai/models/zhipuai.js";
 import type * as ai_parsers_schemas from "../ai/parsers/schemas.js";
 import type * as ai_parsers_tradeDecision from "../ai/parsers/tradeDecision.js";
 import type * as ai_prompts_detailedSystem from "../ai/prompts/detailedSystem.js";
+import type * as ai_prompts_promptHelpers from "../ai/prompts/promptHelpers.js";
 import type * as ai_prompts_system from "../ai/prompts/system.js";
 import type * as ai_tools_tradingTools from "../ai/tools/tradingTools.js";
 import type * as crons from "../crons.js";
@@ -23,10 +24,14 @@ import type * as hyperliquid_client from "../hyperliquid/client.js";
 import type * as hyperliquid_detailedMarketData from "../hyperliquid/detailedMarketData.js";
 import type * as hyperliquid_sdk from "../hyperliquid/sdk.js";
 import type * as indicators_technicalIndicators from "../indicators/technicalIndicators.js";
+import type * as migrations_removeStopLossEnabled from "../migrations/removeStopLossEnabled.js";
+import type * as migrations_runMigration from "../migrations/runMigration.js";
 import type * as mutations from "../mutations.js";
 import type * as queries from "../queries.js";
+import type * as testing_manualPositionSync from "../testing/manualPositionSync.js";
 import type * as testing_manualTrigger from "../testing/manualTrigger.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
+import type * as trading_positionSync from "../trading/positionSync.js";
 import type * as trading_tradingLoop from "../trading/tradingLoop.js";
 
 import type {
@@ -51,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "ai/parsers/schemas": typeof ai_parsers_schemas;
   "ai/parsers/tradeDecision": typeof ai_parsers_tradeDecision;
   "ai/prompts/detailedSystem": typeof ai_prompts_detailedSystem;
+  "ai/prompts/promptHelpers": typeof ai_prompts_promptHelpers;
   "ai/prompts/system": typeof ai_prompts_system;
   "ai/tools/tradingTools": typeof ai_tools_tradingTools;
   crons: typeof crons;
@@ -59,10 +65,14 @@ declare const fullApi: ApiFromModules<{
   "hyperliquid/detailedMarketData": typeof hyperliquid_detailedMarketData;
   "hyperliquid/sdk": typeof hyperliquid_sdk;
   "indicators/technicalIndicators": typeof indicators_technicalIndicators;
+  "migrations/removeStopLossEnabled": typeof migrations_removeStopLossEnabled;
+  "migrations/runMigration": typeof migrations_runMigration;
   mutations: typeof mutations;
   queries: typeof queries;
+  "testing/manualPositionSync": typeof testing_manualPositionSync;
   "testing/manualTrigger": typeof testing_manualTrigger;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
+  "trading/positionSync": typeof trading_positionSync;
   "trading/tradingLoop": typeof trading_tradingLoop;
 }>;
 declare const fullApiWithMounts: typeof fullApi;

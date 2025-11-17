@@ -33,11 +33,32 @@ export default defineSchema({
     symbols: v.array(v.string()), // ["BTC", "ETH", "SOL", "BNB", "DOGE"]
     maxLeverage: v.number(),
     maxPositionSize: v.number(),
-    stopLossEnabled: v.boolean(),
 
-    // Risk management
+    // Risk management (existing)
     maxDailyLoss: v.number(),
     minAccountValue: v.number(),
+
+    // Tier 1: Essential Risk Controls (optional for backward compatibility)
+    perTradeRiskPct: v.optional(v.number()), // 0.5 - 5.0, default 2.0
+    maxTotalPositions: v.optional(v.number()), // 1 - 5, default 3
+    maxSameDirectionPositions: v.optional(v.number()), // 1 - 3, default 2
+    consecutiveLossLimit: v.optional(v.number()), // 2 - 5, default 3
+
+    // Tier 2: Trading Behavior (optional for backward compatibility)
+    tradingMode: v.optional(v.string()), // "conservative" | "balanced" | "aggressive"
+    minEntryConfidence: v.optional(v.number()), // 0.50 - 0.80, default 0.60
+    minRiskRewardRatio: v.optional(v.number()), // 1.0 - 3.0, default 1.5
+    stopOutCooldownHours: v.optional(v.number()), // 0 - 24, default 6
+
+    // Tier 3: Advanced (optional for backward compatibility)
+    minEntrySignals: v.optional(v.number()), // 1 - 4, default 2
+    require4hAlignment: v.optional(v.boolean()), // default false
+    tradeVolatileMarkets: v.optional(v.boolean()), // default true
+    volatilitySizeReduction: v.optional(v.number()), // 25 - 75, default 50 (percentage)
+    stopLossAtrMultiplier: v.optional(v.number()), // 1.0 - 3.0, default 1.5
+
+    // Deprecated fields (for backward compatibility, will be removed in migration)
+    stopLossEnabled: v.optional(v.boolean()), // DEPRECATED - always enabled for safety
 
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -100,6 +100,22 @@ export const runTradingCycle = internalAction({
           config: {
             maxLeverage: bot.maxLeverage,
             maxPositionSize: bot.maxPositionSize,
+            // New fields with defaults for backward compatibility
+            maxDailyLoss: bot.maxDailyLoss ?? 5,
+            minAccountValue: bot.minAccountValue ?? 100,
+            perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
+            maxTotalPositions: bot.maxTotalPositions ?? 3,
+            maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
+            consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
+            tradingMode: bot.tradingMode ?? "balanced",
+            minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+            minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
+            stopOutCooldownHours: bot.stopOutCooldownHours ?? 6,
+            minEntrySignals: bot.minEntrySignals ?? 2,
+            require4hAlignment: bot.require4hAlignment ?? false,
+            tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
+            volatilitySizeReduction: bot.volatilitySizeReduction ?? 50,
+            stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
           },
         });
 

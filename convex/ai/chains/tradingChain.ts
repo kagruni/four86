@@ -1,6 +1,7 @@
 import { RunnableSequence } from "@langchain/core/runnables";
 import { tradingPrompt } from "../prompts/system";
 import { detailedTradingPrompt, formatCoinMarketData, formatPositionsDetailed } from "../prompts/detailedSystem";
+import { generatePromptVariables, type BotConfig } from "../prompts/promptHelpers";
 import { tradeDecisionParser } from "../parsers/tradeDecision";
 import { ZhipuAI } from "../models/zhipuai";
 import { OpenRouterChat } from "../models/openrouter";
@@ -96,11 +97,11 @@ export function createDetailedTradingChain(
   modelType: "zhipuai" | "openrouter",
   modelName: string,
   apiKey: string,
-  config: {
-    maxLeverage: number;
-    maxPositionSize: number;
-  }
+  config: BotConfig
 ) {
+  // Generate all prompt template variables from config
+  const promptVars = generatePromptVariables(config);
+
   // Get trading tools for function calling
   const tools = getTradingTools();
 
@@ -131,9 +132,8 @@ export function createDetailedTradingChain(
       timestamp: () => new Date().toISOString(),
       invocationCount: (input: any) => input.invocationCount || 0,
 
-      // Config
-      maxLeverage: () => config.maxLeverage,
-      maxPositionSize: () => config.maxPositionSize,
+      // Spread all generated prompt variables
+      ...Object.fromEntries(Object.entries(promptVars).map(([key, value]) => [key, () => value])),
     },
     detailedTradingPrompt,
     model,

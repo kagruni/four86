@@ -134,6 +134,13 @@ export const getFullUserCredentials = internalQuery({
   },
 });
 
+// Internal query to get all positions (for position sync cron)
+export const getAllPositionsForSync = internalQuery({
+  handler: async (ctx) => {
+    return await ctx.db.query("positions").collect();
+  },
+});
+
 // Get live positions with real-time prices from Hyperliquid
 export const getLivePositions = action({
   args: { userId: v.string() },
