@@ -8,30 +8,30 @@ export const TradeDecisionSchema = z.object({
     .describe("The action to take"),
 
   symbol: z.enum(["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"])
-    .optional()
+    .nullish()
     .describe("Symbol to trade (required for OPEN actions)"),
 
   confidence: z.number().min(0).max(1)
     .describe("Confidence level in this decision (0-1)"),
 
   leverage: z.number().min(1).max(20)
-    .optional()
+    .nullish()
     .describe("Leverage to use (required for OPEN actions)"),
 
   size_usd: z.number().positive()
-    .optional()
+    .nullish()
     .describe("Position size in USD (required for OPEN actions)"),
 
   stop_loss: z.number().positive()
-    .optional()
+    .nullish()
     .describe("Stop loss price (required for OPEN actions)"),
 
   take_profit: z.number().positive()
-    .optional()
+    .nullish()
     .describe("Take profit price (required for OPEN actions)"),
 
   risk_reward_ratio: z.number()
-    .optional()
+    .nullish()
     .describe("Calculated risk/reward ratio"),
 });
 

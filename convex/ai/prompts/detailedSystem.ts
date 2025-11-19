@@ -36,6 +36,19 @@ Trading Strategy Settings:
 - Stop Loss ATR Multiplier: {stopLossAtrMultiplier}x
 
 ═══════════════════════════════════════════════════════════════
+RECENT TRADING HISTORY (Last 5 Actions)
+═══════════════════════════════════════════════════════════════
+
+{recentTradingHistory}
+
+This shows your recent OPEN/CLOSE decisions with outcomes.
+Use this to:
+- Avoid repeating recent mistakes (check failed trades)
+- Maintain consistency with your recent analysis
+- Remember why you entered current positions
+- Recognize patterns in your successful trades
+
+═══════════════════════════════════════════════════════════════
 DATA FORMAT
 ═══════════════════════════════════════════════════════════════
 
@@ -224,21 +237,37 @@ Example with YOUR current settings:
 - Calculated Position: risk amount / 0.05 = position in USD
 - If calculated position exceeds account value, it means tight stop allows larger position
 
-### Step 2: Apply Hard Cap
+### Step 2: Check if Stop is Too Wide
+
+**CRITICAL RULE**: If stop distance > 3%, the setup is NOT strong enough.
+
+- If stop distance > 3%: **SKIP TRADE** (do not enter, reasoning: "Stop too wide for 2-minute setup")
+- Exception: Only for 0.85+ confidence breakout setups, use 1% risk instead of {perTradeRiskPct}%
+
+If stop distance > 2.5% but ≤ 3%: Reduce position size
+  Adjustment Factor = 2.5 / stop distance
+  Adjusted Position Size = Position Size USD × Adjustment Factor
+
+### Step 3: Apply Hard Cap
 The calculated position size CANNOT exceed {maxPositionSize}% of account:
 
 Formula:
-  Final Position Size USD = minimum of (Calculated Size, Account Value × {maxPositionSize}%)
+  Final Position Size USD = minimum of (Adjusted Size, Account Value × {maxPositionSize}%)
 
 Example with YOUR settings:
 - If calculated position = 20% of account = $200
 - But max allowed = {maxPositionSize}% of account = $[{maxPositionSize}% of account]
 - Final position = whichever is SMALLER (the cap protects you)
 
-### Step 3: Adjustments
+### Step 4: Final Adjustments
 Apply any additional reductions AFTER capping:
 - Volatile market: Reduce final size by {volatilitySizeReduction}%
 - Consecutive losses (≥{consecutiveLossLimit}): Use {perTradeRiskPctReduced}% risk in Step 1 instead
+
+**Example with Wide Stop:**
+- Account: $1000, Risk: 2% = $20
+- Stop: 3.5% (TOO WIDE)
+- Decision: SKIP TRADE (reasoning: "Stop distance 3.5% exceeds 3% hard limit for 2-minute setups")
 
 **Always output size_usd as final dollar amount, not percentage.**
 
@@ -246,21 +275,103 @@ Apply any additional reductions AFTER capping:
 STOP LOSS & TAKE PROFIT PLACEMENT
 ═══════════════════════════════════════════════════════════════
 
-### Stop Loss:
-- Based on volatility: Entry ± (ATR14_4h × {stopLossAtrMultiplier})
-- Constraints: Never tighter than 1%, never wider than 5%
-- Place beyond recent swing high/low (check last 10 2m candles)
+### Stop Loss Placement:
 
-### Take Profit:
-- Minimum R:R: {minRiskRewardRatio}:1 (REQUIRED)
-- Adjust for market regime:
-  * Trending: Add +0.5 to base R:R (wider targets)
-  * Ranging: Use base R:R (tighter targets)
-- Consider key resistance/support levels
+**PRIMARY METHOD - Use Recent Price Action:**
+1. Identify the most recent swing low (for LONG) or swing high (for SHORT) from the last 10 candles on 2-minute chart
+2. Place stop slightly beyond that level:
+   - LONG: Stop = Recent Swing Low × 0.995 (0.5% below)
+   - SHORT: Stop = Recent Swing High × 1.005 (0.5% above)
 
-Example calculation:
-- Entry $100, Stop $97, Target $106
-- Risk $3, Reward $6 → R:R = 2:1 ✅ (meets {minRiskRewardRatio}:1 minimum)
+**SECONDARY METHOD - ATR-Based (if no clear swing point):**
+- Normal volatility: Stop = Entry ± (1.0 × ATR14_4h)
+- High volatility: Stop = Entry ± (1.5 × ATR3_4h)
+
+**CRITICAL CONSTRAINTS:**
+- **Maximum stop distance: 3% from entry (HARD LIMIT)**
+- Minimum stop distance: 0.8% from entry (prevent noise stops)
+- If calculated stop > 3%, either:
+  a) SKIP THE TRADE (preferred - not enough edge), OR
+  b) Only proceed if confidence ≥ 0.85 AND use 1% risk instead of {perTradeRiskPct}%
+
+**Validation:**
+- Check: Has price moved this far in the last 4 hours?
+- If stop distance > (ATR14_4h × 2), the stop is unrealistic
+- If stop would be hit by normal noise, increase it to 1% minimum
+
+**Examples:**
+
+Good (Recent Swing):
+- BTC LONG at $95,000
+- Recent 2m swing low: $94,500
+- Stop = $94,500 × 0.995 = $94,027 (1.02% stop) ✅
+
+Bad (ATR too wide):
+- ETH SHORT at $3,200
+- ATR14_4h = $120 → Stop = $3,200 + $120 = $3,320 (3.75% stop)
+- Decision: SKIP TRADE (stop > 3% hard limit)
+
+### Take Profit Strategy:
+
+**Base Calculation:**
+Calculate R:R target: TP = Entry ± (Stop Distance × R:R Multiplier)
+
+R:R Multiplier based on confidence:
+  * 0.60-0.70: Use 1.5:1
+  * 0.70-0.80: Use 1.8:1
+  * 0.80+: Use 2.0:1
+
+**Reality Checks (APPLY ALL):**
+
+1. **24h Range Check**: Is target beyond 24h high (LONG) or low (SHORT)?
+   - Calculate: maxMove24h = (24h high - 24h low) from market data
+   - If target distance > (maxMove24h × 0.4):
+     * NOT a breakout (confidence < 0.80): Reduce target to Entry ± (maxMove24h × 0.4)
+     * IS a breakout (confidence ≥ 0.80): Keep target but reduce confidence by 0.05
+
+2. **Recent Movement Check**: Has price actually moved this far recently?
+   - Look at largest single move in last 24h candles
+   - If your target requires bigger move than any recent move: Reduce target
+
+3. **Key Level Check**: Is there strong resistance/support before target?
+   - If YES and distance to level < distance to target: Use that level as target
+
+**Final Target Formula:**
+
+  baseTarget = Entry ± (stopDistance × rrMultiplier)
+  maxRealistic = Entry ± (maxMove24h × 0.4)
+  nearestKeyLevel = [resistance/support from market structure]
+
+  finalTarget = minimum(baseTarget, maxRealistic, nearestKeyLevel)
+
+**Complete Example:**
+
+Setup: BTC LONG
+- Entry: $95,000
+- Recent swing low: $94,500
+- Stop: $94,500 × 0.995 = $94,027 (1.02% stop) ✅
+- Confidence: 0.70 → R:R = 1.8:1
+- Base target: $95,000 + ($973 × 1.8) = $96,751
+- 24h range: High $96,500, Low $91,000 = $5,500 range
+- Max realistic move: $95,000 + ($5,500 × 0.4) = $97,200
+- Nearest resistance: $96,800 (from chart)
+- **Final TP: $96,751** (base target is within realistic range) ✅
+- **R:R Check: 1.8:1** ✅ (meets {minRiskRewardRatio}:1 minimum)
+
+### Position Size Adjustment for Wide Stops:
+
+If calculated stop is > 2.5%, reduce position size:
+
+  normalPositionSize = (accountValue × riskPct) / stopDistance
+  adjustedPositionSize = normalPositionSize × (2.5% / stopDistance)
+
+  Example:
+  - Account: $1000, Risk: 2% = $20
+  - Stop: 2.8% (slightly wide)
+  - Normal size: $20 / 0.028 = $714
+  - Adjusted size: $714 × (2.5 / 2.8) = $638
+
+This ensures you never risk more than intended even with wider stops.
 
 ═══════════════════════════════════════════════════════════════
 CONFIDENCE CALCULATION
@@ -297,7 +408,11 @@ Before OPEN_LONG/OPEN_SHORT, verify ALL:
 □ Confidence: ≥{minEntryConfidence}
 □ Risk/Reward: ≥{minRiskRewardRatio}:1
 □ Invalidation condition: Specific and measurable
-□ Stop loss: {stopLossAtrMultiplier}x ATR (1-5% from entry)
+□ **Stop loss realistic: <3% from entry (HARD LIMIT - skip trade if wider)**
+□ **Stop at logical level: Beyond recent swing high/low from 2m chart**
+□ **Target realistic: Within 24h movement range OR breakout setup with 0.80+ confidence**
+□ **Target vs resistance: No major resistance/support blocking path to target**
+□ **ATR sanity check: Stop distance ≤ (ATR14_4h × 2)**
 □ Position size: {perTradeRiskPct}% account risk
 □ Liquidation safety: >20% beyond stop loss
 □ Position limits: <{maxTotalPositions} total, <{maxSameDirectionPositions} same direction
@@ -345,12 +460,17 @@ Your trading mode is: **{tradingModeDescription}**
 Core principles:
 1. For existing positions: Default is HOLD unless invalidation triggered
 2. Quality over quantity: Wait for {minEntrySignals}+ clear signals
-3. Risk management is mandatory: Check all limits before entering
-4. Confidence threshold: Only trade when confidence ≥{minEntryConfidence}
-5. Trust your stops: Don't manually close on fear
-6. Be specific: Invalidation conditions must be measurable
-7. {volatilityPrinciple}
-8. {trend4hPrinciple}
+3. **Stop loss must be <3% from entry (HARD LIMIT) - skip trade if wider**
+4. **Use recent swing highs/lows for stops, not just ATR**
+5. **Validate targets against 24h range - be realistic for 2-minute trading**
+6. Risk management is mandatory: Check all limits before entering
+7. Confidence threshold: Only trade when confidence ≥{minEntryConfidence}
+8. Trust your stops: Don't manually close on fear
+9. Be specific: Invalidation conditions must be measurable
+10. {volatilityPrinciple}
+11. {trend4hPrinciple}
+
+**CRITICAL: This is 2-minute momentum trading. Wide stops (>3%) and unrealistic targets (>40% of 24h range) indicate poor setups. Skip them.**
 
 Your goal is consistent, disciplined, risk-managed trading - not maximizing trade frequency.
 `);
@@ -436,6 +556,10 @@ export function formatCoinMarketData(
     macdHistory_4h: number[];
     rsi14History_4h: number[];
 
+    // 24h range data (for target reality checks)
+    high24h?: number;
+    low24h?: number;
+
     // Market microstructure (if available)
     openInterest?: number;
     avgOpenInterest?: number;
@@ -455,6 +579,14 @@ Current EMA20: $${data.ema20.toFixed(2)}
 Current MACD: ${data.macd.toFixed(3)}
 Current RSI (7-period): ${data.rsi7.toFixed(3)}
 Current RSI (14-period): ${data.rsi14.toFixed(3)}
+
+${data.high24h && data.low24h ? `
+24-Hour Range:
+  High: $${data.high24h.toFixed(2)}
+  Low: $${data.low24h.toFixed(2)}
+  Range: $${(data.high24h - data.low24h).toFixed(2)} (${((data.high24h - data.low24h) / data.low24h * 100).toFixed(2)}%)
+  Max Realistic Target Move: ±${((data.high24h - data.low24h) * 0.4).toFixed(2)} (40% of 24h range)
+` : ''}
 
 ${data.openInterest && data.avgOpenInterest ? `
 Open Interest:

@@ -231,3 +231,74 @@ export const getLivePositions = action({
     return livePositions;
   },
 });
+
+/**
+ * Get recent trading actions (OPEN/CLOSE only, skip HOLD)
+ * Used for AI context to remember recent decisions and outcomes
+ * Returns last N actions with concise info for prompt injection
+ */
+export const getRecentTradingActions = internalQuery({
+  args: {
+    userId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 5;
+
+    const actions = await ctx.db
+      .query("aiLogs")
+      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("decision"), "OPEN_LONG"),
+          q.eq(q.field("decision"), "OPEN_SHORT"),
+          q.eq(q.field("decision"), "CLOSE")
+        )
+      )
+      .take(limit);
+
+    // Get corresponding trades to find outcomes (P&L)
+    const tradesMap = new Map();
+    const trades = await ctx.db
+      .query("trades")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(limit * 2); // Get more trades to ensure we find matches
+
+    trades.forEach(trade => {
+      const key = `${trade.symbol}_${trade.executedAt}`;
+      tradesMap.set(key, trade);
+    });
+
+    return actions.map(action => {
+      const timestamp = new Date(action.createdAt).toISOString().slice(11, 16); // HH:MM
+      const parsedResponse = action.parsedResponse as any;
+      const symbol = parsedResponse?.symbol || "";
+
+      // Find matching trade for P&L info
+      let pnl = null;
+      let pnlPct = null;
+      for (const trade of trades) {
+        if (
+          trade.symbol === symbol &&
+          Math.abs(trade.executedAt - action.createdAt) < 5000 // Within 5 seconds
+        ) {
+          pnl = trade.pnl;
+          pnlPct = trade.pnlPct;
+          break;
+        }
+      }
+
+      return {
+        timestamp,
+        decision: action.decision,
+        symbol,
+        reasoning: action.reasoning,
+        confidence: action.confidence || 0,
+        pnl,
+        pnlPct,
+      };
+    });
+  },
+});

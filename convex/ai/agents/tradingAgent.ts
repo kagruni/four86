@@ -130,6 +130,12 @@ export const makeDetailedTradingDecision = action({
         throw new Error(`${args.modelType === "zhipuai" ? "ZhipuAI" : "OpenRouter"} API key not configured for user ${args.userId}`);
       }
 
+      // Get recent trading actions for context (OPEN/CLOSE only, skip HOLD)
+      const recentActions = await ctx.runQuery(internal.queries.getRecentTradingActions, {
+        userId: args.userId,
+        limit: 5,
+      });
+
       // Create the detailed trading chain
       const chain = createDetailedTradingChain(
         args.modelType,
@@ -144,6 +150,7 @@ export const makeDetailedTradingDecision = action({
         accountState: args.accountState,
         positions: args.positions || [],
         performanceMetrics: args.performanceMetrics,
+        recentActions: recentActions || [],
       });
 
       const processingTime = Date.now() - startTime;

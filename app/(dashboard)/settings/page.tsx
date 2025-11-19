@@ -25,11 +25,19 @@ import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff, ChevronDown, ChevronU
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const AI_MODELS = [
-  { value: "glm-4.6", label: "GLM-4.6 (ZhipuAI) - Latest" },
-  { value: "glm-4-plus", label: "GLM-4-Plus (ZhipuAI)" },
-  { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
-  { value: "openai/gpt-4-turbo", label: "GPT-4 Turbo" },
-  { value: "google/gemini-pro-1.5", label: "Gemini Pro 1.5" },
+  { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Recommended)" },
+  { value: "openai/gpt-5", label: "GPT-5" },
+  { value: "openai/gpt-5-mini", label: "GPT-5 Mini" },
+  { value: "openai/gpt-4.1", label: "GPT-4.1" },
+  { value: "google/gemini-3-pro", label: "Gemini 3 Pro" },
+  { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { value: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat V3.1" },
+  { value: "x-ai/grok-4-fast", label: "Grok 4 Fast" },
+  { value: "zhipuai/glm-4.6", label: "GLM-4.6" },
+  { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick" },
+  { value: "openai/gpt-oss-120b", label: "GPT-OSS 120B" },
+  { value: "deepseek/deepseek-r1", label: "DeepSeek R1" },
+  { value: "moonshotai/kimi-k2-thinking", label: "Kimi K2 Thinking" },
 ] as const;
 
 const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
@@ -65,7 +73,6 @@ const botConfigSchema = z.object({
 });
 
 const credentialsSchema = z.object({
-  zhipuaiApiKey: z.string().optional(),
   openrouterApiKey: z.string().optional(),
   hyperliquidPrivateKey: z.string().optional(),
   hyperliquidAddress: z.string().optional(),
@@ -90,7 +97,7 @@ export default function SettingsPage() {
 
   // Bot config state
   const [botConfigData, setBotConfigData] = useState<BotConfigFormData>({
-    modelName: "glm-4.6",
+    modelName: "anthropic/claude-sonnet-4.5",
     symbols: ["BTC"],
     maxLeverage: 5,
     maxPositionSize: 10,
@@ -121,7 +128,6 @@ export default function SettingsPage() {
 
   // Credentials state
   const [credentialsData, setCredentialsData] = useState<CredentialsFormData>({
-    zhipuaiApiKey: "",
     openrouterApiKey: "",
     hyperliquidPrivateKey: "",
     hyperliquidAddress: "",
@@ -129,7 +135,6 @@ export default function SettingsPage() {
   });
 
   const [showPrivateKeys, setShowPrivateKeys] = useState({
-    zhipuai: false,
     openrouter: false,
     hyperliquid: false,
   });
@@ -179,7 +184,6 @@ export default function SettingsPage() {
   useEffect(() => {
     if (userCredentials) {
       setCredentialsData({
-        zhipuaiApiKey: userCredentials.hasZhipuaiApiKey ? "••••••••" : "",
         openrouterApiKey: userCredentials.hasOpenrouterApiKey ? "••••••••" : "",
         hyperliquidPrivateKey: userCredentials.hasHyperliquidPrivateKey ? "••••••••" : "",
         hyperliquidAddress: userCredentials.hyperliquidAddress || "",
@@ -355,10 +359,6 @@ export default function SettingsPage() {
         hyperliquidTestnet: credentialsData.hyperliquidTestnet,
       };
 
-      if (credentialsData.zhipuaiApiKey && credentialsData.zhipuaiApiKey !== "••••••••") {
-        credentialsToSave.zhipuaiApiKey = credentialsData.zhipuaiApiKey;
-      }
-
       if (credentialsData.openrouterApiKey && credentialsData.openrouterApiKey !== "••••••••") {
         credentialsToSave.openrouterApiKey = credentialsData.openrouterApiKey;
       }
@@ -417,44 +417,12 @@ export default function SettingsPage() {
         {/* AI Provider Credentials */}
         <Card className="bg-white border-gray-200">
           <CardHeader>
-            <CardTitle className="text-gray-900">AI Provider Settings</CardTitle>
+            <CardTitle className="text-gray-900">OpenRouter API Settings</CardTitle>
             <CardDescription className="text-gray-600">
-              Configure API keys for AI trading models
+              Configure your OpenRouter API key for all AI trading models
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* ZhipuAI API Key */}
-            <div className="space-y-2">
-              <Label htmlFor="zhipuai-key" className="text-gray-900">ZhipuAI API Key</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="zhipuai-key"
-                  type={showPrivateKeys.zhipuai ? "text" : "password"}
-                  value={credentialsData.zhipuaiApiKey}
-                  onChange={(e) =>
-                    setCredentialsData((prev) => ({
-                      ...prev,
-                      zhipuaiApiKey: e.target.value,
-                    }))
-                  }
-                  placeholder="Enter your ZhipuAI API key"
-                  className="flex-1 text-gray-900 placeholder:text-gray-400"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowPrivateKeys(prev => ({ ...prev, zhipuai: !prev.zhipuai }))}
-                  className="border-gray-200"
-                >
-                  {showPrivateKeys.zhipuai ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-gray-500">Required for GLM-4-Plus model</p>
-            </div>
-
-            <Separator className="bg-gray-200" />
-
             {/* OpenRouter API Key */}
             <div className="space-y-2">
               <Label htmlFor="openrouter-key" className="text-gray-900">OpenRouter API Key</Label>
@@ -482,7 +450,7 @@ export default function SettingsPage() {
                   {showPrivateKeys.openrouter ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              <p className="text-xs text-gray-500">Required for Claude, GPT, and Gemini models</p>
+              <p className="text-xs text-gray-500">Required for all AI models: Claude, GPT, Gemini, DeepSeek, Grok, GLM, Llama, and Kimi</p>
             </div>
 
             <div className="flex justify-end pt-4">
@@ -492,7 +460,7 @@ export default function SettingsPage() {
                 className="bg-gray-900 text-white hover:bg-gray-800"
               >
                 {isSavingCredentials && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isSavingCredentials ? "Saving..." : "Save AI Credentials"}
+                {isSavingCredentials ? "Saving..." : "Save OpenRouter API Key"}
               </Button>
             </div>
           </CardContent>

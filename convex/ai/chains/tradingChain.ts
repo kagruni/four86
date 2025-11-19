@@ -119,6 +119,9 @@ export function createDetailedTradingChain(
       // Format positions with detailed exit plans
       currentPositionsDetailed: (input: any) => formatPositionsDetailed(input.positions || []),
 
+      // Format recent trading actions for context memory
+      recentTradingHistory: (input: any) => formatRecentActions(input.recentActions || []),
+
       // Account information
       accountValue: (input: any) => input.accountState.accountValue.toFixed(2),
       availableCash: (input: any) => input.accountState.withdrawable.toFixed(2),
@@ -154,6 +157,53 @@ function formatAllCoinsMarketData(marketData: Record<string, DetailedCoinData>):
   }
 
   return formatted || "No market data available.";
+}
+
+/**
+ * Format recent trading actions for prompt context
+ * Shows last 5 OPEN/CLOSE decisions with outcomes
+ */
+function formatRecentActions(actions: any[]): string {
+  if (!actions || actions.length === 0) {
+    return "\nNo recent trading actions.";
+  }
+
+  let formatted = "\n";
+
+  for (const action of actions) {
+    const time = action.timestamp || "??:??";
+    const decision = action.decision;
+    const symbol = action.symbol || "UNKNOWN";
+    const reasoning = action.reasoning
+      ? action.reasoning.slice(0, 120) + (action.reasoning.length > 120 ? "..." : "")
+      : "No reasoning provided";
+    const confidence = action.confidence ? action.confidence.toFixed(2) : "0.00";
+
+    if (decision === "OPEN_LONG" || decision === "OPEN_SHORT") {
+      formatted += `[${time}] ${decision} ${symbol}\n`;
+      formatted += `  Reasoning: ${reasoning}\n`;
+      formatted += `  Confidence: ${confidence}`;
+
+      // If we have P&L, it means the position was closed
+      if (action.pnlPct !== null && action.pnlPct !== undefined) {
+        const pnlSign = action.pnlPct >= 0 ? "+" : "";
+        formatted += ` | Closed: ${pnlSign}${action.pnlPct.toFixed(1)}%`;
+      } else {
+        formatted += ` | Status: Open`;
+      }
+      formatted += `\n\n`;
+    } else if (decision === "CLOSE") {
+      formatted += `[${time}] CLOSE ${symbol}\n`;
+      formatted += `  Exit Reason: ${reasoning}\n`;
+      if (action.pnlPct !== null && action.pnlPct !== undefined) {
+        const pnlSign = action.pnlPct >= 0 ? "+" : "";
+        formatted += `  Result: ${pnlSign}${action.pnlPct.toFixed(1)}%`;
+      }
+      formatted += `\n\n`;
+    }
+  }
+
+  return formatted;
 }
 
 /**

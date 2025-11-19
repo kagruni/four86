@@ -99,15 +99,19 @@ export default function DashboardPage() {
           }),
         ]);
         console.log("[Dashboard] Fetched data:", {
-          positions: livePositions.length,
-          orders: orders.length,
-          accountValue: account.accountValue
+          positions: Array.isArray(livePositions) ? livePositions.length : 0,
+          orders: Array.isArray(orders) ? orders.length : 0,
+          accountValue: account?.accountValue || 0
         });
-        setPositions(livePositions);
-        setOpenOrders(orders);
-        setAccountState(account);
+        setPositions(Array.isArray(livePositions) ? livePositions : []);
+        setOpenOrders(Array.isArray(orders) ? orders : []);
+        setAccountState(account || null);
       } catch (error) {
         console.error("[Dashboard] Error fetching live data:", error);
+        // Set safe defaults on error
+        setPositions([]);
+        setOpenOrders([]);
+        setAccountState(null);
       } finally {
         setIsLoadingPositions(false);
         setIsLoadingOrders(false);

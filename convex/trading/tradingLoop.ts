@@ -91,7 +91,7 @@ export const runTradingCycle = internalAction({
         // 6. Use detailed LangChain agent to make trading decision with multi-timeframe analysis
         const decision = await ctx.runAction(api.ai.agents.tradingAgent.makeDetailedTradingDecision, {
           userId: bot.userId,
-          modelType: bot.modelName.startsWith("glm-") ? "zhipuai" : "openrouter",
+          modelType: "openrouter", // All models now use OpenRouter API
           modelName: bot.modelName,
           detailedMarketData,
           accountState,

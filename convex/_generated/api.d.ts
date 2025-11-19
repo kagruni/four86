@@ -28,6 +28,7 @@ import type * as migrations_removeStopLossEnabled from "../migrations/removeStop
 import type * as migrations_runMigration from "../migrations/runMigration.js";
 import type * as mutations from "../mutations.js";
 import type * as queries from "../queries.js";
+import type * as testing_diagnosticBots from "../testing/diagnosticBots.js";
 import type * as testing_diagnosticPositions from "../testing/diagnosticPositions.js";
 import type * as testing_manualPositionSync from "../testing/manualPositionSync.js";
 import type * as testing_manualTrigger from "../testing/manualTrigger.js";
@@ -71,6 +72,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/runMigration": typeof migrations_runMigration;
   mutations: typeof mutations;
   queries: typeof queries;
+  "testing/diagnosticBots": typeof testing_diagnosticBots;
   "testing/diagnosticPositions": typeof testing_diagnosticPositions;
   "testing/manualPositionSync": typeof testing_manualPositionSync;
   "testing/manualTrigger": typeof testing_manualTrigger;
