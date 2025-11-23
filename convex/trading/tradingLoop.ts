@@ -1,16 +1,45 @@
 import { internalAction } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 
+// ═══════════════════════════════════════════════════════════════
+// CRITICAL: CONCURRENCY PROTECTION
+// ═══════════════════════════════════════════════════════════════
+// In-memory tracker for per-symbol cooldowns (still useful for same-instance prevention)
+let lastTradeBySymbol: Record<string, { time: number; side: string }> = {};
+
 export const runTradingCycle = internalAction({
   handler: async (ctx) => {
-    // Get all active bots
-    const activeBots = await ctx.runQuery(api.queries.getActiveBots);
+    const loopId = Date.now();
+    const lockId = `lock-${loopId}-${Math.random().toString(36).slice(2)}`;
+    const loopStartTime = new Date().toISOString();
 
-    console.log(`Running trading cycle for ${activeBots.length} active bot(s)`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[LOOP-${loopId}] Started at ${loopStartTime}`);
+    console.log(`[LOOP-${loopId}] Lock ID: ${lockId}`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
-    for (const bot of activeBots) {
-      try {
-        console.log(`Processing bot ${bot._id} for user ${bot.userId}`);
+    try {
+      // Get all active bots
+      const activeBots = await ctx.runQuery(api.queries.getActiveBots);
+
+      console.log(`[LOOP-${loopId}] Running trading cycle for ${activeBots.length} active bot(s)`);
+
+      for (const bot of activeBots) {
+        // ✅ CRITICAL: Acquire per-user database lock to prevent race conditions
+        const lockResult = await ctx.runMutation(api.mutations.acquireTradingLock, {
+          userId: bot.userId,
+          lockId: lockId,
+        });
+
+        if (!lockResult.success) {
+          console.log(`[LOOP-${loopId}] ⚠️ Skipping user ${bot.userId}: ${lockResult.reason} (lock ${lockResult.lockId})`);
+          continue; // Skip this user, another loop is processing them
+        }
+
+        console.log(`[LOOP-${loopId}] 🔒 Lock acquired for user ${bot.userId}`);
+
+        try {
+          console.log(`[LOOP-${loopId}] Processing bot ${bot._id} for user ${bot.userId}`);
 
         // 1. Get user credentials (private keys, API keys)
         const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
@@ -142,30 +171,180 @@ export const runTradingCycle = internalAction({
 
         console.log(`Bot ${bot._id} decision: ${decision.decision}`);
 
-      } catch (error) {
-        console.error(`Error in trading cycle for bot ${bot._id}:`, error);
-        await ctx.runMutation(api.mutations.saveSystemLog, {
-          userId: bot.userId,
-          level: "ERROR",
-          message: "Trading cycle error",
-          data: { error: String(error) },
-        });
+        } catch (error) {
+          console.error(`[LOOP-${loopId}] Error in trading cycle for bot ${bot._id}:`, error);
+          await ctx.runMutation(api.mutations.saveSystemLog, {
+            userId: bot.userId,
+            level: "ERROR",
+            message: "Trading cycle error",
+            data: { error: String(error) },
+          });
+        } finally {
+          // ✅ CRITICAL: Always release the lock for this user
+          await ctx.runMutation(api.mutations.releaseTradingLock, {
+            userId: bot.userId,
+            lockId: lockId,
+          });
+          console.log(`[LOOP-${loopId}] 🔓 Lock released for user ${bot.userId}`);
+        }
       }
+
+      const loopEndTime = new Date().toISOString();
+      const durationMs = Date.now() - loopId;
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`[LOOP-${loopId}] Finished at ${loopEndTime}`);
+      console.log(`[LOOP-${loopId}] Duration: ${durationMs}ms`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+    } catch (error) {
+      console.error(`[LOOP-${loopId}] Fatal error in trading cycle:`, error);
     }
   },
 });
 
 async function executeTradeDecision(ctx: any, bot: any, credentials: any, decision: any, accountState: any) {
-  // Risk checks
+  // ═══════════════════════════════════════════════════════════════
+  // CRITICAL: POSITION VALIDATION CHECKS
+  // ═══════════════════════════════════════════════════════════════
+
+  console.log(`\n┌─────────────────────────────────────────────────────────────┐`);
+  console.log(`│ 🎯 TRADE EXECUTION: ${decision.decision} ${decision.symbol || 'N/A'}`);
+  console.log(`│ Size: $${decision.size_usd?.toFixed(2) || 'N/A'} | Leverage: ${decision.leverage || 'N/A'}x`);
+  console.log(`│ Confidence: ${(decision.confidence * 100).toFixed(0)}%`);
+  console.log(`└─────────────────────────────────────────────────────────────┘`);
+
+  // For OPEN decisions, enforce position limits BEFORE executing
+  if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
+    const requestedSide = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
+    const symbolKey = `${decision.symbol}-${requestedSide}`;
+
+    // ✅ CHECK #0: In-memory duplicate prevention (ULTRA FAST)
+    const lastTrade = lastTradeBySymbol[symbolKey];
+    if (lastTrade) {
+      const timeSinceLastTrade = Date.now() - lastTrade.time;
+      if (timeSinceLastTrade < 60000) { // 60 seconds
+        const secondsAgo = Math.floor(timeSinceLastTrade / 1000);
+        console.log(`❌ Trade rejected: Just opened ${symbolKey} ${secondsAgo} seconds ago (in-memory check)`);
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "WARNING",
+          message: `In-memory duplicate prevented: ${symbolKey} opened ${secondsAgo}s ago`,
+          data: { decision },
+        });
+        return;
+      }
+    }
+
+    // Get FRESH positions from database (already synced with Hyperliquid earlier in loop)
+    const currentPositions = await ctx.runQuery(api.queries.getPositions, {
+      userId: bot.userId,
+    });
+
+    // ✅ CHECK #1: Duplicate position on same symbol
+    const existingPosition = currentPositions.find((p: any) => p.symbol === decision.symbol);
+    if (existingPosition) {
+      console.log(`❌ Trade rejected: Already have ${existingPosition.side} position on ${decision.symbol}`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Duplicate position prevented: ${decision.symbol} ${decision.decision}`,
+        data: {
+          existingPosition: existingPosition.side,
+          attemptedDecision: decision.decision,
+          reasoning: decision.reasoning
+        },
+      });
+      return;
+    }
+
+    // ✅ CHECK #2: Max total positions
+    const maxTotalPositions = bot.maxTotalPositions ?? 3;
+    if (currentPositions.length >= maxTotalPositions) {
+      console.log(`❌ Trade rejected: Already have ${currentPositions.length}/${maxTotalPositions} positions open`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Position limit reached: ${currentPositions.length}/${maxTotalPositions}`,
+        data: { decision },
+      });
+      return;
+    }
+
+    // ✅ CHECK #3: Max same-direction positions
+    const maxSameDirectionPositions = bot.maxSameDirectionPositions ?? 2;
+    const sameDirectionCount = currentPositions.filter((p: any) => p.side === requestedSide).length;
+
+    if (sameDirectionCount >= maxSameDirectionPositions) {
+      console.log(`❌ Trade rejected: Already have ${sameDirectionCount}/${maxSameDirectionPositions} ${requestedSide} positions`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Same-direction limit reached: ${sameDirectionCount}/${maxSameDirectionPositions} ${requestedSide}`,
+        data: { decision },
+      });
+      return;
+    }
+
+    // ✅ CHECK #4: Minimum position size (dynamic based on account size)
+    // For small accounts: 10% of account value
+    // For large accounts: $200 minimum
+    const MINIMUM_POSITION_SIZE = Math.min(200, accountState.accountValue * 0.10);
+    if (decision.size_usd && decision.size_usd < MINIMUM_POSITION_SIZE) {
+      console.log(`❌ Trade rejected: Position size $${decision.size_usd.toFixed(2)} below minimum $${MINIMUM_POSITION_SIZE.toFixed(2)}`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Position too small: $${decision.size_usd.toFixed(2)} < $${MINIMUM_POSITION_SIZE.toFixed(2)} minimum`,
+        data: { decision },
+      });
+      return;
+    }
+
+    // ✅ CHECK #5: Recent trade cooldown (5 minutes per symbol)
+    const recentTrades = await ctx.runQuery(api.queries.getRecentTrades, {
+      userId: bot.userId,
+    });
+
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    const recentTradeOnSymbol = recentTrades.find((trade: any) =>
+      trade.symbol === decision.symbol &&
+      trade.action === "OPEN" &&
+      trade.executedAt > fiveMinutesAgo
+    );
+
+    if (recentTradeOnSymbol) {
+      const minutesAgo = Math.floor((Date.now() - recentTradeOnSymbol.executedAt) / 60000);
+      console.log(`❌ Trade rejected: Opened ${decision.symbol} ${minutesAgo} minute(s) ago (5min cooldown)`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Symbol cooldown active: ${decision.symbol} traded ${minutesAgo}min ago`,
+        data: { decision },
+      });
+      return;
+    }
+
+    console.log(`✅ Validation passed for ${decision.symbol} ${decision.decision}`);
+    console.log(`  - No existing position on ${decision.symbol}`);
+    console.log(`  - Total positions: ${currentPositions.length}/${maxTotalPositions}`);
+    console.log(`  - ${requestedSide} positions: ${sameDirectionCount}/${maxSameDirectionPositions}`);
+    console.log(`  - Position size: $${decision.size_usd} (min $${MINIMUM_POSITION_SIZE})`);
+    console.log(`  - No recent trades on ${decision.symbol}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LEGACY RISK CHECKS (kept for backward compatibility)
+  // ═══════════════════════════════════════════════════════════════
+
   const maxPositionSizeUsd = accountState.accountValue * bot.maxPositionSize;
 
   if (decision.size_usd && decision.size_usd > maxPositionSizeUsd) {
-    console.log(`Trade rejected: position size ${decision.size_usd} exceeds max ${maxPositionSizeUsd}`);
+    console.log(`❌ Trade rejected: position size ${decision.size_usd} exceeds max ${maxPositionSizeUsd}`);
     return;
   }
 
   if (decision.leverage && decision.leverage > bot.maxLeverage) {
-    console.log(`Trade rejected: leverage ${decision.leverage} exceeds max ${bot.maxLeverage}`);
+    console.log(`❌ Trade rejected: leverage ${decision.leverage} exceeds max ${bot.maxLeverage}`);
     return;
   }
 
@@ -363,10 +542,19 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
         entryOrderId: result.txHash, // Using txHash as order ID for now
       });
 
-      console.log(`Executed ${decision.decision} for ${decision.symbol} at $${result.price}`);
+      console.log(`✅ Successfully executed ${decision.decision} for ${decision.symbol} at $${result.price}`);
+
+      // ✅ UPDATE: In-memory tracker to prevent immediate duplicates
+      const side = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
+      const symbolKey = `${decision.symbol}-${side}`;
+      lastTradeBySymbol[symbolKey] = {
+        time: Date.now(),
+        side: side
+      };
+      console.log(`📝 Tracking: ${symbolKey} opened at ${new Date().toISOString()}`);
     }
   } catch (error) {
-    console.error("Error executing trade:", error);
+    console.error("❌ Error executing trade:", error);
     await ctx.runMutation(api.mutations.saveSystemLog, {
       userId: bot.userId,
       level: "ERROR",

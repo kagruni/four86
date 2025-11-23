@@ -17,4 +17,11 @@ crons.interval(
   internal.trading.positionSync.syncAllPositions
 );
 
+// Cleanup expired locks - runs every 5 minutes
+crons.interval(
+  "cleanup-locks",
+  { minutes: 5 },
+  internal.mutations.cleanupExpiredLocks
+);
+
 export default crons;

@@ -49,11 +49,13 @@ export const getPerformanceMetrics = internalQuery({
     // Calculate minutes since start
     const minutesSinceStart = Math.floor((now - botConfig.createdAt) / (1000 * 60));
 
-    // Get AI invocation count
+    // Get AI invocation count (limit to last 100 for performance)
+    // IMPORTANT: Drastically reduced limit to avoid "Too many bytes" error
     const aiLogs = await ctx.db
       .query("aiLogs")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .collect();
+      .order("desc")
+      .take(100);
 
     const invocationCount = aiLogs.length;
 
@@ -86,25 +88,27 @@ async function calculateSharpeRatio(
   ctx: any,
   userId: string
 ): Promise<number> {
-  // Get all closed trades with PnL data
+  // Get last 50 trades with PnL data (enough for Sharpe ratio calculation)
+  // IMPORTANT: Drastically reduced limit to avoid "Too many bytes" error
+  //  .filter() loads all data before filtering, so we take fewer records
   const trades = await ctx.db
     .query("trades")
     .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-    .filter((q: any) =>
-      q.and(
-        q.eq(q.field("action"), "CLOSE"),
-        q.neq(q.field("pnlPct"), undefined)
-      )
-    )
-    .collect();
+    .order("desc")
+    .take(50); // Take fewer trades to stay under 16MB limit
 
-  // Need at least 2 trades to calculate standard deviation
-  if (trades.length < 2) {
+  // Filter for CLOSE trades with PnL in memory (after limiting data read)
+  const closedTrades = trades.filter(
+    (trade: any) => trade.action === "CLOSE" && trade.pnlPct !== undefined
+  );
+
+  // Need at least 2 closed trades to calculate standard deviation
+  if (closedTrades.length < 2) {
     return 0;
   }
 
   // Extract returns (pnlPct values)
-  const returns = trades
+  const returns = closedTrades
     .map((trade: any) => trade.pnlPct)
     .filter((pnl: number | undefined): pnl is number => typeof pnl === "number");
 

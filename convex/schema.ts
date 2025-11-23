@@ -170,4 +170,13 @@ export default defineSchema({
     data: v.optional(v.any()),
     timestamp: v.number(),
   }).index("by_timestamp", ["timestamp"]),
+
+  // Trading locks (prevents race conditions/duplicate entries)
+  tradingLocks: defineTable({
+    userId: v.string(),
+    lockId: v.string(), // Unique ID for this lock instance
+    acquiredAt: v.number(), // When the lock was acquired
+    expiresAt: v.number(), // Auto-expire after 2 minutes (safety)
+  }).index("by_userId", ["userId"])
+    .index("by_userId_expires", ["userId", "expiresAt"]),
 });

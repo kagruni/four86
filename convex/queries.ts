@@ -182,7 +182,7 @@ export const getLivePositions = action({
         testnet,
       });
     } catch (error) {
-      console.error("[getLivePositions] Error fetching Hyperliquid positions:", error);
+      console.log("[getLivePositions] Could not fetch Hyperliquid positions:", error instanceof Error ? error.message : String(error));
       // Continue without leverage update if fetch fails
     }
 
@@ -300,5 +300,23 @@ export const getRecentTradingActions = internalQuery({
         pnlPct,
       };
     });
+  },
+});
+
+
+// Check if trading lock exists for user
+export const getTradingLock = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    
+    // Get active lock (not expired)
+    const lock = await ctx.db
+      .query("tradingLocks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.gt(q.field("expiresAt"), now))
+      .first();
+    
+    return lock;
   },
 });

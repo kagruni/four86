@@ -114,7 +114,7 @@ export const getMarketData = action({
             candles: closePrices.length,
           });
         } catch (error) {
-          console.error(`Error calculating indicators for ${symbol}:`, error);
+          console.log(`Error calculating indicators for ${symbol}:`, error instanceof Error ? error.message : String(error));
 
           // Fallback to default values if indicator calculation fails
           marketData[symbol] = {
@@ -133,8 +133,8 @@ export const getMarketData = action({
 
       return marketData;
     } catch (error) {
-      console.error("Error fetching market data:", error);
-      throw new Error(`Failed to fetch market data: ${error}`);
+      console.log("Error fetching market data:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to fetch market data: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });
@@ -193,8 +193,8 @@ export const getAccountState = action({
         positions: data.assetPositions || [],
       };
     } catch (error) {
-      console.error("Error fetching account state:", error);
-      throw new Error(`Failed to fetch account state: ${error}`);
+      console.log("Error fetching account state:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to fetch account state: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });
@@ -390,7 +390,7 @@ export const getUserPositions = action({
       const positions = await sdk.getUserPositions(args.address, args.testnet);
       return positions;
     } catch (error) {
-      console.error("Error fetching user positions:", error);
+      console.log("Error fetching user positions:", error instanceof Error ? error.message : String(error));
       throw new Error(`Failed to fetch user positions: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
@@ -407,7 +407,7 @@ export const getUserOpenOrders = action({
       const openOrders = await sdk.getUserOpenOrders(args.address, args.testnet);
       return openOrders;
     } catch (error) {
-      console.error("Error fetching user open orders:", error);
+      console.log("Error fetching user open orders:", error instanceof Error ? error.message : String(error));
       throw new Error(`Failed to fetch user open orders: ${error instanceof Error ? error.message : String(error)}`);
     }
   },

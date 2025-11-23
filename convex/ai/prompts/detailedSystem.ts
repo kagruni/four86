@@ -173,9 +173,15 @@ Calculate position size using the formula:
 1. Risk Amount = Account Value × {perTradeRiskPct}%
 2. Stop Distance % = |(Entry - Stop Loss) / Entry| × 100
 3. Position Size USD = Risk Amount / (Stop Distance % / 100)
-4. Leverage = min(Position Size / Available Cash, {maxLeverage})
+4. Leverage Calculation:
+   - Base Leverage = Position Size USD / Account Value
+   - **CRITICAL: If Base Leverage < 1, always use Leverage = 1 (minimum for perpetual futures)**
+   - Final Leverage = max(1, min(ceiling(Base Leverage), {maxLeverage}))
+   - Example: $444 position / $905 account = 0.49 → **USE 1**
+   - Example: $1800 position / $905 account = 1.99 → **USE 2**
 
 Constraints:
+- Leverage MUST be ≥ 1 (perpetual futures requirement)
 - Leverage ≤ {maxLeverage}x
 - Position Size ≤ {maxPositionSize}% of account
 - Liquidation price must be >20% beyond stop loss
@@ -226,13 +232,15 @@ POSITION SIZING METHODOLOGY
 Position size is determined by how much you're willing to LOSE:
 
 Formula:
-  Risk Amount = Account Value × {perTradeRiskPct}%
+  Risk Amount = Available Cash × {perTradeRiskPct}%
   Stop Loss Distance % = |Entry Price - Stop Loss Price| / Entry Price
   Position Size USD = Risk Amount / Stop Loss Distance %
 
+IMPORTANT: Use Available Cash (withdrawable margin), NOT total Account Value!
+
 Example with YOUR current settings:
 - Account: $1,000
-- Per-Trade Risk: {perTradeRiskPct}% = risk amount $[{perTradeRiskPct}% of $1000]
+- Per-Trade Risk: {perTradeRiskPct}% = risk amount $[{perTradeRiskPct}% of available cash]
 - Entry: $100, Stop: $95 (5% stop distance)
 - Calculated Position: risk amount / 0.05 = position in USD
 - If calculated position exceeds account value, it means tight stop allows larger position
@@ -249,14 +257,16 @@ If stop distance > 2.5% but ≤ 3%: Reduce position size
   Adjusted Position Size = Position Size USD × Adjustment Factor
 
 ### Step 3: Apply Hard Cap
-The calculated position size CANNOT exceed {maxPositionSize}% of account:
+The calculated position size CANNOT exceed {maxPositionSize}% of available cash:
 
 Formula:
-  Final Position Size USD = minimum of (Adjusted Size, Account Value × {maxPositionSize}%)
+  Final Position Size USD = minimum of (Adjusted Size, Available Cash × {maxPositionSize}%)
+
+CRITICAL: Use Available Cash, not total account value! This ensures you don't exceed margin.
 
 Example with YOUR settings:
-- If calculated position = 20% of account = $200
-- But max allowed = {maxPositionSize}% of account = $[{maxPositionSize}% of account]
+- If calculated position = 20% of available cash = $200
+- But max allowed = {maxPositionSize}% of available cash = $[{maxPositionSize}% of available]
 - Final position = whichever is SMALLER (the cap protects you)
 
 ### Step 4: Final Adjustments
@@ -519,7 +529,7 @@ Follow the Decision Framework:
 6. Run pre-trade checklist
 7. Submit decision
 
-Respond with ONLY valid JSON. No other text.
+Respond with ONLY valid JSON matching the schema. No other text before or after the JSON.
 `);
 
 export const detailedTradingPrompt = ChatPromptTemplate.fromMessages([

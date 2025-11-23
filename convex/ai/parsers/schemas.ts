@@ -33,6 +33,15 @@ export const TradeDecisionSchema = z.object({
   risk_reward_ratio: z.number()
     .nullish()
     .describe("Calculated risk/reward ratio"),
+
+  invalidation_condition: z.string()
+    .nullish()
+    .describe("Specific condition that would invalidate this trade (for OPEN actions)"),
+
+  // Chain-of-thought reasoning from models like DeepSeek R1/V3.1
+  _chainOfThought: z.string()
+    .nullish()
+    .describe("Extended reasoning from AI model (extracted from <think> tags)"),
 });
 
 export type TradeDecision = z.infer<typeof TradeDecisionSchema>;

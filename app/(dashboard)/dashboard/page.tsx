@@ -107,7 +107,8 @@ export default function DashboardPage() {
         setOpenOrders(Array.isArray(orders) ? orders : []);
         setAccountState(account || null);
       } catch (error) {
-        console.error("[Dashboard] Error fetching live data:", error);
+        // Silently handle errors - use console.log to avoid triggering error overlay
+        console.log("[Dashboard] Could not fetch live data, using defaults:", error instanceof Error ? error.message : String(error));
         // Set safe defaults on error
         setPositions([]);
         setOpenOrders([]);
@@ -156,7 +157,7 @@ export default function DashboardPage() {
           : "Your trading bot is now active and will execute trades every 3 minutes.",
       });
     } catch (error) {
-      console.error("Error toggling bot:", error);
+      console.log("Error toggling bot:", error instanceof Error ? error.message : String(error));
       toast({
         title: "Error",
         description: "Failed to toggle bot. Please try again.",
@@ -229,7 +230,7 @@ export default function DashboardPage() {
         description: "Live positions updated from Hyperliquid",
       });
     } catch (error) {
-      console.error("Error refreshing positions:", error);
+      console.log("Error refreshing positions:", error instanceof Error ? error.message : String(error));
       toast({
         title: "Error",
         description: "Failed to refresh live positions",

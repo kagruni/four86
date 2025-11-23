@@ -338,3 +338,79 @@ export const saveSystemLog = mutation({
     });
   },
 });
+
+// Acquire trading lock (prevents concurrent trading loops)
+export const acquireTradingLock = mutation({
+  args: {
+    userId: v.string(),
+    lockId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const LOCK_TIMEOUT_MS = 120000; // 2 minutes
+    
+    // Check if active lock exists
+    const existingLock = await ctx.db
+      .query("tradingLocks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.gt(q.field("expiresAt"), now))
+      .first();
+    
+    if (existingLock) {
+      // Lock already exists and is not expired
+      return { success: false, reason: "lock_exists", lockId: existingLock.lockId };
+    }
+    
+    // Acquire new lock
+    await ctx.db.insert("tradingLocks", {
+      userId: args.userId,
+      lockId: args.lockId,
+      acquiredAt: now,
+      expiresAt: now + LOCK_TIMEOUT_MS,
+    });
+    
+    return { success: true, lockId: args.lockId };
+  },
+});
+
+// Release trading lock
+export const releaseTradingLock = mutation({
+  args: {
+    userId: v.string(),
+    lockId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Find the specific lock
+    const lock = await ctx.db
+      .query("tradingLocks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.eq(q.field("lockId"), args.lockId))
+      .first();
+    
+    if (lock) {
+      await ctx.db.delete(lock._id);
+      return { success: true };
+    }
+    
+    return { success: false, reason: "lock_not_found" };
+  },
+});
+
+// Clean up expired locks (called periodically)
+export const cleanupExpiredLocks = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    
+    const expiredLocks = await ctx.db
+      .query("tradingLocks")
+      .filter((q) => q.lt(q.field("expiresAt"), now))
+      .collect();
+    
+    for (const lock of expiredLocks) {
+      await ctx.db.delete(lock._id);
+    }
+    
+    return { cleaned: expiredLocks.length };
+  },
+});
