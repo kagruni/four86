@@ -3,6 +3,7 @@
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -638,7 +639,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {recentTrades.map((trade) => (
+                  {recentTrades.map((trade: Doc<"trades">) => (
                     <div key={trade._id} className="border-b border-gray-200 pb-4 last:border-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
@@ -690,7 +691,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {aiLogs.map((log) => (
+                  {aiLogs.map((log: Doc<"aiLogs">) => (
                     <div key={log._id} className="border-b border-gray-200 pb-4 last:border-0">
                       <div className="flex items-center justify-between">
                         <Badge

@@ -51,7 +51,7 @@ export default function DebugPage() {
 
       // Display all logs from the backend
       if (result.logs) {
-        result.logs.forEach((log) => addLog(log));
+        result.logs.forEach((log: string) => addLog(log));
       }
 
       if (result.success) {
@@ -243,7 +243,7 @@ export default function DebugPage() {
               <AlertTitle>Test Mode</AlertTitle>
               <AlertDescription>
                 This will manually trigger one trading cycle. The bot will fetch market data,
-                make an AI decision, but will respect your bot's active/inactive status for order execution.
+                make an AI decision, but will respect your bot&apos;s active/inactive status for order execution.
               </AlertDescription>
             </Alert>
 

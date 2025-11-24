@@ -77,6 +77,13 @@ class ReasoningAwareParser extends StructuredOutputParser {
         rawParsed.leverage = 1;
       }
 
+      // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
+      const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+      if (rawParsed.symbol && !validSymbols.includes(rawParsed.symbol)) {
+        console.log(`[Parser] Correcting invalid symbol "${rawParsed.symbol}" to null`);
+        rawParsed.symbol = null;
+      }
+
       // Add chain-of-thought if extracted
       if (reasoning) {
         rawParsed._chainOfThought = reasoning;
@@ -137,6 +144,13 @@ export async function parseTradeDecision(text: string) {
       rawParsed.leverage = 1;
     }
 
+    // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
+    const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+    if (rawParsed.symbol && !validSymbols.includes(rawParsed.symbol)) {
+      console.log(`[Parser] Correcting invalid symbol "${rawParsed.symbol}" to null`);
+      rawParsed.symbol = null;
+    }
+
     // Add chain-of-thought if extracted
     if (reasoning) {
       rawParsed._chainOfThought = reasoning;
@@ -158,6 +172,13 @@ export async function parseTradeDecision(text: string) {
       if (parsed.leverage !== null && parsed.leverage !== undefined && parsed.leverage < 1) {
         console.log(`[Parser Fallback] Correcting leverage from ${parsed.leverage} to 1 (minimum for perpetual futures)`);
         parsed.leverage = 1;
+      }
+
+      // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
+      const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+      if (parsed.symbol && !validSymbols.includes(parsed.symbol)) {
+        console.log(`[Parser Fallback] Correcting invalid symbol "${parsed.symbol}" to null`);
+        parsed.symbol = null;
       }
 
       return TradeDecisionSchema.parse(parsed);

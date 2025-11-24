@@ -1,12 +1,14 @@
 import { RunnableSequence } from "@langchain/core/runnables";
 import { tradingPrompt } from "../prompts/system";
 import { detailedTradingPrompt, formatCoinMarketData, formatPositionsDetailed } from "../prompts/detailedSystem";
+import { compactTradingPrompt, formatPreProcessedSignals, formatPositions as formatPositionsCompact } from "../prompts/compactSystem";
 import { generatePromptVariables, type BotConfig } from "../prompts/promptHelpers";
 import { tradeDecisionParser } from "../parsers/tradeDecision";
 import { ZhipuAI } from "../models/zhipuai";
 import { OpenRouterChat } from "../models/openrouter";
 import { getTradingTools } from "../tools/tradingTools";
 import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
+import type { ProcessedSignals } from "../../signals/types";
 
 export function createTradingChain(
   modelType: "zhipuai" | "openrouter",
@@ -236,4 +238,89 @@ function calculateTotalReturnPct(input: any): string {
 
   // Default: no return data available
   return "0.00";
+}
+
+// =============================================================================
+// COMPACT TRADING CHAIN (Pre-processed signals)
+// =============================================================================
+
+/**
+ * Configuration subset for compact chain prompt variables
+ */
+export interface CompactBotConfig {
+  maxLeverage: number;
+  maxPositionSize: number;
+  perTradeRiskPct?: number;
+  minEntryConfidence?: number;
+  maxTotalPositions?: number;
+  maxSameDirectionPositions?: number;
+}
+
+/**
+ * Generate prompt template variables for compact chain
+ */
+function generateCompactPromptVariables(config: CompactBotConfig) {
+  return {
+    maxLeverage: config.maxLeverage,
+    maxPositionSize: config.maxPositionSize,
+    perTradeRiskPct: config.perTradeRiskPct ?? 2.0,
+    minEntryConfidence: config.minEntryConfidence ?? 0.6,
+    maxTotalPositions: config.maxTotalPositions ?? 3,
+    maxSameDirectionPositions: config.maxSameDirectionPositions ?? 2,
+  };
+}
+
+/**
+ * Create compact trading chain with pre-processed signals
+ *
+ * This chain uses pre-calculated market signals instead of raw data,
+ * reducing token usage and focusing the AI on decision-making rather
+ * than technical analysis.
+ */
+export function createCompactTradingChain(
+  modelType: "zhipuai" | "openrouter",
+  modelName: string,
+  apiKey: string,
+  config: CompactBotConfig
+) {
+  // Generate prompt template variables from config
+  const promptVars = generateCompactPromptVariables(config);
+
+  // Select the appropriate model
+  const model = modelType === "zhipuai"
+    ? new ZhipuAI({ apiKey, model: modelName })
+    : new OpenRouterChat({ apiKey, model: modelName });
+
+  // Create the chain with compact prompts
+  const chain = RunnableSequence.from([
+    {
+      // Pre-processed signals formatted as string
+      preProcessedSignals: (input: { processedSignals: ProcessedSignals; positions?: any[]; accountState: any }) =>
+        formatPreProcessedSignals(input.processedSignals.coins),
+
+      // Format positions with invalidation checks
+      currentPositions: (input: { processedSignals: ProcessedSignals; positions?: any[]; accountState: any }) =>
+        formatPositionsCompact(input.positions || []),
+
+      // Account information
+      accountValue: (input: { processedSignals: ProcessedSignals; positions?: any[]; accountState: any }) =>
+        input.accountState.accountValue.toFixed(2),
+      availableCash: (input: { processedSignals: ProcessedSignals; positions?: any[]; accountState: any }) =>
+        input.accountState.withdrawable.toFixed(2),
+      positionCount: (input: { processedSignals: ProcessedSignals; positions?: any[]; accountState: any }) =>
+        (input.positions || []).length,
+      maxPositions: () => config.maxTotalPositions || 3,
+
+      // Session info
+      timestamp: () => new Date().toISOString(),
+
+      // Spread all generated prompt variables
+      ...Object.fromEntries(Object.entries(promptVars).map(([key, value]) => [key, () => value])),
+    },
+    compactTradingPrompt,
+    model,
+    tradeDecisionParser,
+  ]);
+
+  return chain;
 }

@@ -1,7 +1,7 @@
 import { action } from "../../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
-import { createTradingChain, createDetailedTradingChain } from "../chains/tradingChain";
+import { createTradingChain, createDetailedTradingChain, createCompactTradingChain } from "../chains/tradingChain";
 import type { TradeDecision } from "../parsers/schemas";
 
 export const makeTradingDecision = action({
@@ -161,6 +161,87 @@ export const makeDetailedTradingDecision = action({
 
     } catch (error) {
       console.error("Error in detailed trading agent:", error);
+
+      // Return safe default (HOLD)
+      return {
+        reasoning: `Error occurred: ${error}. Defaulting to HOLD for safety.`,
+        decision: "HOLD",
+        confidence: 0,
+      } as TradeDecision;
+    }
+  },
+});
+
+/**
+ * Make a compact trading decision using pre-processed signals
+ *
+ * Uses the streamlined compact prompt system that:
+ * - Trusts pre-calculated signals (no raw data re-analysis)
+ * - Focuses on decision-making, not technical analysis
+ * - Uses significantly fewer tokens (~150 lines vs 680 lines)
+ */
+export const makeCompactTradingDecision = action({
+  args: {
+    userId: v.string(),
+    modelType: v.union(v.literal("zhipuai"), v.literal("openrouter")),
+    modelName: v.string(),
+    processedSignals: v.any(), // ProcessedSignals type
+    accountState: v.any(),
+    positions: v.any(),
+    config: v.object({
+      maxLeverage: v.number(),
+      maxPositionSize: v.number(),
+      perTradeRiskPct: v.optional(v.number()),
+      maxTotalPositions: v.optional(v.number()),
+      maxSameDirectionPositions: v.optional(v.number()),
+      minEntryConfidence: v.optional(v.number()),
+    }),
+  },
+  handler: async (ctx, args): Promise<TradeDecision> => {
+    const startTime = Date.now();
+
+    try {
+      // Get user credentials from database
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials) {
+        throw new Error(`No credentials found for user ${args.userId}`);
+      }
+
+      // Get API key from database based on model type
+      const apiKey = args.modelType === "zhipuai"
+        ? credentials.zhipuaiApiKey
+        : credentials.openrouterApiKey;
+
+      if (!apiKey) {
+        throw new Error(`${args.modelType === "zhipuai" ? "ZhipuAI" : "OpenRouter"} API key not configured for user ${args.userId}`);
+      }
+
+      // Create the compact trading chain
+      const chain = createCompactTradingChain(
+        args.modelType,
+        args.modelName,
+        apiKey,
+        args.config
+      );
+
+      // Invoke the chain with pre-processed signals
+      const decision = await chain.invoke({
+        processedSignals: args.processedSignals,
+        accountState: args.accountState,
+        positions: args.positions || [],
+      });
+
+      const processingTime = Date.now() - startTime;
+
+      console.log(`Compact trading decision made in ${processingTime}ms:`, decision.decision);
+
+      return decision as TradeDecision;
+
+    } catch (error) {
+      console.error("Error in compact trading agent:", error);
 
       // Return safe default (HOLD)
       return {

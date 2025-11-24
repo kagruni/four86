@@ -2,6 +2,13 @@ import { internalAction } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 
 // ═══════════════════════════════════════════════════════════════
+// FEATURE FLAG: Compact Signal Processing
+// ═══════════════════════════════════════════════════════════════
+// Set to true to use new pre-processed signals (150-line prompt)
+// Set to false to use old detailed system (680-line prompt)
+const USE_COMPACT_SIGNALS = true;
+
+// ═══════════════════════════════════════════════════════════════
 // CRITICAL: CONCURRENCY PROTECTION
 // ═══════════════════════════════════════════════════════════════
 // In-memory tracker for per-symbol cooldowns (still useful for same-instance prevention)
@@ -117,50 +124,96 @@ export const runTradingCycle = internalAction({
           userId: bot.userId,
         });
 
-        // 6. Use detailed LangChain agent to make trading decision with multi-timeframe analysis
-        const decision = await ctx.runAction(api.ai.agents.tradingAgent.makeDetailedTradingDecision, {
-          userId: bot.userId,
-          modelType: "openrouter", // All models now use OpenRouter API
-          modelName: bot.modelName,
-          detailedMarketData,
-          accountState,
-          positions,
-          performanceMetrics,
-          config: {
-            maxLeverage: bot.maxLeverage,
-            maxPositionSize: bot.maxPositionSize,
-            // New fields with defaults for backward compatibility
-            maxDailyLoss: bot.maxDailyLoss ?? 5,
-            minAccountValue: bot.minAccountValue ?? 100,
-            perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
-            maxTotalPositions: bot.maxTotalPositions ?? 3,
-            maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
-            consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
-            tradingMode: bot.tradingMode ?? "balanced",
-            minEntryConfidence: bot.minEntryConfidence ?? 0.60,
-            minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
-            stopOutCooldownHours: bot.stopOutCooldownHours ?? 6,
-            minEntrySignals: bot.minEntrySignals ?? 2,
-            require4hAlignment: bot.require4hAlignment ?? false,
-            tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
-            volatilitySizeReduction: bot.volatilitySizeReduction ?? 50,
-            stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
-          },
-        });
+        // 6. Make trading decision
+        let decision;
+        let systemPromptName: string;
+
+        if (USE_COMPACT_SIGNALS) {
+          // ═══════════════════════════════════════════════════════════════
+          // NEW: Compact Signal Processing System (150-line prompt)
+          // ═══════════════════════════════════════════════════════════════
+          console.log(`[LOOP-${loopId}] Using COMPACT signal processing...`);
+
+          // Process raw market data into actionable signals
+          const processedSignals = await ctx.runAction(api.signals.signalProcessor.processMarketSignals, {
+            detailedMarketData,
+            positions,
+          });
+
+          console.log(`[LOOP-${loopId}] Signals processed in ${processedSignals.processingTimeMs}ms`);
+          console.log(`[LOOP-${loopId}] Market overview: ${processedSignals.overview.sentiment}, best: ${processedSignals.overview.bestOpportunity || 'none'}`);
+
+          // Use compact trading decision with pre-processed signals
+          decision = await ctx.runAction(api.ai.agents.tradingAgent.makeCompactTradingDecision, {
+            userId: bot.userId,
+            modelType: "openrouter",
+            modelName: bot.modelName,
+            processedSignals,
+            accountState,
+            positions,
+            config: {
+              maxLeverage: bot.maxLeverage,
+              maxPositionSize: bot.maxPositionSize,
+              perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
+              maxTotalPositions: bot.maxTotalPositions ?? 3,
+              maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
+              minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+            },
+          });
+
+          systemPromptName = "Compact signal-based trading system";
+
+        } else {
+          // ═══════════════════════════════════════════════════════════════
+          // OLD: Detailed System (680-line prompt) - for rollback
+          // ═══════════════════════════════════════════════════════════════
+          console.log(`[LOOP-${loopId}] Using DETAILED trading system...`);
+
+          decision = await ctx.runAction(api.ai.agents.tradingAgent.makeDetailedTradingDecision, {
+            userId: bot.userId,
+            modelType: "openrouter",
+            modelName: bot.modelName,
+            detailedMarketData,
+            accountState,
+            positions,
+            performanceMetrics,
+            config: {
+              maxLeverage: bot.maxLeverage,
+              maxPositionSize: bot.maxPositionSize,
+              maxDailyLoss: bot.maxDailyLoss ?? 5,
+              minAccountValue: bot.minAccountValue ?? 100,
+              perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
+              maxTotalPositions: bot.maxTotalPositions ?? 3,
+              maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
+              consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
+              tradingMode: bot.tradingMode ?? "balanced",
+              minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+              minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
+              stopOutCooldownHours: bot.stopOutCooldownHours ?? 6,
+              minEntrySignals: bot.minEntrySignals ?? 2,
+              require4hAlignment: bot.require4hAlignment ?? false,
+              tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
+              volatilitySizeReduction: bot.volatilitySizeReduction ?? 50,
+              stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
+            },
+          });
+
+          systemPromptName = "Detailed multi-timeframe trading system";
+        }
 
         // 7. Save AI log
         await ctx.runMutation(api.mutations.saveAILog, {
           userId: bot.userId,
           modelName: bot.modelName,
-          systemPrompt: "Detailed multi-timeframe trading system",
-          userPrompt: JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics }),
+          systemPrompt: systemPromptName,
+          userPrompt: USE_COMPACT_SIGNALS ? "Pre-processed signals" : JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics }),
           rawResponse: JSON.stringify(decision),
           parsedResponse: decision,
           decision: decision.decision,
           reasoning: decision.reasoning,
           confidence: decision.confidence,
           accountValue: accountState.accountValue,
-          marketData: detailedMarketData, // Store detailed market data
+          marketData: detailedMarketData,
           processingTimeMs: 0,
         });
 

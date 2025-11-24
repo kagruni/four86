@@ -41,6 +41,11 @@ export interface DetailedCoinData {
   macdHistory_4h: number[];
   rsi14History_4h: number[];
 
+  // 24-hour price range and volume
+  high24h: number;
+  low24h: number;
+  volumeRatio: number; // currentVolume_4h / avgVolume_4h
+
   // Market microstructure (optional - Hyperliquid may not provide all)
   openInterest?: number;
   avgOpenInterest?: number;
@@ -144,6 +149,18 @@ async function getDetailedCoinData(
   const currentVolume_4h = candles4h[candles4h.length - 1]?.v || 0;
   const avgVolume_4h = calculateAverageVolume(candles4h, 20);
 
+  // 24-hour high/low from last 6 4h candles
+  const last6Candles4h = candles4h.slice(-6);
+  const high24h = last6Candles4h.length > 0
+    ? Math.max(...last6Candles4h.map(c => c.h))
+    : currentPrice;
+  const low24h = last6Candles4h.length > 0
+    ? Math.min(...last6Candles4h.map(c => c.l))
+    : currentPrice;
+
+  // Volume ratio (current vs average)
+  const volumeRatio = avgVolume_4h > 0 ? currentVolume_4h / avgVolume_4h : 1;
+
   return {
     symbol,
     currentPrice,
@@ -168,6 +185,11 @@ async function getDetailedCoinData(
     avgVolume_4h,
     macdHistory_4h: fourHourIndicators.macdHistory,
     rsi14History_4h: fourHourIndicators.rsi14History,
+
+    // 24-hour price range and volume
+    high24h,
+    low24h,
+    volumeRatio,
 
     // Market microstructure (TODO: fetch from Hyperliquid if available)
     // openInterest: undefined,
@@ -217,6 +239,9 @@ export const getDetailedMarketData = action({
             avgVolume_4h: 0,
             macdHistory_4h: [],
             rsi14History_4h: [],
+            high24h: 0,
+            low24h: 0,
+            volumeRatio: 1,
           } as DetailedCoinData,
         };
       }
