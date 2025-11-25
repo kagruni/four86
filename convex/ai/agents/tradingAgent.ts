@@ -1,7 +1,7 @@
 import { action } from "../../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
-import { createTradingChain, createDetailedTradingChain, createCompactTradingChain } from "../chains/tradingChain";
+import { createTradingChain, createDetailedTradingChain, createCompactTradingChain, createAlphaArenaTradingChain } from "../chains/tradingChain";
 import type { TradeDecision } from "../parsers/schemas";
 
 export const makeTradingDecision = action({
@@ -242,6 +242,93 @@ export const makeCompactTradingDecision = action({
 
     } catch (error) {
       console.error("Error in compact trading agent:", error);
+
+      // Return safe default (HOLD)
+      return {
+        reasoning: `Error occurred: ${error}. Defaulting to HOLD for safety.`,
+        decision: "HOLD",
+        confidence: 0,
+      } as TradeDecision;
+    }
+  },
+});
+
+/**
+ * Make an Alpha Arena-style trading decision
+ *
+ * Replicates the exact format used by winning AI traders:
+ * - DeepSeek R1: 130% return - used 5-10x leverage, long holds
+ * - Qwen 2.5 Max: 22% return - strict TP/SL discipline
+ *
+ * Key principles:
+ * - Raw market data (no pre-processed recommendations)
+ * - Per-coin analysis with chain-of-thought
+ * - ALWAYS set TP and SL (let trades play out)
+ * - Higher leverage (5-10x) when confident
+ * - Hold positions until TP/SL hit (don't close early)
+ */
+export const makeAlphaArenaTradingDecision = action({
+  args: {
+    userId: v.string(),
+    modelType: v.union(v.literal("zhipuai"), v.literal("openrouter")),
+    modelName: v.string(),
+    detailedMarketData: v.any(), // Record<string, DetailedCoinData>
+    accountState: v.any(),
+    positions: v.any(),
+    config: v.object({
+      maxLeverage: v.number(),
+      maxPositionSize: v.number(),
+      perTradeRiskPct: v.optional(v.number()),
+      maxTotalPositions: v.optional(v.number()),
+      maxSameDirectionPositions: v.optional(v.number()),
+      minEntryConfidence: v.optional(v.number()),
+    }),
+  },
+  handler: async (ctx, args): Promise<TradeDecision> => {
+    const startTime = Date.now();
+
+    try {
+      // Get user credentials from database
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials) {
+        throw new Error(`No credentials found for user ${args.userId}`);
+      }
+
+      // Get API key from database based on model type
+      const apiKey = args.modelType === "zhipuai"
+        ? credentials.zhipuaiApiKey
+        : credentials.openrouterApiKey;
+
+      if (!apiKey) {
+        throw new Error(`${args.modelType === "zhipuai" ? "ZhipuAI" : "OpenRouter"} API key not configured for user ${args.userId}`);
+      }
+
+      // Create the Alpha Arena trading chain
+      const chain = createAlphaArenaTradingChain(
+        args.modelType,
+        args.modelName,
+        apiKey,
+        args.config
+      );
+
+      // Invoke the chain with detailed market data (raw, not pre-processed)
+      const decision = await chain.invoke({
+        detailedMarketData: args.detailedMarketData,
+        accountState: args.accountState,
+        positions: args.positions || [],
+      });
+
+      const processingTime = Date.now() - startTime;
+
+      console.log(`Alpha Arena trading decision made in ${processingTime}ms:`, decision.decision);
+
+      return decision as TradeDecision;
+
+    } catch (error) {
+      console.error("Error in Alpha Arena trading agent:", error);
 
       // Return safe default (HOLD)
       return {

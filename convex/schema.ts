@@ -179,4 +179,14 @@ export default defineSchema({
     expiresAt: v.number(), // Auto-expire after 2 minutes (safety)
   }).index("by_userId", ["userId"])
     .index("by_userId_expires", ["userId", "expiresAt"]),
+
+  // Per-symbol trade locks (prevents rapid duplicate orders on same symbol)
+  symbolTradeLocks: defineTable({
+    userId: v.string(),
+    symbol: v.string(),
+    side: v.string(), // "LONG" or "SHORT"
+    attemptedAt: v.number(), // When the trade was attempted
+    expiresAt: v.number(), // Lock expires after 60 seconds
+  }).index("by_userId_symbol", ["userId", "symbol"])
+    .index("by_expiresAt", ["expiresAt"]),
 });

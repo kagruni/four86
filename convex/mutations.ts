@@ -128,6 +128,28 @@ export const toggleBot = mutation({
         isActive: args.isActive,
         updatedAt: Date.now(),
       });
+    } else if (args.isActive) {
+      // Create default config if trying to activate and no config exists
+      console.log(`[toggleBot] Creating default botConfig for user ${args.userId}`);
+      const now = Date.now();
+      await ctx.db.insert("botConfig", {
+        userId: args.userId,
+        modelName: "deepseek/deepseek-r1", // Default to DeepSeek R1 (winner of Alpha Arena)
+        isActive: true,
+        startingCapital: 860, // Approximate from account value
+        currentCapital: 860,
+        symbols: ["BTC", "ETH", "SOL", "BNB", "DOGE"],
+        maxLeverage: 10, // Alpha Arena style
+        maxPositionSize: 0.3, // 30% max per position
+        maxDailyLoss: 10,
+        minAccountValue: 100,
+        perTradeRiskPct: 2.0,
+        maxTotalPositions: 3,
+        maxSameDirectionPositions: 2,
+        minEntryConfidence: 0.6,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
   },
 });
@@ -401,16 +423,103 @@ export const cleanupExpiredLocks = mutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    
+
     const expiredLocks = await ctx.db
       .query("tradingLocks")
       .filter((q) => q.lt(q.field("expiresAt"), now))
       .collect();
-    
+
     for (const lock of expiredLocks) {
       await ctx.db.delete(lock._id);
     }
-    
-    return { cleaned: expiredLocks.length };
+
+    // Also clean up expired symbol trade locks
+    const expiredSymbolLocks = await ctx.db
+      .query("symbolTradeLocks")
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .collect();
+
+    for (const lock of expiredSymbolLocks) {
+      await ctx.db.delete(lock._id);
+    }
+
+    return { cleaned: expiredLocks.length, symbolLocksCleaned: expiredSymbolLocks.length };
+  },
+});
+
+// Acquire per-symbol trade lock (prevents rapid duplicate orders)
+export const acquireSymbolTradeLock = mutation({
+  args: {
+    userId: v.string(),
+    symbol: v.string(),
+    side: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const LOCK_DURATION_MS = 60000; // 60 seconds - prevent same symbol trade within 1 minute
+
+    // Check if active lock exists for this symbol
+    const existingLock = await ctx.db
+      .query("symbolTradeLocks")
+      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+      .filter((q) => q.gt(q.field("expiresAt"), now))
+      .first();
+
+    if (existingLock) {
+      const secondsRemaining = Math.ceil((existingLock.expiresAt - now) / 1000);
+      console.log(`[SymbolLock] Lock exists for ${args.symbol}: ${secondsRemaining}s remaining`);
+      return {
+        success: false,
+        reason: "symbol_locked",
+        symbol: args.symbol,
+        secondsRemaining
+      };
+    }
+
+    // Clean up any expired locks for this user/symbol first
+    const expiredLocks = await ctx.db
+      .query("symbolTradeLocks")
+      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+      .filter((q) => q.lte(q.field("expiresAt"), now))
+      .collect();
+
+    for (const lock of expiredLocks) {
+      await ctx.db.delete(lock._id);
+    }
+
+    // Acquire new lock
+    await ctx.db.insert("symbolTradeLocks", {
+      userId: args.userId,
+      symbol: args.symbol,
+      side: args.side,
+      attemptedAt: now,
+      expiresAt: now + LOCK_DURATION_MS,
+    });
+
+    console.log(`[SymbolLock] Lock acquired for ${args.symbol} (${args.side})`);
+    return { success: true, symbol: args.symbol };
+  },
+});
+
+// Release per-symbol trade lock (call after trade completes or fails)
+export const releaseSymbolTradeLock = mutation({
+  args: {
+    userId: v.string(),
+    symbol: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Find and delete the lock
+    const lock = await ctx.db
+      .query("symbolTradeLocks")
+      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+      .first();
+
+    if (lock) {
+      await ctx.db.delete(lock._id);
+      console.log(`[SymbolLock] Lock released for ${args.symbol}`);
+      return { success: true };
+    }
+
+    return { success: false, reason: "lock_not_found" };
   },
 });

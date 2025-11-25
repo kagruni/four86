@@ -3,10 +3,10 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Main trading loop - runs every 3 minutes
+// Main trading loop - runs every 5 minutes (reduced from 3 to decrease overtrading)
 crons.interval(
   "trading-loop",
-  { minutes: 3 },
+  { minutes: 5 },
   internal.trading.tradingLoop.runTradingCycle
 );
 

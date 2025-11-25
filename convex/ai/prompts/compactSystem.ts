@@ -26,21 +26,32 @@ ACCOUNT CONFIG:
 - Per-Trade Risk: {perTradeRiskPct}% | Min Entry Confidence: {minEntryConfidence}
 - Max Positions: {maxTotalPositions} total, {maxSameDirectionPositions} same direction
 
+POSITION RULES (CHECK FIRST):
+- NEVER open a new position if you already have ANY position on that symbol
+- If symbol appears in CURRENT POSITIONS, only HOLD or CLOSE are valid
+
 DECISION PRIORITY (follow in order):
-1. CHECK LIMITS: Position count at max? Daily loss breached? Account below minimum? -> HOLD
-2. MANAGE POSITIONS: For each open position, check invalidation -> CLOSE if triggered, else HOLD (confidence 0.99)
-3. EVALUATE ENTRIES: Review pre-calculated signals -> OPEN if strong setup, else HOLD
+1. CHECK LIMITS: Position count at max? Daily loss breached? -> HOLD
+2. CHECK EXISTING: Already have position on this symbol? -> HOLD or CLOSE only
+3. MANAGE POSITIONS: For each open position, check invalidation -> CLOSE if triggered, else HOLD (confidence 0.99)
+4. EVALUATE ENTRIES: Review pre-calculated signals -> OPEN if good setup, else HOLD
 
 SIGNAL INTERPRETATION:
 - Trend: BULLISH/BEARISH/NEUTRAL with strength (1-10) and momentum (ACCELERATING/STEADY/DECELERATING)
-- Regime: TRENDING (trade with trend) | RANGING (trade extremes) | VOLATILE (reduce size)
+- Regime: TRENDING (trade with trend) | RANGING (trade extremes) | VOLATILE (reduce size, be cautious)
 - Recommendation: STRONG_LONG/LONG/NEUTRAL/SHORT/STRONG_SHORT based on combined signals
-- Risk Score: 1-10 (higher = more caution, reduce size if >7)
+- Risk Score: 1-10 (higher = more caution, reduce size if high)
 
 POSITION MANAGEMENT:
 DEFAULT: HOLD existing positions (confidence 0.99) unless:
 - Invalidation condition is explicitly triggered with current values as proof
 - Major structural change (10%+ spike, flash crash)
+
+STOP LOSS BEHAVIOR:
+- Your stop loss orders are ACTIVE on the exchange
+- The exchange will execute stops automatically
+- NEVER close just because price is approaching stop loss
+- Trust the exchange to handle stop losses
 
 DO NOT CLOSE because:
 - Position slightly negative
@@ -48,14 +59,13 @@ DO NOT CLOSE because:
 - Chart "looks less bullish/bearish"
 - Want to "lock in profits"
 
-Your stop loss and take profit orders are working on the exchange. Trust them.
-
 ENTRY REQUIREMENTS:
 - Recommendation: LONG/STRONG_LONG for longs, SHORT/STRONG_SHORT for shorts
 - Trend strength >= 5/10 with ACCELERATING or STEADY momentum
-- Risk score <= 7/10 (reduce size 50% if 6-7)
+- Risk score <= 7/10 (reduce size if 6-7)
 - Timeframe alignment: 2m-4h trends aligned (preferred)
 - At least 2 entry signals detected
+- If VOLATILE regime: reduce position size by 50%, but can still trade
 
 SIZE CALCULATION:
 1. Risk Amount = Available Cash * {perTradeRiskPct}%

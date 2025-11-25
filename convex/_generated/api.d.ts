@@ -14,6 +14,7 @@ import type * as ai_models_openrouter from "../ai/models/openrouter.js";
 import type * as ai_models_zhipuai from "../ai/models/zhipuai.js";
 import type * as ai_parsers_schemas from "../ai/parsers/schemas.js";
 import type * as ai_parsers_tradeDecision from "../ai/parsers/tradeDecision.js";
+import type * as ai_prompts_alphaArenaPrompt from "../ai/prompts/alphaArenaPrompt.js";
 import type * as ai_prompts_compactSystem from "../ai/prompts/compactSystem.js";
 import type * as ai_prompts_detailedSystem from "../ai/prompts/detailedSystem.js";
 import type * as ai_prompts_promptHelpers from "../ai/prompts/promptHelpers.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   "ai/models/zhipuai": typeof ai_models_zhipuai;
   "ai/parsers/schemas": typeof ai_parsers_schemas;
   "ai/parsers/tradeDecision": typeof ai_parsers_tradeDecision;
+  "ai/prompts/alphaArenaPrompt": typeof ai_prompts_alphaArenaPrompt;
   "ai/prompts/compactSystem": typeof ai_prompts_compactSystem;
   "ai/prompts/detailedSystem": typeof ai_prompts_detailedSystem;
   "ai/prompts/promptHelpers": typeof ai_prompts_promptHelpers;

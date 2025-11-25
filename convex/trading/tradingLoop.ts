@@ -2,11 +2,12 @@ import { internalAction } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 
 // ═══════════════════════════════════════════════════════════════
-// FEATURE FLAG: Compact Signal Processing
+// FEATURE FLAG: Trading Prompt Mode
 // ═══════════════════════════════════════════════════════════════
-// Set to true to use new pre-processed signals (150-line prompt)
-// Set to false to use old detailed system (680-line prompt)
-const USE_COMPACT_SIGNALS = true;
+// "alpha_arena" - Alpha Arena style (raw data, leverage, TP/SL discipline)
+// "compact"     - Compact signal-based (pre-processed signals, 150-line prompt)
+// "detailed"    - Old detailed system (680-line prompt)
+const TRADING_MODE: "alpha_arena" | "compact" | "detailed" = "alpha_arena";
 
 // ═══════════════════════════════════════════════════════════════
 // CRITICAL: CONCURRENCY PROTECTION
@@ -114,10 +115,60 @@ export const runTradingCycle = internalAction({
           hyperliquidSymbols,
         });
 
-        // 4. Get current positions from database (now synced with Hyperliquid)
-        const positions = await ctx.runQuery(api.queries.getPositions, {
+        // 4. Get current positions - USE HYPERLIQUID AS SOURCE OF TRUTH
+        // Database positions might be stale, so we convert Hyperliquid positions to our format
+        const dbPositions = await ctx.runQuery(api.queries.getPositions, {
           userId: bot.userId,
         });
+
+        // Convert Hyperliquid positions to the format expected by the AI
+        // This ensures the AI ALWAYS knows about actual positions on the exchange
+        const positions = hyperliquidPositions
+          .map((hlPos: any) => {
+            const pos = hlPos.position || hlPos;
+            const coin = pos.coin;
+            const szi = parseFloat(pos.szi || "0");
+
+            // Skip positions with zero size
+            if (szi === 0) return null;
+
+            const entryPx = parseFloat(pos.entryPx || "0");
+            const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
+            const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+            const positionValue = parseFloat(pos.positionValue || "0");
+            const liquidationPx = parseFloat(pos.liquidationPx || "0");
+
+            // Get current price from market data
+            const currentPrice = detailedMarketData[coin]?.currentPrice || entryPx;
+
+            // Calculate P&L percentage
+            const unrealizedPnlPct = positionValue > 0 ? (unrealizedPnl / positionValue) * 100 : 0;
+
+            // Look up additional data from database (stop loss, take profit, etc.)
+            const dbPos = dbPositions.find((p: any) => p.symbol === coin);
+
+            return {
+              symbol: coin,
+              side: szi > 0 ? "LONG" : "SHORT",
+              size: Math.abs(positionValue),
+              leverage,
+              entryPrice: entryPx,
+              currentPrice,
+              unrealizedPnl,
+              unrealizedPnlPct,
+              liquidationPrice: liquidationPx,
+              // Include database data if available
+              stopLoss: dbPos?.stopLoss,
+              takeProfit: dbPos?.takeProfit,
+              invalidationCondition: dbPos?.invalidationCondition,
+              entryReasoning: dbPos?.entryReasoning,
+              confidence: dbPos?.confidence,
+            };
+          })
+          .filter((p: any): p is NonNullable<typeof p> => p !== null);
+
+        console.log(`[LOOP-${loopId}] Hyperliquid has ${positions.length} active positions: ${positions.map((p: any) => `${p.symbol} ${p.side}`).join(", ") || "none"}`);
+        console.log(`[LOOP-${loopId}] Database has ${dbPositions.length} positions`);
 
         // 5. Get performance metrics
         const performanceMetrics = await ctx.runQuery(internal.trading.performanceMetrics.getPerformanceMetrics, {
@@ -128,9 +179,36 @@ export const runTradingCycle = internalAction({
         let decision;
         let systemPromptName: string;
 
-        if (USE_COMPACT_SIGNALS) {
+        if (TRADING_MODE === "alpha_arena") {
           // ═══════════════════════════════════════════════════════════════
-          // NEW: Compact Signal Processing System (150-line prompt)
+          // ALPHA ARENA: Replicates winning strategy (leverage + TP/SL)
+          // ═══════════════════════════════════════════════════════════════
+          console.log(`[LOOP-${loopId}] Using ALPHA ARENA trading system...`);
+          console.log(`[LOOP-${loopId}] Strategy: Leverage 5-10x, strict TP/SL, hold until hit`);
+
+          // Use Alpha Arena trading decision with raw market data
+          decision = await ctx.runAction(api.ai.agents.tradingAgent.makeAlphaArenaTradingDecision, {
+            userId: bot.userId,
+            modelType: "openrouter",
+            modelName: bot.modelName,
+            detailedMarketData,
+            accountState,
+            positions,
+            config: {
+              maxLeverage: bot.maxLeverage,
+              maxPositionSize: bot.maxPositionSize,
+              perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
+              maxTotalPositions: bot.maxTotalPositions ?? 3,
+              maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
+              minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+            },
+          });
+
+          systemPromptName = "Alpha Arena trading system (leverage + TP/SL discipline)";
+
+        } else if (TRADING_MODE === "compact") {
+          // ═══════════════════════════════════════════════════════════════
+          // COMPACT: Pre-processed signals (150-line prompt)
           // ═══════════════════════════════════════════════════════════════
           console.log(`[LOOP-${loopId}] Using COMPACT signal processing...`);
 
@@ -165,7 +243,7 @@ export const runTradingCycle = internalAction({
 
         } else {
           // ═══════════════════════════════════════════════════════════════
-          // OLD: Detailed System (680-line prompt) - for rollback
+          // DETAILED: Old system (680-line prompt) - for rollback
           // ═══════════════════════════════════════════════════════════════
           console.log(`[LOOP-${loopId}] Using DETAILED trading system...`);
 
@@ -206,7 +284,7 @@ export const runTradingCycle = internalAction({
           userId: bot.userId,
           modelName: bot.modelName,
           systemPrompt: systemPromptName,
-          userPrompt: USE_COMPACT_SIGNALS ? "Pre-processed signals" : JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics }),
+          userPrompt: TRADING_MODE === "compact" ? "Pre-processed signals" : TRADING_MODE === "alpha_arena" ? "Alpha Arena raw data" : JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics }),
           rawResponse: JSON.stringify(decision),
           parsedResponse: decision,
           decision: decision.decision,
@@ -270,6 +348,65 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
   if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
     const requestedSide = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
     const symbolKey = `${decision.symbol}-${requestedSide}`;
+
+    // ✅ CHECK #-2: DATABASE SYMBOL LOCK (prevents rapid duplicate orders)
+    // This is the FIRST check - if we've attempted to trade this symbol in the last 60 seconds, block it
+    const symbolLockResult = await ctx.runMutation(api.mutations.acquireSymbolTradeLock, {
+      userId: bot.userId,
+      symbol: decision.symbol!,
+      side: requestedSide,
+    });
+
+    if (!symbolLockResult.success) {
+      console.log(`❌ [SYMBOL LOCK] Trade blocked: ${decision.symbol} already has pending trade (${symbolLockResult.secondsRemaining}s remaining)`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Symbol lock blocked duplicate: ${decision.symbol}`,
+        data: {
+          decision: decision.decision,
+          symbol: decision.symbol,
+          secondsRemaining: symbolLockResult.secondsRemaining,
+        },
+      });
+      return; // ABORT - symbol is locked
+    }
+    console.log(`✅ [SYMBOL LOCK] Lock acquired for ${decision.symbol}`);
+
+    // ✅ CHECK #-1: HYPERLIQUID POSITION CHECK (AUTHORITATIVE - queries exchange directly)
+    // This is the most reliable check - database can be stale, but exchange is truth
+    try {
+      const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      const existingHLPosition = hyperliquidPositions.find((p: any) => {
+        const coin = p.position?.coin || p.coin;
+        const szi = p.position?.szi || p.szi || "0";
+        return coin === decision.symbol && parseFloat(szi) !== 0;
+      });
+
+      if (existingHLPosition) {
+        const posSize = existingHLPosition.position?.szi || existingHLPosition.szi || "0";
+        console.log(`❌ [HYPERLIQUID CHECK] Position already exists on exchange: ${decision.symbol} (size: ${posSize})`);
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "WARNING",
+          message: `Hyperliquid position check blocked duplicate: ${decision.symbol}`,
+          data: {
+            decision: decision.decision,
+            symbol: decision.symbol,
+            existingSize: posSize,
+          },
+        });
+        return; // ABORT - position already exists on exchange
+      }
+      console.log(`✅ [HYPERLIQUID CHECK] No existing position on ${decision.symbol}`);
+    } catch (hlError) {
+      console.error(`⚠️ [HYPERLIQUID CHECK] Failed to query exchange positions:`, hlError);
+      // Continue with other checks - don't block entirely on API failure
+    }
 
     // ✅ CHECK #0: In-memory duplicate prevention (ULTRA FAST)
     const lastTrade = lastTradeBySymbol[symbolKey];
@@ -500,6 +637,50 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
       console.log(`  Size: $${decision.size_usd} / $${entryPrice} = ${sizeInCoins.toFixed(4)} coins`);
       console.log(`  Leverage: ${decision.leverage}x`);
 
+      // ═══════════════════════════════════════════════════════════════
+      // RISK/REWARD VALIDATION (Minimum 1.5:1 R:R required)
+      // ═══════════════════════════════════════════════════════════════
+      const MIN_RISK_REWARD = 1.5;
+
+      if (decision.stop_loss && decision.take_profit) {
+        let riskDistance: number;
+        let rewardDistance: number;
+
+        if (decision.decision === "OPEN_LONG") {
+          riskDistance = entryPrice - decision.stop_loss;
+          rewardDistance = decision.take_profit - entryPrice;
+        } else {
+          riskDistance = decision.stop_loss - entryPrice;
+          rewardDistance = entryPrice - decision.take_profit;
+        }
+
+        const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
+
+        console.log(`  Risk/Reward: ${rrRatio.toFixed(2)}:1 (min ${MIN_RISK_REWARD}:1)`);
+        console.log(`    Risk: $${riskDistance.toFixed(2)} | Reward: $${rewardDistance.toFixed(2)}`);
+
+        if (rrRatio < MIN_RISK_REWARD) {
+          console.log(`❌ Trade rejected: R:R ratio ${rrRatio.toFixed(2)} below minimum ${MIN_RISK_REWARD}`);
+          await ctx.runMutation(api.mutations.saveSystemLog, {
+            userId: bot.userId,
+            level: "WARNING",
+            message: `Trade rejected: R:R ${rrRatio.toFixed(2)} < ${MIN_RISK_REWARD} minimum`,
+            data: {
+              decision: decision.decision,
+              symbol: decision.symbol,
+              entryPrice,
+              stopLoss: decision.stop_loss,
+              takeProfit: decision.take_profit,
+              rrRatio,
+            },
+          });
+          return; // ABORT - bad risk/reward
+        }
+        console.log(`✅ R:R validation passed: ${rrRatio.toFixed(2)}:1`);
+      } else {
+        console.log(`⚠️ R:R check skipped: Missing stop_loss or take_profit`);
+      }
+
       // Open new position
       const result = await ctx.runAction(api.hyperliquid.client.placeOrder, {
         privateKey: credentials.hyperliquidPrivateKey,
@@ -514,11 +695,25 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
 
       const isLongPosition = decision.decision === "OPEN_LONG";
 
-      // Place stop-loss order if specified
-      if (decision.stop_loss) {
+      // ═══════════════════════════════════════════════════════════════
+      // MANDATORY STOP LOSS WITH RETRY AND CLOSE-ON-FAILURE
+      // ═══════════════════════════════════════════════════════════════
+
+      // Default to 3% stop loss if AI didn't specify one
+      if (!decision.stop_loss) {
+        decision.stop_loss = isLongPosition
+          ? entryPrice * 0.97  // 3% below for longs
+          : entryPrice * 1.03; // 3% above for shorts
+        console.log(`⚠️ No stop loss specified, using default 3%: $${decision.stop_loss.toFixed(2)}`);
+      }
+
+      let stopLossPlaced = false;
+      const MAX_SL_RETRIES = 2;
+
+      for (let attempt = 1; attempt <= MAX_SL_RETRIES && !stopLossPlaced; attempt++) {
         try {
-          console.log(`Placing stop-loss order at $${decision.stop_loss}...`);
-          await ctx.runAction(api.hyperliquid.client.placeStopLoss, {
+          console.log(`Placing stop-loss order at $${decision.stop_loss} (attempt ${attempt}/${MAX_SL_RETRIES})...`);
+          const slResult = await ctx.runAction(api.hyperliquid.client.placeStopLoss, {
             privateKey: credentials.hyperliquidPrivateKey,
             symbol: decision.symbol!,
             size: sizeInCoins,
@@ -526,10 +721,74 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
             isLongPosition,
             testnet: credentials.hyperliquidTestnet,
           });
+
+          if (slResult && slResult.success !== false) {
+            stopLossPlaced = true;
+            console.log(`✅ Stop-loss placed successfully at $${decision.stop_loss}`);
+          }
         } catch (error) {
-          console.error(`Failed to place stop-loss order:`, error);
-          // Don't fail the entire trade if SL order fails - position is still open
+          console.error(`❌ Stop-loss attempt ${attempt} failed:`, error);
+          if (attempt < MAX_SL_RETRIES) {
+            console.log(`⏳ Waiting 1 second before retry...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
         }
+      }
+
+      // CRITICAL: If stop loss failed after all retries, close position for safety
+      if (!stopLossPlaced) {
+        console.error(`🚨 CRITICAL: Stop loss failed after ${MAX_SL_RETRIES} attempts. Closing position for safety.`);
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "CRITICAL",
+          message: `Stop loss placement failed - closing position for safety`,
+          data: {
+            symbol: decision.symbol,
+            stopLoss: decision.stop_loss,
+            entryPrice,
+            sizeInCoins,
+          },
+        });
+
+        try {
+          // Close the position we just opened
+          await ctx.runAction(api.hyperliquid.client.closePosition, {
+            privateKey: credentials.hyperliquidPrivateKey,
+            address: credentials.hyperliquidAddress,
+            symbol: decision.symbol!,
+            size: sizeInCoins,
+            isBuy: !isLongPosition, // Opposite side to close
+            testnet: credentials.hyperliquidTestnet,
+          });
+          console.log(`✅ Position closed safely after SL failure`);
+
+          // Record the close
+          await ctx.runMutation(api.mutations.saveTrade, {
+            userId: bot.userId,
+            symbol: decision.symbol!,
+            action: "CLOSE",
+            side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
+            size: decision.size_usd!,
+            leverage: decision.leverage!,
+            price: entryPrice,
+            aiReasoning: "EMERGENCY CLOSE: Stop loss placement failed",
+            aiModel: bot.modelName,
+            confidence: 1.0,
+            txHash: "emergency-close",
+          });
+        } catch (closeError) {
+          console.error(`🚨 CRITICAL: Failed to close position after SL failure:`, closeError);
+          await ctx.runMutation(api.mutations.saveSystemLog, {
+            userId: bot.userId,
+            level: "CRITICAL",
+            message: `UNPROTECTED POSITION: Failed to close after SL failure`,
+            data: {
+              symbol: decision.symbol,
+              error: closeError instanceof Error ? closeError.message : String(closeError),
+            },
+          });
+        }
+        return; // Exit - position was closed or we have an unprotected position logged
       }
 
       // Place take-profit order if specified

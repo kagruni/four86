@@ -1,7 +1,14 @@
-import { RunnableSequence } from "@langchain/core/runnables";
+import { RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
 import { tradingPrompt } from "../prompts/system";
 import { detailedTradingPrompt, formatCoinMarketData, formatPositionsDetailed } from "../prompts/detailedSystem";
 import { compactTradingPrompt, formatPreProcessedSignals, formatPositions as formatPositionsCompact } from "../prompts/compactSystem";
+import {
+  alphaArenaTradingPrompt,
+  formatMarketDataAlphaArena,
+  formatPositionsAlphaArena,
+  parseAlphaArenaOutput,
+  type AlphaArenaOutput,
+} from "../prompts/alphaArenaPrompt";
 import { generatePromptVariables, type BotConfig } from "../prompts/promptHelpers";
 import { tradeDecisionParser } from "../parsers/tradeDecision";
 import { ZhipuAI } from "../models/zhipuai";
@@ -320,6 +327,191 @@ export function createCompactTradingChain(
     compactTradingPrompt,
     model,
     tradeDecisionParser,
+  ]);
+
+  return chain;
+}
+
+// =============================================================================
+// ALPHA ARENA TRADING CHAIN (Replicates winning strategy)
+// =============================================================================
+
+/**
+ * Alpha Arena-style parser that handles the multi-decision output format
+ * Uses RunnableLambda for proper LangChain integration
+ */
+function createAlphaArenaParser() {
+  return new RunnableLambda({
+    func: async (input: any): Promise<any> => {
+      // Handle if the model returned an object directly (some models do this)
+      let text: string;
+      if (typeof input === "object" && input !== null) {
+        // Check if it's a LangChain AIMessage
+        if (input.content !== undefined) {
+          text = String(input.content);
+        } else if (input.text !== undefined) {
+          text = String(input.text);
+        } else {
+          // It's already a parsed object, try to use it directly
+          console.log("[AlphaArena Parser] Received object input, attempting direct parse");
+          try {
+            const legacyDecision = parseAlphaArenaOutput(input as AlphaArenaOutput);
+            return legacyDecision;
+          } catch {
+            text = JSON.stringify(input);
+          }
+        }
+      } else if (typeof input === "string") {
+        text = input;
+      } else {
+        console.error("[AlphaArena Parser] Unknown input type:", typeof input);
+        return {
+          decision: "HOLD",
+          symbol: null,
+          confidence: 0.99,
+          reasoning: `Unknown input type: ${typeof input} - defaulting to HOLD`,
+        };
+      }
+
+      console.log(`[AlphaArena Parser] Raw input length: ${text?.length || 0} chars`);
+
+      // Handle empty response
+      if (!text || text.trim() === "") {
+        console.error("[AlphaArena Parser] Empty response from model");
+        return {
+          decision: "HOLD",
+          symbol: null,
+          confidence: 0.99,
+          reasoning: "Empty response - defaulting to HOLD",
+        };
+      }
+
+      // Strip markdown code blocks
+      let cleanedText = text.trim();
+      if (cleanedText.startsWith("```")) {
+        cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "");
+        cleanedText = cleanedText.replace(/\n?```\s*$/, "");
+        cleanedText = cleanedText.trim();
+      }
+
+      // Extract <think> tags if present (DeepSeek)
+      const thinkMatch = cleanedText.match(/<think>([\s\S]*?)<\/think>/i);
+      let thinking = "";
+      if (thinkMatch) {
+        thinking = thinkMatch[1].trim();
+        cleanedText = cleanedText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+        console.log(`[AlphaArena Parser] Extracted ${thinking.length} chars from <think> tags`);
+      }
+
+      // Try to extract JSON
+      if (!cleanedText.startsWith("{")) {
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          cleanedText = jsonMatch[0];
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(cleanedText) as AlphaArenaOutput;
+
+        // Use the thinking from <think> tags if present, otherwise use the parsed thinking
+        if (thinking && !parsed.thinking) {
+          parsed.thinking = thinking;
+        }
+
+        // Convert Alpha Arena format to legacy format
+        const legacyDecision = parseAlphaArenaOutput(parsed);
+
+        // Fix leverage if < 1
+        if (legacyDecision.leverage !== undefined && legacyDecision.leverage < 1) {
+          console.log(`[AlphaArena Parser] Correcting leverage from ${legacyDecision.leverage} to 1`);
+          legacyDecision.leverage = 1;
+        }
+
+        // Fix invalid symbols
+        const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+        if (legacyDecision.symbol && !validSymbols.includes(legacyDecision.symbol)) {
+          console.log(`[AlphaArena Parser] Correcting invalid symbol "${legacyDecision.symbol}" to null`);
+          legacyDecision.symbol = null;
+          legacyDecision.decision = "HOLD";
+        }
+
+        console.log(`[AlphaArena Parser] Decision: ${legacyDecision.decision} ${legacyDecision.symbol || ""}`);
+        return legacyDecision;
+      } catch (error) {
+        console.error("[AlphaArena Parser] JSON parse failed:", error);
+        return {
+          decision: "HOLD",
+          symbol: null,
+          confidence: 0.99,
+          reasoning: `Parse error - defaulting to HOLD. Error: ${error}`,
+        };
+      }
+    },
+  });
+}
+
+/**
+ * Create Alpha Arena-style trading chain
+ *
+ * This chain replicates the exact format used by winning AI traders:
+ * - Raw market data (no pre-processed recommendations)
+ * - Per-coin analysis with chain-of-thought
+ * - Optimized for low-frequency, high-conviction trading
+ */
+export function createAlphaArenaTradingChain(
+  modelType: "zhipuai" | "openrouter",
+  modelName: string,
+  apiKey: string,
+  config: CompactBotConfig
+) {
+  // Generate prompt template variables from config
+  const promptVars = generateCompactPromptVariables(config);
+
+  // Select the appropriate model
+  const model = modelType === "zhipuai"
+    ? new ZhipuAI({ apiKey, model: modelName })
+    : new OpenRouterChat({ apiKey, model: modelName });
+
+  // Create Alpha Arena parser
+  const alphaArenaParser = createAlphaArenaParser();
+
+  // Create the chain with Alpha Arena prompts
+  const chain = RunnableSequence.from([
+    {
+      // Format market data in Alpha Arena style
+      marketDataSection: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+        formatMarketDataAlphaArena(input.detailedMarketData),
+
+      // Format positions in Alpha Arena style
+      positionsSection: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+        formatPositionsAlphaArena(input.positions || []),
+
+      // List of symbols with open positions (critical for AI to know what NOT to trade)
+      openPositionSymbols: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) => {
+        const positions = input.positions || [];
+        if (positions.length === 0) return "None - all symbols available for entry";
+        return positions.map((p: any) => `${p.symbol} (${p.side})`).join(", ");
+      },
+
+      // Account information
+      accountValue: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+        input.accountState.accountValue.toFixed(2),
+      availableCash: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+        input.accountState.withdrawable.toFixed(2),
+      positionCount: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+        (input.positions || []).length,
+      maxPositions: () => config.maxTotalPositions || 3,
+
+      // Session info
+      timestamp: () => new Date().toISOString(),
+
+      // Spread all generated prompt variables
+      ...Object.fromEntries(Object.entries(promptVars).map(([key, value]) => [key, () => value])),
+    },
+    alphaArenaTradingPrompt,
+    model,
+    alphaArenaParser,
   ]);
 
   return chain;
