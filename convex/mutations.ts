@@ -448,6 +448,7 @@ export const cleanupExpiredLocks = mutation({
 });
 
 // Acquire per-symbol trade lock (prevents rapid duplicate orders)
+// RACE-CONDITION SAFE: Uses "insert first, verify after" pattern
 export const acquireSymbolTradeLock = mutation({
   args: {
     userId: v.string(),
@@ -456,27 +457,9 @@ export const acquireSymbolTradeLock = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const LOCK_DURATION_MS = 60000; // 60 seconds - prevent same symbol trade within 1 minute
+    const LOCK_DURATION_MS = 120000; // 120 seconds - increased to prevent duplicates during slow AI responses
 
-    // Check if active lock exists for this symbol
-    const existingLock = await ctx.db
-      .query("symbolTradeLocks")
-      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
-      .filter((q) => q.gt(q.field("expiresAt"), now))
-      .first();
-
-    if (existingLock) {
-      const secondsRemaining = Math.ceil((existingLock.expiresAt - now) / 1000);
-      console.log(`[SymbolLock] Lock exists for ${args.symbol}: ${secondsRemaining}s remaining`);
-      return {
-        success: false,
-        reason: "symbol_locked",
-        symbol: args.symbol,
-        secondsRemaining
-      };
-    }
-
-    // Clean up any expired locks for this user/symbol first
+    // Step 1: Clean up ALL expired locks for this user/symbol first
     const expiredLocks = await ctx.db
       .query("symbolTradeLocks")
       .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
@@ -487,8 +470,27 @@ export const acquireSymbolTradeLock = mutation({
       await ctx.db.delete(lock._id);
     }
 
-    // Acquire new lock
-    await ctx.db.insert("symbolTradeLocks", {
+    // Step 2: Check if an active lock already exists
+    const existingLock = await ctx.db
+      .query("symbolTradeLocks")
+      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+      .filter((q) => q.gt(q.field("expiresAt"), now))
+      .first();
+
+    if (existingLock) {
+      const secondsRemaining = Math.ceil((existingLock.expiresAt - now) / 1000);
+      console.log(`[SymbolLock] Lock exists for ${args.symbol}: ${secondsRemaining}s remaining (lockId: ${existingLock._id})`);
+      return {
+        success: false,
+        reason: "symbol_locked",
+        symbol: args.symbol,
+        secondsRemaining
+      };
+    }
+
+    // Step 3: Insert our lock with a unique token
+    const lockToken = `${args.userId}-${args.symbol}-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    const newLockId = await ctx.db.insert("symbolTradeLocks", {
       userId: args.userId,
       symbol: args.symbol,
       side: args.side,
@@ -496,8 +498,43 @@ export const acquireSymbolTradeLock = mutation({
       expiresAt: now + LOCK_DURATION_MS,
     });
 
-    console.log(`[SymbolLock] Lock acquired for ${args.symbol} (${args.side})`);
-    return { success: true, symbol: args.symbol };
+    // Step 4: RACE CONDITION CHECK - Verify we're the only lock holder
+    // Get ALL active locks for this user/symbol (including ours)
+    const allActiveLocks = await ctx.db
+      .query("symbolTradeLocks")
+      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+      .filter((q) => q.gt(q.field("expiresAt"), now))
+      .collect();
+
+    // If there are multiple locks, only the OLDEST one (by attemptedAt) wins
+    if (allActiveLocks.length > 1) {
+      // Sort by attemptedAt to find the winner
+      allActiveLocks.sort((a, b) => a.attemptedAt - b.attemptedAt);
+      const winningLock = allActiveLocks[0];
+
+      if (winningLock._id !== newLockId) {
+        // We lost the race - delete our lock and fail
+        await ctx.db.delete(newLockId);
+        console.log(`[SymbolLock] RACE LOST for ${args.symbol}: Another lock won (winner: ${winningLock._id})`);
+        return {
+          success: false,
+          reason: "race_condition_lost",
+          symbol: args.symbol,
+          secondsRemaining: Math.ceil((winningLock.expiresAt - now) / 1000)
+        };
+      }
+
+      // We won! Delete all other locks (losers)
+      for (const lock of allActiveLocks) {
+        if (lock._id !== newLockId) {
+          await ctx.db.delete(lock._id);
+          console.log(`[SymbolLock] Cleaned up losing lock: ${lock._id}`);
+        }
+      }
+    }
+
+    console.log(`[SymbolLock] Lock acquired for ${args.symbol} (${args.side}) - lockId: ${newLockId}`);
+    return { success: true, symbol: args.symbol, lockId: newLockId };
   },
 });
 

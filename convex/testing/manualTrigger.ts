@@ -3,6 +3,262 @@ import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 
 /**
+ * FORCE CLOSE any position directly on Hyperliquid
+ * Use this when a position exists on the exchange but not in our database
+ */
+export const forceClosePosition = action({
+  args: {
+    userId: v.string(),
+    symbol: v.string(), // e.g., "ETH", "BTC"
+  },
+  handler: async (ctx, args) => {
+    try {
+      console.log(`[Force Close] Attempting to close ${args.symbol} for user ${args.userId}`);
+
+      // Get credentials
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
+        return { success: false, error: "Missing Hyperliquid credentials" };
+      }
+
+      // Use NUCLEAR CLOSE - cancels all orders first, then closes
+      console.log(`[Force Close] Using nuclear close (cancels orders first)...`);
+      const result = await ctx.runAction(api.hyperliquid.client.nuclearClosePosition, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: args.symbol,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      console.log(`[Force Close] Nuclear close result:`, result);
+
+      // Also remove from database if it exists there
+      try {
+        await ctx.runMutation(api.mutations.closePosition, {
+          userId: args.userId,
+          symbol: args.symbol,
+        });
+        console.log(`[Force Close] Also removed from database`);
+      } catch (dbError) {
+        console.log(`[Force Close] Position wasn't in database (that's fine)`);
+      }
+
+      return {
+        success: result.success,
+        message: `Nuclear close completed for ${args.symbol}. Cancelled ${result.cancelledOrders} orders.`,
+        txHash: result.txHash,
+        cancelledOrders: result.cancelledOrders,
+      };
+
+    } catch (error) {
+      console.error("[Force Close] Error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
+/**
+ * EMERGENCY DIRECT CLOSE - doesn't need database, uses provided credentials
+ * Use this when credentials aren't in the database
+ */
+export const emergencyDirectClose = action({
+  args: {
+    privateKey: v.string(),
+    walletAddress: v.string(),
+    symbol: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      console.log(`[Emergency Close] Starting for ${args.symbol} on ${args.testnet ? "testnet" : "mainnet"}`);
+
+      // Use nuclear close directly
+      const result = await ctx.runAction(api.hyperliquid.client.nuclearClosePosition, {
+        privateKey: args.privateKey,
+        address: args.walletAddress,
+        symbol: args.symbol,
+        testnet: args.testnet,
+      });
+
+      console.log(`[Emergency Close] Result:`, result);
+      return result;
+    } catch (error) {
+      console.error("[Emergency Close] Error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
+/**
+ * DEBUG: Show all position details and try to close
+ * Use this to diagnose why a position can't be closed
+ */
+export const debugAndClosePosition = action({
+  args: {
+    userId: v.string(),
+    symbol: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const logs: string[] = [];
+    const log = (msg: string) => {
+      console.log(msg);
+      logs.push(msg);
+    };
+
+    try {
+      log(`[DEBUG] Starting debug for ${args.symbol}`);
+
+      // Get credentials
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
+        return { success: false, error: "Missing Hyperliquid credentials", logs };
+      }
+
+      log(`[DEBUG] Wallet: ${credentials.hyperliquidAddress}`);
+      log(`[DEBUG] Network: ${credentials.hyperliquidTestnet ? "TESTNET" : "MAINNET"}`);
+
+      // Get ALL positions
+      const positions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      log(`[DEBUG] Total positions returned: ${positions.length}`);
+
+      // Log all positions
+      for (const p of positions) {
+        const pos = p.position || p;
+        const coin = pos.coin;
+        const szi = pos.szi || "0";
+        const entryPx = pos.entryPx || "0";
+        const positionValue = pos.positionValue || "0";
+        const leverage = pos.leverage?.value || pos.leverage || "1";
+
+        log(`[DEBUG] Position: ${coin} | Size: ${szi} | Entry: $${entryPx} | Value: $${positionValue} | Leverage: ${leverage}x`);
+      }
+
+      // Find specific position
+      const targetPos = positions.find((p: any) => {
+        const coin = p.position?.coin || p.coin;
+        return coin === args.symbol;
+      });
+
+      if (!targetPos) {
+        log(`[DEBUG] No position found for ${args.symbol}!`);
+        return {
+          success: false,
+          error: `Position ${args.symbol} not found`,
+          logs,
+          allPositions: positions.map((p: any) => (p.position?.coin || p.coin))
+        };
+      }
+
+      const pos = targetPos.position || targetPos;
+      const szi = parseFloat(pos.szi || "0");
+      const size = Math.abs(szi);
+      const isLong = szi > 0;
+
+      log(`[DEBUG] Target position found:`);
+      log(`  - Symbol: ${args.symbol}`);
+      log(`  - Side: ${isLong ? "LONG" : "SHORT"}`);
+      log(`  - Size (szi): ${szi}`);
+      log(`  - Abs Size: ${size}`);
+      log(`  - Entry Price: ${pos.entryPx}`);
+      log(`  - Position Value: ${pos.positionValue}`);
+      log(`  - Leverage: ${pos.leverage?.value || pos.leverage}`);
+      log(`  - Liquidation Price: ${pos.liquidationPx}`);
+      log(`  - Unrealized PnL: ${pos.unrealizedPnl}`);
+      log(`  - Margin Used: ${pos.marginUsed}`);
+      log(`  - Max Trade Size: ${pos.maxTradeSzs}`);
+
+      // Get open orders
+      const openOrders = await ctx.runAction(api.hyperliquid.client.getUserOpenOrders, {
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      const ordersForSymbol = openOrders.filter((o: any) => o.coin === args.symbol);
+      log(`[DEBUG] Open orders for ${args.symbol}: ${ordersForSymbol.length}`);
+      for (const o of ordersForSymbol) {
+        log(`  - Order: ${o.side} ${o.sz} @ ${o.limitPx} (oid: ${o.oid})`);
+      }
+
+      // Get current market price
+      const marketData = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+        symbols: [args.symbol],
+        testnet: credentials.hyperliquidTestnet,
+      });
+      const currentPrice = marketData[args.symbol]?.price || 0;
+      log(`[DEBUG] Current market price: $${currentPrice}`);
+
+      if (size === 0) {
+        log(`[DEBUG] Position size is ZERO - nothing to close`);
+        return { success: false, error: "Position size is zero", logs };
+      }
+
+      // Try to close with VERY aggressive slippage (10%)
+      log(`[DEBUG] Attempting close with 10% slippage...`);
+      const slippage = 0.10;
+      const closePrice = isLong
+        ? currentPrice * (1 - slippage) // Sell lower for long
+        : currentPrice * (1 + slippage); // Buy higher for short
+
+      log(`[DEBUG] Close order: ${isLong ? "SELL" : "BUY"} ${size} @ $${closePrice.toFixed(2)}`);
+
+      try {
+        // Use the SDK directly for more control
+        const result = await ctx.runAction(api.hyperliquid.client.placeOrder, {
+          privateKey: credentials.hyperliquidPrivateKey,
+          address: credentials.hyperliquidAddress,
+          symbol: args.symbol,
+          isBuy: !isLong,
+          size: size,
+          leverage: 1,
+          price: closePrice,
+          testnet: credentials.hyperliquidTestnet,
+        });
+
+        log(`[DEBUG] Close order result: ${JSON.stringify(result)}`);
+
+        return {
+          success: true,
+          message: `Close order placed`,
+          logs,
+          result,
+        };
+      } catch (closeError) {
+        log(`[DEBUG] Close failed: ${closeError}`);
+        return {
+          success: false,
+          error: `Close failed: ${closeError}`,
+          logs,
+        };
+      }
+
+    } catch (error) {
+      log(`[DEBUG] Error: ${error}`);
+      return {
+        success: false,
+        error: String(error),
+        logs,
+      };
+    }
+  },
+});
+
+/**
  * Manually sync positions with Hyperliquid (fixes database sync issues)
  */
 export const syncPositionsWithHyperliquid = action({
@@ -226,6 +482,85 @@ export const runTradingCycleForUser = action({
         success: false,
         logs,
         error: String(error),
+      };
+    }
+  },
+});
+
+/**
+ * Manually close a position (sell button from dashboard)
+ * This securely handles the private key on the server side
+ */
+export const manualClosePosition = action({
+  args: {
+    userId: v.string(),
+    symbol: v.string(),
+    size: v.number(), // Size in coins
+    side: v.string(), // "LONG" or "SHORT"
+  },
+  handler: async (ctx, args) => {
+    try {
+      console.log(`[Manual Close] Closing ${args.symbol} position for user ${args.userId}`);
+      console.log(`[Manual Close] Size: ${args.size}, Side: ${args.side}`);
+
+      // Get credentials securely on the server
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
+        console.error("[Manual Close] Missing credentials");
+        return { success: false, error: "Missing Hyperliquid credentials" };
+      }
+
+      // Close the position on Hyperliquid
+      // To close a LONG position, we SELL (isBuy=false)
+      // To close a SHORT position, we BUY (isBuy=true)
+      const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: args.symbol,
+        size: args.size,
+        isBuy: args.side === "SHORT", // Opposite of position side
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      console.log(`[Manual Close] Position closed on Hyperliquid:`, result);
+
+      // Save trade record
+      await ctx.runMutation(api.mutations.saveTrade, {
+        userId: args.userId,
+        symbol: args.symbol,
+        action: "CLOSE",
+        side: "CLOSE",
+        size: 0,
+        leverage: 1,
+        price: 0,
+        aiReasoning: "Manual close from dashboard",
+        aiModel: "manual",
+        confidence: 1,
+        txHash: result.txHash,
+      });
+
+      // Remove position from database
+      await ctx.runMutation(api.mutations.closePosition, {
+        userId: args.userId,
+        symbol: args.symbol,
+      });
+
+      console.log(`[Manual Close] Position removed from database`);
+
+      return {
+        success: true,
+        message: `Successfully closed ${args.symbol} position`,
+        txHash: result.txHash,
+      };
+
+    } catch (error) {
+      console.error("[Manual Close] Error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   },

@@ -339,23 +339,33 @@ export async function placeStopLoss(
           },
         },
       ],
-      grouping: "na",
+      grouping: "normalTpsl", // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
     };
 
     console.log(`[placeStopLoss] Order request:`, JSON.stringify(orderRequest, null, 2));
 
     const result = await exchangeClient.order(orderRequest);
 
-    // Extract order ID
+    // Log full response for debugging
+    console.log(`[placeStopLoss] Full API response:`, JSON.stringify(result, null, 2));
+
+    // Extract order ID - check for various status types
     const status = result?.response?.data?.statuses?.[0];
     let txHash = "pending";
 
     if (status) {
-      if ("filled" in status) {
+      if ("error" in status) {
+        console.error(`[placeStopLoss] Order error:`, status.error);
+        throw new Error(`Stop loss order failed: ${status.error}`);
+      } else if ("filled" in status) {
         txHash = `sl_filled_${status.filled.oid}`;
       } else if ("resting" in status) {
         txHash = `sl_resting_${status.resting.oid}`;
+      } else {
+        console.log(`[placeStopLoss] Unknown status type:`, status);
       }
+    } else {
+      console.warn(`[placeStopLoss] No status in response`);
     }
 
     console.log(`[placeStopLoss] Successfully placed stop-loss order: ${txHash}`);
@@ -418,23 +428,33 @@ export async function placeTakeProfit(
           },
         },
       ],
-      grouping: "na",
+      grouping: "normalTpsl", // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
     };
 
     console.log(`[placeTakeProfit] Order request:`, JSON.stringify(orderRequest, null, 2));
 
     const result = await exchangeClient.order(orderRequest);
 
-    // Extract order ID
+    // Log full response for debugging
+    console.log(`[placeTakeProfit] Full API response:`, JSON.stringify(result, null, 2));
+
+    // Extract order ID - check for various status types
     const status = result?.response?.data?.statuses?.[0];
     let txHash = "pending";
 
     if (status) {
-      if ("filled" in status) {
+      if ("error" in status) {
+        console.error(`[placeTakeProfit] Order error:`, status.error);
+        throw new Error(`Take profit order failed: ${status.error}`);
+      } else if ("filled" in status) {
         txHash = `tp_filled_${status.filled.oid}`;
       } else if ("resting" in status) {
         txHash = `tp_resting_${status.resting.oid}`;
+      } else {
+        console.log(`[placeTakeProfit] Unknown status type:`, status);
       }
+    } else {
+      console.warn(`[placeTakeProfit] No status in response`);
     }
 
     console.log(`[placeTakeProfit] Successfully placed take-profit order: ${txHash}`);
@@ -451,6 +471,7 @@ export async function placeTakeProfit(
 
 /**
  * Close a position by placing a reduce-only order in the opposite direction
+ * Uses aggressive slippage (3%) to ensure immediate fill at market price
  */
 export async function closePosition(
   params: ClosePositionParams
@@ -458,16 +479,34 @@ export async function closePosition(
   const { privateKey, symbol, size, price, isBuy, testnet } = params;
 
   try {
+    // Add 3% slippage to ensure the order fills immediately in volatile markets
+    // For buying (closing a SHORT): price higher than market
+    // For selling (closing a LONG): price lower than market
+    const slippagePct = 0.03; // 3% slippage - aggressive to guarantee fill
+    const priceWithSlippage = isBuy
+      ? price * (1 + slippagePct) // Buy higher to guarantee fill
+      : price * (1 - slippagePct); // Sell lower to guarantee fill
+
+    console.log(`[closePosition] Closing ${symbol} position:`, {
+      side: isBuy ? "BUY (closing SHORT)" : "SELL (closing LONG)",
+      size,
+      marketPrice: price,
+      priceWithSlippage,
+      slippage: `${slippagePct * 100}%`,
+    });
+
     const result = await placeOrder({
       privateKey,
       symbol,
       isBuy, // Opposite of position side
       size,
-      price,
+      price: priceWithSlippage,
       testnet,
       reduceOnly: true, // Important: this ensures we only close, not open a reverse position
-      timeInForce: "Ioc", // Immediate-Or-Cancel: execute immediately at market or cancel
+      timeInForce: "Gtc", // Good-Till-Cancel: keep trying until filled (safer for closes)
     });
+
+    console.log(`[closePosition] Close order result:`, result);
 
     return {
       success: result.success,
@@ -536,5 +575,128 @@ export async function getUserOpenOrders(
   } catch (error) {
     console.error("Error fetching user open orders:", error);
     throw new Error(`Failed to fetch user open orders: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Cancel all open orders for a specific symbol
+ * This is needed before closing a position if there are TP/SL orders
+ */
+export async function cancelAllOrdersForSymbol(
+  privateKey: string,
+  address: string,
+  symbol: string,
+  testnet: boolean
+): Promise<{ success: boolean; cancelledCount: number }> {
+  try {
+    // Get all open orders
+    const openOrders = await getUserOpenOrders(address, testnet);
+
+    // Filter orders for this symbol
+    const ordersToCancel = openOrders.filter((order: any) => order.coin === symbol);
+
+    if (ordersToCancel.length === 0) {
+      console.log(`[cancelAllOrdersForSymbol] No open orders for ${symbol}`);
+      return { success: true, cancelledCount: 0 };
+    }
+
+    console.log(`[cancelAllOrdersForSymbol] Found ${ordersToCancel.length} orders to cancel for ${symbol}`);
+
+    // Get asset info for the asset ID
+    const assetInfo = await getAssetInfo(symbol, testnet);
+    const exchangeClient = createExchangeClient(privateKey, testnet);
+
+    // Cancel each order
+    const cancels = ordersToCancel.map((order: any) => ({
+      a: assetInfo.assetId,
+      o: order.oid,
+    }));
+
+    console.log(`[cancelAllOrdersForSymbol] Cancelling orders:`, cancels);
+
+    const result = await exchangeClient.cancel({ cancels });
+
+    console.log(`[cancelAllOrdersForSymbol] Cancel result:`, JSON.stringify(result, null, 2));
+
+    return { success: true, cancelledCount: ordersToCancel.length };
+  } catch (error) {
+    console.error("Error cancelling orders:", error);
+    throw new Error(`Failed to cancel orders: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * NUCLEAR CLOSE: Cancel all orders for a symbol, then close the position
+ * Use this when normal close doesn't work due to TP/SL orders blocking
+ */
+export async function nuclearClosePosition(
+  privateKey: string,
+  address: string,
+  symbol: string,
+  testnet: boolean
+): Promise<{ success: boolean; txHash: string; cancelledOrders: number }> {
+  try {
+    console.log(`[nuclearClose] Starting nuclear close for ${symbol}`);
+
+    // Step 1: Cancel ALL open orders for this symbol
+    const cancelResult = await cancelAllOrdersForSymbol(privateKey, address, symbol, testnet);
+    console.log(`[nuclearClose] Cancelled ${cancelResult.cancelledCount} orders`);
+
+    // Small delay to let cancellations process
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Step 2: Get the position details
+    const positions = await getUserPositions(address, testnet);
+    const position = positions.find((p: any) => {
+      const coin = p.position?.coin || p.coin;
+      return coin === symbol;
+    });
+
+    if (!position) {
+      return {
+        success: true,
+        txHash: "no_position",
+        cancelledOrders: cancelResult.cancelledCount
+      };
+    }
+
+    const pos = position.position || position;
+    const szi = parseFloat(pos.szi || "0");
+    const size = Math.abs(szi);
+    const isLong = szi > 0;
+
+    if (size === 0) {
+      return {
+        success: true,
+        txHash: "zero_size",
+        cancelledOrders: cancelResult.cancelledCount
+      };
+    }
+
+    console.log(`[nuclearClose] Position found: ${isLong ? "LONG" : "SHORT"} ${size} ${symbol}`);
+
+    // Step 3: Get current price
+    const currentPrice = await getMarketPrice(symbol, testnet);
+
+    // Step 4: Close with aggressive slippage
+    const closeResult = await closePosition({
+      privateKey,
+      symbol,
+      size,
+      price: currentPrice,
+      isBuy: !isLong,
+      testnet,
+    });
+
+    console.log(`[nuclearClose] Close result:`, closeResult);
+
+    return {
+      success: closeResult.success,
+      txHash: closeResult.txHash,
+      cancelledOrders: cancelResult.cancelledCount,
+    };
+  } catch (error) {
+    console.error("[nuclearClose] Error:", error);
+    throw new Error(`Nuclear close failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -4,6 +4,7 @@ import { ChatOpenAI } from "@langchain/openai";
 const REASONING_MODELS = [
   "deepseek/deepseek-chat-v3.1",
   "deepseek/deepseek-r1",
+  "deepseek/deepseek-v3.2-speciale",
   "moonshotai/kimi-k2-thinking",
 ];
 
@@ -43,6 +44,30 @@ export class OpenRouterChat extends ChatOpenAI {
     console.log(`[OpenRouter] Model: ${fields.model}, temp: ${fields.temperature ?? defaultTemp}, tokens: ${fields.maxTokens ?? defaultMaxTokens}`);
     if (supportsReasoning) {
       console.log(`[OpenRouter] Note: ${fields.model} supports reasoning via <think> tags in output`);
+    }
+  }
+
+  // Override invoke to add detailed logging
+  async invoke(input: any, options?: any): Promise<any> {
+    console.log(`[OpenRouter] Invoking model with input length: ${JSON.stringify(input).length} chars`);
+    const startTime = Date.now();
+
+    try {
+      const result = await super.invoke(input, options);
+      const duration = Date.now() - startTime;
+      console.log(`[OpenRouter] Response received in ${duration}ms, content length: ${result?.content?.length || 0} chars`);
+
+      if (!result?.content || result.content.length === 0) {
+        console.error(`[OpenRouter] WARNING: Empty content received from model`);
+        console.error(`[OpenRouter] Full result:`, JSON.stringify(result, null, 2).slice(0, 500));
+      }
+
+      return result;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error(`[OpenRouter] API call failed after ${duration}ms:`, error?.message || error);
+      console.error(`[OpenRouter] Error details:`, JSON.stringify(error, null, 2).slice(0, 1000));
+      throw error;
     }
   }
 }

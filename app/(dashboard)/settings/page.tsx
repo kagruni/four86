@@ -32,6 +32,7 @@ const AI_MODELS = [
   { value: "google/gemini-3-pro", label: "Gemini 3 Pro" },
   { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
   { value: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat V3.1" },
+  { value: "deepseek/deepseek-v3.2-speciale", label: "DeepSeek V3.2 Speciale" },
   { value: "x-ai/grok-4-fast", label: "Grok 4 Fast" },
   { value: "zhipuai/glm-4.6", label: "GLM-4.6" },
   { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick" },

@@ -412,3 +412,51 @@ export const getUserOpenOrders = action({
     }
   },
 });
+
+// Cancel all orders for a symbol
+export const cancelAllOrdersForSymbol = action({
+  args: {
+    privateKey: v.string(),
+    address: v.string(),
+    symbol: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      const result = await sdk.cancelAllOrdersForSymbol(
+        args.privateKey,
+        args.address,
+        args.symbol,
+        args.testnet
+      );
+      return result;
+    } catch (error) {
+      console.log("Error cancelling orders:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to cancel orders: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+// NUCLEAR CLOSE: Cancel all orders then close position
+export const nuclearClosePosition = action({
+  args: {
+    privateKey: v.string(),
+    address: v.string(),
+    symbol: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      const result = await sdk.nuclearClosePosition(
+        args.privateKey,
+        args.address,
+        args.symbol,
+        args.testnet
+      );
+      return result;
+    } catch (error) {
+      console.log("Error in nuclear close:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Nuclear close failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});

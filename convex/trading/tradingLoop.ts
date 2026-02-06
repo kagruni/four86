@@ -1,5 +1,6 @@
 import { internalAction } from "../_generated/server";
 import { api, internal } from "../_generated/api";
+import { analyzeTrend } from "../signals/trendAnalysis";
 
 // ═══════════════════════════════════════════════════════════════
 // FEATURE FLAG: Trading Prompt Mode
@@ -344,6 +345,49 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
   console.log(`│ Confidence: ${(decision.confidence * 100).toFixed(0)}%`);
   console.log(`└─────────────────────────────────────────────────────────────┘`);
 
+  // ═══════════════════════════════════════════════════════════════
+  // TREND GUARD: Block counter-trend trades as safety net
+  // ═══════════════════════════════════════════════════════════════
+  if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
+    // Get market data for this symbol to analyze trend
+    const detailedMarketData = await ctx.runAction(api.hyperliquid.detailedMarketData.getDetailedMarketData, {
+      symbols: [decision.symbol!],
+      testnet: credentials.hyperliquidTestnet,
+    });
+
+    const coinData = detailedMarketData[decision.symbol!];
+    if (coinData && coinData.currentPrice > 0) {
+      const trend = analyzeTrend(coinData);
+
+      // Block strong counter-trend trades
+      const isCounterTrend =
+        (decision.decision === "OPEN_LONG" && trend.direction === "BEARISH" && trend.strength >= 6) ||
+        (decision.decision === "OPEN_SHORT" && trend.direction === "BULLISH" && trend.strength >= 6);
+
+      if (isCounterTrend) {
+        console.log(`❌ [TREND GUARD] Blocking ${decision.decision} on ${decision.symbol}`);
+        console.log(`   Reason: Strong ${trend.direction} trend (strength: ${trend.strength}/10)`);
+        console.log(`   Price vs EMA20: ${trend.priceVsEma20Pct.toFixed(2)}%`);
+
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "WARNING",
+          message: `Trend guard blocked counter-trend trade: ${decision.decision} on ${decision.symbol}`,
+          data: {
+            decision: decision.decision,
+            symbol: decision.symbol,
+            trendDirection: trend.direction,
+            trendStrength: trend.strength,
+            priceVsEma20Pct: trend.priceVsEma20Pct,
+          },
+        });
+        return; // ABORT - counter-trend trade blocked
+      }
+
+      console.log(`✅ [TREND GUARD] Trade aligned with ${trend.direction} trend (strength: ${trend.strength}/10)`);
+    }
+  }
+
   // For OPEN decisions, enforce position limits BEFORE executing
   if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
     const requestedSide = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
@@ -405,6 +449,41 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
       console.log(`✅ [HYPERLIQUID CHECK] No existing position on ${decision.symbol}`);
     } catch (hlError) {
       console.error(`⚠️ [HYPERLIQUID CHECK] Failed to query exchange positions:`, hlError);
+      // Continue with other checks - don't block entirely on API failure
+    }
+
+    // ✅ CHECK #-0.5: HYPERLIQUID OPEN ORDERS CHECK (checks for pending/unfilled orders)
+    // This catches orders that were placed but not yet filled
+    try {
+      const openOrders = await ctx.runAction(api.hyperliquid.client.getUserOpenOrders, {
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
+      const pendingOrderOnSymbol = openOrders.find((order: any) => order.coin === decision.symbol);
+
+      if (pendingOrderOnSymbol) {
+        console.log(`❌ [OPEN ORDERS CHECK] Pending order already exists on exchange: ${decision.symbol}`);
+        console.log(`   Order details: side=${pendingOrderOnSymbol.side}, sz=${pendingOrderOnSymbol.sz}, px=${pendingOrderOnSymbol.limitPx}`);
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "WARNING",
+          message: `Open order check blocked duplicate: ${decision.symbol}`,
+          data: {
+            decision: decision.decision,
+            symbol: decision.symbol,
+            pendingOrder: {
+              side: pendingOrderOnSymbol.side,
+              size: pendingOrderOnSymbol.sz,
+              price: pendingOrderOnSymbol.limitPx,
+            },
+          },
+        });
+        return; // ABORT - there's already a pending order for this symbol
+      }
+      console.log(`✅ [OPEN ORDERS CHECK] No pending orders on ${decision.symbol}`);
+    } catch (ordersError) {
+      console.error(`⚠️ [OPEN ORDERS CHECK] Failed to query open orders:`, ordersError);
       // Continue with other checks - don't block entirely on API failure
     }
 
@@ -495,6 +574,7 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
       userId: bot.userId,
     });
 
+    // 5-minute cooldown: prevents overtrading same symbol
     const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
     const recentTradeOnSymbol = recentTrades.find((trade: any) =>
       trade.symbol === decision.symbol &&
@@ -510,6 +590,27 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
         level: "WARNING",
         message: `Symbol cooldown active: ${decision.symbol} traded ${minutesAgo}min ago`,
         data: { decision },
+      });
+      return;
+    }
+
+    // ✅ CHECK #6: Ultra-short 60-second duplicate guard (final safety net)
+    // This catches any trades that slipped through other checks within the last minute
+    const oneMinuteAgo = Date.now() - (60 * 1000);
+    const veryRecentTrade = recentTrades.find((trade: any) =>
+      trade.symbol === decision.symbol &&
+      trade.action === "OPEN" &&
+      trade.executedAt > oneMinuteAgo
+    );
+
+    if (veryRecentTrade) {
+      const secondsAgo = Math.floor((Date.now() - veryRecentTrade.executedAt) / 1000);
+      console.log(`❌ [DUPLICATE GUARD] Trade blocked: ${decision.symbol} was opened ${secondsAgo}s ago`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "WARNING",
+        message: `Duplicate guard blocked: ${decision.symbol} opened ${secondsAgo}s ago`,
+        data: { decision, veryRecentTradeId: veryRecentTrade._id },
       });
       return;
     }
@@ -638,9 +739,10 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
       console.log(`  Leverage: ${decision.leverage}x`);
 
       // ═══════════════════════════════════════════════════════════════
-      // RISK/REWARD VALIDATION (Minimum 1.5:1 R:R required)
+      // RISK/REWARD LOGGING (Scalping strategy - tight TP, wide SL)
       // ═══════════════════════════════════════════════════════════════
-      const MIN_RISK_REWARD = 1.5;
+      // NOTE: We use tight TPs (0.65-0.8%) with wider SLs (2-3%) for high win rate scalping.
+      // R:R check disabled - we rely on consistent small wins rather than big R:R ratios.
 
       if (decision.stop_loss && decision.take_profit) {
         let riskDistance: number;
@@ -655,28 +757,12 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
         }
 
         const rrRatio = riskDistance > 0 ? rewardDistance / riskDistance : 0;
+        const tpPercent = ((rewardDistance / entryPrice) * 100).toFixed(2);
+        const slPercent = ((riskDistance / entryPrice) * 100).toFixed(2);
 
-        console.log(`  Risk/Reward: ${rrRatio.toFixed(2)}:1 (min ${MIN_RISK_REWARD}:1)`);
+        console.log(`  Take Profit: ${tpPercent}% from entry | Stop Loss: ${slPercent}% from entry`);
+        console.log(`  Risk/Reward: ${rrRatio.toFixed(2)}:1 (scalping mode - tight TP for high win rate)`);
         console.log(`    Risk: $${riskDistance.toFixed(2)} | Reward: $${rewardDistance.toFixed(2)}`);
-
-        if (rrRatio < MIN_RISK_REWARD) {
-          console.log(`❌ Trade rejected: R:R ratio ${rrRatio.toFixed(2)} below minimum ${MIN_RISK_REWARD}`);
-          await ctx.runMutation(api.mutations.saveSystemLog, {
-            userId: bot.userId,
-            level: "WARNING",
-            message: `Trade rejected: R:R ${rrRatio.toFixed(2)} < ${MIN_RISK_REWARD} minimum`,
-            data: {
-              decision: decision.decision,
-              symbol: decision.symbol,
-              entryPrice,
-              stopLoss: decision.stop_loss,
-              takeProfit: decision.take_profit,
-              rrRatio,
-            },
-          });
-          return; // ABORT - bad risk/reward
-        }
-        console.log(`✅ R:R validation passed: ${rrRatio.toFixed(2)}:1`);
       } else {
         console.log(`⚠️ R:R check skipped: Missing stop_loss or take_profit`);
       }
@@ -791,21 +877,50 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
         return; // Exit - position was closed or we have an unprotected position logged
       }
 
-      // Place take-profit order if specified
+      // Place take-profit order if specified (with retry logic)
       if (decision.take_profit) {
-        try {
-          console.log(`Placing take-profit order at $${decision.take_profit}...`);
-          await ctx.runAction(api.hyperliquid.client.placeTakeProfit, {
-            privateKey: credentials.hyperliquidPrivateKey,
-            symbol: decision.symbol!,
-            size: sizeInCoins,
-            triggerPrice: decision.take_profit,
-            isLongPosition,
-            testnet: credentials.hyperliquidTestnet,
+        let takeProfitPlaced = false;
+        const MAX_TP_RETRIES = 2;
+
+        for (let attempt = 1; attempt <= MAX_TP_RETRIES && !takeProfitPlaced; attempt++) {
+          try {
+            console.log(`Placing take-profit order at $${decision.take_profit} (attempt ${attempt}/${MAX_TP_RETRIES})...`);
+            const tpResult = await ctx.runAction(api.hyperliquid.client.placeTakeProfit, {
+              privateKey: credentials.hyperliquidPrivateKey,
+              symbol: decision.symbol!,
+              size: sizeInCoins,
+              triggerPrice: decision.take_profit,
+              isLongPosition,
+              testnet: credentials.hyperliquidTestnet,
+            });
+
+            if (tpResult && tpResult.success !== false) {
+              takeProfitPlaced = true;
+              console.log(`✅ Take-profit placed successfully at $${decision.take_profit}`);
+            }
+          } catch (error) {
+            console.error(`❌ Take-profit attempt ${attempt} failed:`, error);
+            if (attempt < MAX_TP_RETRIES) {
+              console.log(`⏳ Waiting 1 second before retry...`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
+        }
+
+        if (!takeProfitPlaced) {
+          console.warn(`⚠️ Take-profit failed after ${MAX_TP_RETRIES} attempts - position is open without TP`);
+          await ctx.runMutation(api.mutations.saveSystemLog, {
+            userId: bot.userId,
+            level: "WARNING",
+            message: `Take-profit placement failed - position open without TP`,
+            data: {
+              symbol: decision.symbol,
+              takeProfit: decision.take_profit,
+              entryPrice,
+              sizeInCoins,
+            },
           });
-        } catch (error) {
-          console.error(`Failed to place take-profit order:`, error);
-          // Don't fail the entire trade if TP order fails - position is still open
+          // Don't fail the entire trade if TP order fails - position is still protected by SL
         }
       }
 

@@ -28,6 +28,7 @@ import {
   ArrowDownRight,
   Loader2,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { useMutation } from "convex/react";
 import { useState, useEffect } from "react";
@@ -68,6 +69,10 @@ export default function DashboardPage() {
   const toggleBot = useMutation(api.mutations.toggleBot);
   const [isToggling, setIsToggling] = useState(false);
   const { toast } = useToast();
+
+  // Manual close position action
+  const manualClosePosition = useAction(api.testing.manualTrigger.manualClosePosition);
+  const [sellingPosition, setSellingPosition] = useState<string | null>(null);
 
   // Extract stable values from userCredentials
   const hyperliquidAddress = userCredentials?.hyperliquidAddress;
@@ -239,6 +244,44 @@ export default function DashboardPage() {
       });
     } finally {
       setIsLoadingPositions(false);
+    }
+  };
+
+  const handleSellPosition = async (position: any) => {
+    if (!userId || sellingPosition) return;
+
+    setSellingPosition(position.symbol);
+    try {
+      const result = await manualClosePosition({
+        userId,
+        symbol: position.symbol,
+        size: position.sizeInCoins || position.size / position.entryPrice, // Size in coins
+        side: position.side,
+      });
+
+      if (result.success) {
+        toast({
+          title: "Position Closed",
+          description: `Successfully closed ${position.symbol} position`,
+        });
+        // Refresh positions after closing
+        await handleRefreshPositions();
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to close position",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.log("Error selling position:", error instanceof Error ? error.message : String(error));
+      toast({
+        title: "Error",
+        description: "Failed to close position. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSellingPosition(null);
     }
   };
 
@@ -426,6 +469,7 @@ export default function DashboardPage() {
                     <TableHead className="text-black font-semibold">Liq. Price</TableHead>
                     <TableHead className="text-black font-semibold">P&L</TableHead>
                     <TableHead className="text-black font-semibold">P&L %</TableHead>
+                    <TableHead className="text-black font-semibold">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -480,6 +524,24 @@ export default function DashboardPage() {
                       </TableCell>
                       <TableCell className={position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
                         {formatPercent(position.unrealizedPnlPct)}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                          onClick={() => handleSellPosition(position)}
+                          disabled={sellingPosition === position.symbol}
+                        >
+                          {sellingPosition === position.symbol ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <X className="mr-1 h-3 w-3" />
+                              Sell
+                            </>
+                          )}
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}

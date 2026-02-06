@@ -5,6 +5,54 @@ import {
 } from "@langchain/core/prompts";
 import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
 
+// =============================================================================
+// TREND ANALYSIS HELPERS (for Alpha Arena prompt)
+// =============================================================================
+
+type TrendDirection = "BULLISH" | "BEARISH" | "NEUTRAL";
+type PriceMomentum = "RISING" | "FALLING" | "FLAT";
+
+/**
+ * Calculate price momentum from recent price history.
+ * Looks at the last 5 candles to determine if price is rising or falling.
+ */
+function calculatePriceMomentum(priceHistory: number[]): PriceMomentum {
+  if (!priceHistory || priceHistory.length < 3) {
+    return "FLAT";
+  }
+  const recentPrices = priceHistory.slice(-5);
+  let upMoves = 0;
+  let downMoves = 0;
+  for (let i = 1; i < recentPrices.length; i++) {
+    if (recentPrices[i] > recentPrices[i - 1]) upMoves++;
+    else if (recentPrices[i] < recentPrices[i - 1]) downMoves++;
+  }
+  if (upMoves >= 3) return "RISING";
+  if (downMoves >= 3) return "FALLING";
+  return "FLAT";
+}
+
+/**
+ * Determine trend direction based on EMA alignment.
+ */
+function calculateTrendDirection(priceVsEma20Pct: number, ema20VsEma50Pct: number): TrendDirection {
+  const threshold = 0.3;
+  if (priceVsEma20Pct > threshold && ema20VsEma50Pct > threshold) return "BULLISH";
+  if (priceVsEma20Pct < -threshold && ema20VsEma50Pct < -threshold) return "BEARISH";
+  return "NEUTRAL";
+}
+
+/**
+ * Get trading recommendation based on trend and momentum
+ */
+function getTradingBias(trendDirection: TrendDirection, momentum: PriceMomentum): string {
+  if (trendDirection === "BULLISH" && momentum !== "FALLING") return "BIAS: Look for LONG entries";
+  if (trendDirection === "BEARISH" && momentum !== "RISING") return "BIAS: Look for SHORT entries";
+  if (trendDirection === "BULLISH" && momentum === "FALLING") return "CAUTION: Bullish trend but momentum fading";
+  if (trendDirection === "BEARISH" && momentum === "RISING") return "CAUTION: Bearish trend but momentum reversing";
+  return "BIAS: NEUTRAL - wait for clearer setup";
+}
+
 /**
  * Alpha Arena-Style Trading Prompt
  *
@@ -48,8 +96,11 @@ LEVERAGE GUIDELINES:
 
 TP/SL REQUIREMENTS (MANDATORY):
 - stop_loss: 2-3% from entry (tighter with higher leverage)
-- take_profit: 2-3x the stop distance (minimum 1.5:1 R:R)
+- take_profit: 0.65-0.8% ABOVE entry price (tight scalping - captures consistent small moves)
 - invalidation_condition: Clear technical level that invalidates the thesis
+
+IMPORTANT: We use tight take-profits because data shows price consistently moves 0.5-0.7% in our favor
+shortly after entry. Capture these small wins consistently rather than waiting for bigger moves that may not come.
 
 POSITION MANAGEMENT RULES:
 1. EXISTING POSITIONS: For each open position, check:
@@ -68,7 +119,7 @@ POSITION MANAGEMENT RULES:
    - RSI supports direction (oversold for longs, overbought for shorts)
    - EMA alignment (price vs EMA20)
    - 4h timeframe confirms direction
-   - Risk/reward ratio >= 1.5:1
+   - High win rate setup (we use tight TP for consistent small wins)
    - No existing position on this symbol
 
 ANALYSIS PROCESS (do this for EACH coin):
@@ -77,6 +128,29 @@ ANALYSIS PROCESS (do this for EACH coin):
 3. Confirm with 4h context (is 4h aligned with intraday?)
 4. If you have a position: check invalidation ONLY
 5. If no position: is this a good setup? Calculate TP/SL before deciding
+
+MANDATORY TREND-FOLLOWING RULES:
+1. LONG entries ONLY when:
+   - Price is ABOVE EMA20 (or within 0.3% after a bounce)
+   - Price momentum is RISING or FLAT (NOT FALLING)
+   - 4h trend preferably BULLISH
+
+2. SHORT entries ONLY when:
+   - Price is BELOW EMA20 (or within 0.3% after rejection)
+   - Price momentum is FALLING or FLAT (NOT RISING)
+   - 4h trend preferably BEARISH
+
+3. FORBIDDEN (will lose money):
+   - Going LONG when price < EMA20 AND momentum is FALLING
+   - Going SHORT when price > EMA20 AND momentum is RISING
+   - Buying "oversold" in a downtrend (oversold can get MORE oversold)
+   - Shorting "overbought" in an uptrend (overbought can get MORE overbought)
+
+4. RSI CONTEXT MATTERS:
+   - RSI < 30 in DOWNTREND = "can go lower" = prefer SHORT or HOLD
+   - RSI < 30 in UPTREND = "buy the dip" = consider LONG
+   - RSI > 70 in UPTREND = "momentum strong" = prefer LONG or HOLD
+   - RSI > 70 in DOWNTREND = "short opportunity" = consider SHORT
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON. One decision per coin. Format:
@@ -163,7 +237,19 @@ export function formatMarketDataAlphaArena(
   const lines: string[] = [];
 
   for (const [symbol, data] of Object.entries(marketData)) {
+    // Calculate trend signals
+    const priceVsEma20Pct = ((data.currentPrice - data.ema20) / data.ema20) * 100;
+    const ema20VsEma50Pct = ((data.ema20_4h - data.ema50_4h) / data.ema50_4h) * 100;
+    const priceMomentum = calculatePriceMomentum(data.priceHistory);
+    const trendDirection = calculateTrendDirection(priceVsEma20Pct, ema20VsEma50Pct);
+    const tradingBias = getTradingBias(trendDirection, priceMomentum);
+
     lines.push(`$${symbol}:`);
+    lines.push(`[TREND ANALYSIS - READ FIRST]`);
+    lines.push(`Trend: ${trendDirection} | Momentum: ${priceMomentum}`);
+    lines.push(`Price vs EMA20: ${priceVsEma20Pct > 0 ? "ABOVE" : "BELOW"} (${priceVsEma20Pct.toFixed(2)}%)`);
+    lines.push(`${tradingBias}`);
+    lines.push(``);
     lines.push(`Current Price: $${data.currentPrice.toFixed(2)}`);
     lines.push(`EMA20: $${data.ema20.toFixed(2)} (last: [${data.ema20History.slice(-5).map(v => v.toFixed(2)).join(", ")}])`);
     lines.push(`MACD: ${data.macd.toFixed(4)} (last: [${data.macdHistory.slice(-5).map(v => v.toFixed(4)).join(", ")}])`);
