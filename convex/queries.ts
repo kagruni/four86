@@ -304,6 +304,30 @@ export const getRecentTradingActions = internalQuery({
 });
 
 
+// Get latest market research/sentiment data
+export const getLatestMarketResearch = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("marketResearch")
+      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .first();
+  },
+});
+
+// Internal: Get latest market research (for trading loop)
+export const getLatestMarketResearchInternal = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("marketResearch")
+      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .first();
+  },
+});
+
 // Check if trading lock exists for user
 export const getTradingLock = query({
   args: { userId: v.string() },

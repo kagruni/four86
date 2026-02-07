@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useMutation } from "convex/react";
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardPage() {
@@ -289,8 +290,8 @@ export default function DashboardPage() {
     return (
       <div className="flex h-[calc(100vh-200px)] items-center justify-center">
         <div className="text-center">
-          <Activity className="mx-auto h-12 w-12 animate-pulse text-black" />
-          <p className="mt-4 text-sm text-gray-500">Loading dashboard...</p>
+          <Loader2 className="mx-auto h-10 w-10 animate-spin text-black" />
+          <p className="mt-4 text-sm font-mono tracking-wide text-gray-500">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -361,426 +362,474 @@ export default function DashboardPage() {
 
       {/* Account Overview */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-black">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <div>
-              <CardTitle className="text-sm font-medium text-black">
-                Current Capital
-              </CardTitle>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Live from Hyperliquid
+        {/* Current Capital - Hero card with dark bg */}
+        <motion.div
+          className="h-full"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0 }}
+        >
+          <Card className="h-full bg-gray-950 text-white border border-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div>
+                <CardTitle className="text-sm font-medium text-gray-300">
+                  Current Capital
+                </CardTitle>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Live from Hyperliquid
+                </p>
+              </div>
+              {isLoadingAccount ? (
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+              ) : (
+                <DollarSign className="h-4 w-4 text-gray-400" />
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-mono font-bold tracking-tight text-white tabular-nums">
+                {formatCurrency(liveAccountValue)}
+              </div>
+              <p className="text-xs text-gray-500 mt-1 font-mono tabular-nums">
+                Starting: {formatCurrency(startingCapital)}
               </p>
-            </div>
-            {isLoadingAccount ? (
-              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-            ) : (
-              <DollarSign className="h-4 w-4 text-gray-500" />
-            )}
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-black">
-              {formatCurrency(liveAccountValue)}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Starting: {formatCurrency(startingCapital)}
-            </p>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-        <Card className="border-black">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <div>
-              <CardTitle className="text-sm font-medium text-black">
-                Total P&L
-              </CardTitle>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Live from Hyperliquid
+        {/* Total P&L */}
+        <motion.div
+          className="h-full"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+        >
+          <Card className="h-full border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div>
+                <CardTitle className="text-sm font-medium text-black">
+                  Total P&L
+                </CardTitle>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Live from Hyperliquid
+                </p>
+              </div>
+              {isLoadingAccount ? (
+                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+              ) : totalPnl >= 0 ? (
+                <TrendingUp className="h-4 w-4 text-black" />
+              ) : (
+                <TrendingDown className="h-4 w-4 text-black" />
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className={`text-4xl font-mono font-bold tracking-tight tabular-nums ${totalPnl >= 0 ? 'text-black' : 'text-gray-600'}`}>
+                {formatCurrency(totalPnl)}
+              </div>
+              <p className={`text-xs font-mono tabular-nums mt-1 ${totalPnlPct >= 0 ? 'text-black' : 'text-gray-500'}`}>
+                {formatPercent(totalPnlPct)}
               </p>
-            </div>
-            {isLoadingAccount ? (
-              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-            ) : totalPnl >= 0 ? (
-              <TrendingUp className="h-4 w-4 text-black" />
-            ) : (
-              <TrendingDown className="h-4 w-4 text-black" />
-            )}
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-black' : 'text-gray-600'}`}>
-              {formatCurrency(totalPnl)}
-            </div>
-            <p className={`text-xs mt-1 ${totalPnlPct >= 0 ? 'text-black' : 'text-gray-500'}`}>
-              {formatPercent(totalPnlPct)}
-            </p>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-        <Card className="border-black">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-black">
-              Open Positions
-            </CardTitle>
-            <Activity className="h-4 w-4 text-gray-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-black">
-              {positions?.length || 0}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Active trades
-            </p>
-          </CardContent>
-        </Card>
+        {/* Open Positions */}
+        <motion.div
+          className="h-full"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+        >
+          <Card className="h-full border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-black">
+                Open Positions
+              </CardTitle>
+              <Activity className="h-4 w-4 text-gray-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-mono font-bold tracking-tight text-black tabular-nums">
+                {positions?.length || 0}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Active trades
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
 
       {/* Positions Table */}
-      <Card className="border-black">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-black">Open Positions</CardTitle>
-              <p className="text-xs text-gray-500 mt-1">
-                Live prices from Hyperliquid • Auto-refreshes every 10s
-              </p>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+      >
+        <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-black">Open Positions</CardTitle>
+                <p className="text-xs text-gray-500 mt-1">
+                  Live prices from Hyperliquid • Auto-refreshes every 10s
+                </p>
+              </div>
+              {isLoadingPositions && (
+                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+              )}
             </div>
-            {isLoadingPositions && (
-              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!positions || positions.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-500">
-              No open positions
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-black hover:bg-gray-50">
-                    <TableHead className="text-black font-semibold">Symbol</TableHead>
-                    <TableHead className="text-black font-semibold">Side</TableHead>
-                    <TableHead className="text-black font-semibold">Leverage</TableHead>
-                    <TableHead className="text-black font-semibold">Size (USD)</TableHead>
-                    <TableHead className="text-black font-semibold">Entry</TableHead>
-                    <TableHead className="text-black font-semibold">Current</TableHead>
-                    <TableHead className="text-black font-semibold">Stop Loss</TableHead>
-                    <TableHead className="text-black font-semibold">Take Profit</TableHead>
-                    <TableHead className="text-black font-semibold">Liq. Price</TableHead>
-                    <TableHead className="text-black font-semibold">P&L</TableHead>
-                    <TableHead className="text-black font-semibold">P&L %</TableHead>
-                    <TableHead className="text-black font-semibold">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {positions.map((position) => (
-                    <TableRow
-                      key={position._id}
-                      className="border-gray-300 hover:bg-gray-50"
-                    >
-                      <TableCell className="font-medium text-black">
-                        {position.symbol}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            position.side === "LONG"
-                              ? "border-black text-black bg-white"
-                              : "border-gray-600 text-gray-600 bg-white"
-                          }
-                        >
-                          {position.side === "LONG" ? (
-                            <ArrowUpRight className="mr-1 h-3 w-3" />
-                          ) : (
-                            <ArrowDownRight className="mr-1 h-3 w-3" />
-                          )}
-                          {position.side}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-black font-medium">
-                        {position.leverage}x
-                      </TableCell>
-                      <TableCell className="text-black">
-                        {formatCurrency(position.size)}
-                      </TableCell>
-                      <TableCell className="text-black">
-                        {formatPrice(position.entryPrice)}
-                      </TableCell>
-                      <TableCell className="text-black">
-                        {formatPrice(position.currentPrice)}
-                      </TableCell>
-                      <TableCell className="text-red-600 font-medium text-xs">
-                        {position.stopLoss ? formatPrice(position.stopLoss) : '-'}
-                      </TableCell>
-                      <TableCell className="text-green-600 font-medium text-xs">
-                        {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
-                      </TableCell>
-                      <TableCell className="text-gray-500 text-xs">
-                        {position.liquidationPrice ? formatPrice(position.liquidationPrice) : '-'}
-                      </TableCell>
-                      <TableCell className={position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
-                        {formatCurrency(position.unrealizedPnl)}
-                      </TableCell>
-                      <TableCell className={position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}>
-                        {formatPercent(position.unrealizedPnlPct)}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                          onClick={() => handleSellPosition(position)}
-                          disabled={sellingPosition === position.symbol}
-                        >
-                          {sellingPosition === position.symbol ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <>
-                              <X className="mr-1 h-3 w-3" />
-                              Sell
-                            </>
-                          )}
-                        </Button>
-                      </TableCell>
+          </CardHeader>
+          <CardContent>
+            {!positions || positions.length === 0 ? (
+              <div className="py-8 text-center text-sm font-mono text-gray-500">
+                No open positions
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-black hover:bg-gray-50">
+                      <TableHead className="text-black font-semibold">Symbol</TableHead>
+                      <TableHead className="text-black font-semibold">Side</TableHead>
+                      <TableHead className="text-black font-semibold">Leverage</TableHead>
+                      <TableHead className="text-black font-semibold">Size (USD)</TableHead>
+                      <TableHead className="text-black font-semibold">Entry</TableHead>
+                      <TableHead className="text-black font-semibold">Current</TableHead>
+                      <TableHead className="text-black font-semibold">Stop Loss</TableHead>
+                      <TableHead className="text-black font-semibold">Take Profit</TableHead>
+                      <TableHead className="text-black font-semibold">Liq. Price</TableHead>
+                      <TableHead className="text-black font-semibold">P&L</TableHead>
+                      <TableHead className="text-black font-semibold">P&L %</TableHead>
+                      <TableHead className="text-black font-semibold">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Open Orders Table */}
-      <Card className="border-black">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-black">Open Orders</CardTitle>
-              <p className="text-xs text-gray-500 mt-1">
-                Pending orders on Hyperliquid • Auto-refreshes every 10s
-              </p>
-            </div>
-            {isLoadingOrders && (
-              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!openOrders || openOrders.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-500">
-              No open orders
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-black hover:bg-gray-50">
-                    <TableHead className="text-black font-semibold">Symbol</TableHead>
-                    <TableHead className="text-black font-semibold">Side</TableHead>
-                    <TableHead className="text-black font-semibold">Type</TableHead>
-                    <TableHead className="text-black font-semibold">Size</TableHead>
-                    <TableHead className="text-black font-semibold">Limit Price</TableHead>
-                    <TableHead className="text-black font-semibold">Trigger Price</TableHead>
-                    <TableHead className="text-black font-semibold">Status</TableHead>
-                    <TableHead className="text-black font-semibold">Order ID</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {openOrders.map((order: any, index: number) => {
-                    // Parse order data from Hyperliquid response
-                    const isBuy = order.order?.side === "B" || order.side === "B";
-                    const sz = order.order?.sz || order.sz;
-                    const coin = order.coin;
-                    const oid = order.oid;
-
-                    // Determine if this is a trigger order (TP/SL)
-                    const isTrigger = order.order?.trigger || order.trigger;
-                    const limitPx = order.order?.limitPx || order.limitPx;
-                    const triggerPx = order.order?.triggerPx || order.triggerPx;
-                    const tpsl = isTrigger ? (order.order?.trigger?.tpsl || order.trigger?.tpsl) : null;
-
-                    // Determine order type
-                    let orderType = "Limit";
-                    let triggerCondition = null;
-
-                    if (isTrigger) {
-                      if (tpsl === "sl") {
-                        orderType = "Stop Market";
-                        triggerCondition = isBuy ? "Price above" : "Price above";
-                      } else if (tpsl === "tp") {
-                        orderType = "Take Profit Market";
-                        triggerCondition = isBuy ? "Price below" : "Price below";
-                      } else {
-                        orderType = "Trigger Market";
-                      }
-                    }
-
-                    return (
+                  </TableHeader>
+                  <TableBody>
+                    {positions.map((position) => (
                       <TableRow
-                        key={oid || index}
-                        className="border-gray-300 hover:bg-gray-50"
+                        key={position._id}
+                        className="border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150"
                       >
-                        <TableCell className="font-medium text-black">
-                          {coin || "-"}
+                        <TableCell className="font-mono font-semibold text-black">
+                          {position.symbol}
                         </TableCell>
                         <TableCell>
                           <Badge
                             variant="outline"
                             className={
-                              isBuy
+                              position.side === "LONG"
                                 ? "border-black text-black bg-white"
                                 : "border-gray-600 text-gray-600 bg-white"
                             }
                           >
-                            {isBuy ? (
+                            {position.side === "LONG" ? (
                               <ArrowUpRight className="mr-1 h-3 w-3" />
                             ) : (
                               <ArrowDownRight className="mr-1 h-3 w-3" />
                             )}
-                            {isBuy ? "BUY" : "SELL"}
+                            {position.side}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-black text-xs">
-                          {orderType}
+                        <TableCell className="text-black font-mono font-medium tabular-nums">
+                          {position.leverage}x
                         </TableCell>
-                        <TableCell className="text-black">
-                          {sz || "-"}
+                        <TableCell className="text-black font-mono tabular-nums">
+                          {formatCurrency(position.size)}
                         </TableCell>
-                        <TableCell className="text-black">
-                          {limitPx ? formatPrice(parseFloat(limitPx)) : "-"}
+                        <TableCell className="text-black font-mono tabular-nums">
+                          {formatPrice(position.entryPrice)}
                         </TableCell>
-                        <TableCell className="text-black text-xs">
-                          {triggerPx ? (
-                            <div>
-                              {triggerCondition && <div className="text-gray-500">{triggerCondition}</div>}
-                              <div>{formatPrice(parseFloat(triggerPx))}</div>
-                            </div>
-                          ) : "-"}
+                        <TableCell className="text-black font-mono tabular-nums">
+                          {formatPrice(position.currentPrice)}
+                        </TableCell>
+                        <TableCell className="text-red-600 font-mono font-medium text-xs tabular-nums">
+                          {position.stopLoss ? formatPrice(position.stopLoss) : '-'}
+                        </TableCell>
+                        <TableCell className="text-green-600 font-mono font-medium text-xs tabular-nums">
+                          {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
+                        </TableCell>
+                        <TableCell className="text-gray-500 font-mono text-xs tabular-nums">
+                          {position.liquidationPrice ? formatPrice(position.liquidationPrice) : '-'}
+                        </TableCell>
+                        <TableCell className={`font-mono tabular-nums ${position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
+                          {formatCurrency(position.unrealizedPnl)}
+                        </TableCell>
+                        <TableCell className={`font-mono tabular-nums ${position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
+                          {formatPercent(position.unrealizedPnlPct)}
                         </TableCell>
                         <TableCell>
-                          <Badge
+                          <Button
                             variant="outline"
-                            className={
-                              tpsl === "tp"
-                                ? "border-green-600 text-green-600 bg-white text-xs"
-                                : tpsl === "sl"
-                                ? "border-red-600 text-red-600 bg-white text-xs"
-                                : "border-gray-400 text-gray-600 bg-white text-xs"
-                            }
+                            size="sm"
+                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                            onClick={() => handleSellPosition(position)}
+                            disabled={sellingPosition === position.symbol}
                           >
-                            {tpsl === "tp" ? "TP" : tpsl === "sl" ? "SL" : "Resting"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-gray-500 text-xs font-mono">
-                          {oid ? oid.toString().substring(0, 10) + "..." : "-"}
+                            {sellingPosition === position.symbol ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <X className="mr-1 h-3 w-3" />
+                                Sell
+                              </>
+                            )}
+                          </Button>
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Open Orders Table */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.4 }}
+      >
+        <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-black">Open Orders</CardTitle>
+                <p className="text-xs text-gray-500 mt-1">
+                  Pending orders on Hyperliquid • Auto-refreshes every 10s
+                </p>
+              </div>
+              {isLoadingOrders && (
+                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+              )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {!openOrders || openOrders.length === 0 ? (
+              <div className="py-8 text-center text-sm font-mono text-gray-500">
+                No open orders
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-black hover:bg-gray-50">
+                      <TableHead className="text-black font-semibold">Symbol</TableHead>
+                      <TableHead className="text-black font-semibold">Side</TableHead>
+                      <TableHead className="text-black font-semibold">Type</TableHead>
+                      <TableHead className="text-black font-semibold">Size</TableHead>
+                      <TableHead className="text-black font-semibold">Limit Price</TableHead>
+                      <TableHead className="text-black font-semibold">Trigger Price</TableHead>
+                      <TableHead className="text-black font-semibold">Status</TableHead>
+                      <TableHead className="text-black font-semibold">Order ID</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {openOrders.map((order: any, index: number) => {
+                      // Parse order data from Hyperliquid response
+                      const isBuy = order.order?.side === "B" || order.side === "B";
+                      const sz = order.order?.sz || order.sz;
+                      const coin = order.coin;
+                      const oid = order.oid;
+
+                      // Determine if this is a trigger order (TP/SL)
+                      const isTrigger = order.order?.trigger || order.trigger;
+                      const limitPx = order.order?.limitPx || order.limitPx;
+                      const triggerPx = order.order?.triggerPx || order.triggerPx;
+                      const tpsl = isTrigger ? (order.order?.trigger?.tpsl || order.trigger?.tpsl) : null;
+
+                      // Determine order type
+                      let orderType = "Limit";
+                      let triggerCondition = null;
+
+                      if (isTrigger) {
+                        if (tpsl === "sl") {
+                          orderType = "Stop Market";
+                          triggerCondition = isBuy ? "Price above" : "Price above";
+                        } else if (tpsl === "tp") {
+                          orderType = "Take Profit Market";
+                          triggerCondition = isBuy ? "Price below" : "Price below";
+                        } else {
+                          orderType = "Trigger Market";
+                        }
+                      }
+
+                      return (
+                        <TableRow
+                          key={oid || index}
+                          className="border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150"
+                        >
+                          <TableCell className="font-mono font-semibold text-black">
+                            {coin || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                isBuy
+                                  ? "border-black text-black bg-white"
+                                  : "border-gray-600 text-gray-600 bg-white"
+                              }
+                            >
+                              {isBuy ? (
+                                <ArrowUpRight className="mr-1 h-3 w-3" />
+                              ) : (
+                                <ArrowDownRight className="mr-1 h-3 w-3" />
+                              )}
+                              {isBuy ? "BUY" : "SELL"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-black text-xs">
+                            {orderType}
+                          </TableCell>
+                          <TableCell className="text-black font-mono tabular-nums">
+                            {sz || "-"}
+                          </TableCell>
+                          <TableCell className="text-black font-mono tabular-nums">
+                            {limitPx ? formatPrice(parseFloat(limitPx)) : "-"}
+                          </TableCell>
+                          <TableCell className="text-black text-xs font-mono tabular-nums">
+                            {triggerPx ? (
+                              <div>
+                                {triggerCondition && <div className="text-gray-500">{triggerCondition}</div>}
+                                <div>{formatPrice(parseFloat(triggerPx))}</div>
+                              </div>
+                            ) : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                tpsl === "tp"
+                                  ? "border-green-600 text-green-600 bg-white text-xs"
+                                  : tpsl === "sl"
+                                  ? "border-red-600 text-red-600 bg-white text-xs"
+                                  : "border-gray-400 text-gray-600 bg-white text-xs"
+                              }
+                            >
+                              {tpsl === "tp" ? "TP" : tpsl === "sl" ? "SL" : "Resting"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-gray-500 text-xs font-mono tabular-nums">
+                            {oid ? oid.toString().substring(0, 10) + "..." : "-"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Recent Trades & AI Logs */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Recent Trades */}
-        <Card className="border-black">
-          <CardHeader>
-            <CardTitle className="text-black">Recent Trades</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-[400px]">
-              {!recentTrades || recentTrades.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-500">
-                  No trades yet
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {recentTrades.map((trade: Doc<"trades">) => (
-                    <div key={trade._id} className="border-b border-gray-200 pb-4 last:border-0">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.5 }}
+        >
+          <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+            <CardHeader>
+              <CardTitle className="text-black">Recent Trades</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[400px]">
+                {!recentTrades || recentTrades.length === 0 ? (
+                  <div className="py-8 text-center text-sm font-mono text-gray-500">
+                    No trades yet
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {recentTrades.map((trade: Doc<"trades">) => (
+                      <div key={trade._id} className="border-b border-gray-200 pb-4 last:border-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <Badge
+                              variant="outline"
+                              className={
+                                trade.side === "LONG"
+                                  ? "border-black text-black bg-white"
+                                  : "border-gray-600 text-gray-600 bg-white"
+                              }
+                            >
+                              {trade.action === "OPEN" ? "OPEN" : "CLOSE"}
+                            </Badge>
+                            <span className="font-mono font-semibold text-black">
+                              {trade.symbol}
+                            </span>
+                            <span className="text-sm text-gray-500">
+                              {trade.side}
+                            </span>
+                          </div>
+                          {trade.pnl !== undefined && (
+                            <span className={`font-mono font-medium tabular-nums ${trade.pnl >= 0 ? 'text-black' : 'text-gray-600'}`}>
+                              {formatCurrency(trade.pnl)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2 text-sm text-gray-500">
+                          <div className="font-mono tabular-nums">Size: {trade.size.toFixed(4)} @ {formatCurrency(trade.price)}</div>
+                          <div className="mt-1">{formatTimestamp(trade.executedAt)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* AI Reasoning Log */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.6 }}
+        >
+          <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+            <CardHeader>
+              <CardTitle className="text-black">AI Reasoning</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[400px]">
+                {!aiLogs || aiLogs.length === 0 ? (
+                  <div className="py-8 text-center text-sm font-mono text-gray-500">
+                    No AI logs yet
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {aiLogs.map((log: Doc<"aiLogs">) => (
+                      <div key={log._id} className="border-b border-gray-200 pb-4 last:border-0">
+                        <div className="flex items-center justify-between">
                           <Badge
                             variant="outline"
-                            className={
-                              trade.side === "LONG"
-                                ? "border-black text-black bg-white"
-                                : "border-gray-600 text-gray-600 bg-white"
-                            }
+                            className="border-black text-black bg-white"
                           >
-                            {trade.action === "OPEN" ? "OPEN" : "CLOSE"}
+                            {log.decision}
                           </Badge>
-                          <span className="font-medium text-black">
-                            {trade.symbol}
-                          </span>
-                          <span className="text-sm text-gray-500">
-                            {trade.side}
+                          <span className="text-xs text-gray-500">
+                            {formatTimestamp(log.createdAt)}
                           </span>
                         </div>
-                        {trade.pnl !== undefined && (
-                          <span className={`font-medium ${trade.pnl >= 0 ? 'text-black' : 'text-gray-600'}`}>
-                            {formatCurrency(trade.pnl)}
+                        <p className="mt-2 text-sm text-black">
+                          {log.reasoning}
+                        </p>
+                        {log.confidence !== undefined && (
+                          <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                            {(log.confidence * 100).toFixed(0)}%
                           </span>
                         )}
                       </div>
-                      <div className="mt-2 text-sm text-gray-500">
-                        <div>Size: {trade.size.toFixed(4)} @ {formatCurrency(trade.price)}</div>
-                        <div className="mt-1">{formatTimestamp(trade.executedAt)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        {/* AI Reasoning Log */}
-        <Card className="border-black">
-          <CardHeader>
-            <CardTitle className="text-black">AI Reasoning</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-[400px]">
-              {!aiLogs || aiLogs.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-500">
-                  No AI logs yet
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {aiLogs.map((log: Doc<"aiLogs">) => (
-                    <div key={log._id} className="border-b border-gray-200 pb-4 last:border-0">
-                      <div className="flex items-center justify-between">
-                        <Badge
-                          variant="outline"
-                          className="border-black text-black bg-white"
-                        >
-                          {log.decision}
-                        </Badge>
-                        <span className="text-xs text-gray-500">
-                          {formatTimestamp(log.createdAt)}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-black">
-                        {log.reasoning}
-                      </p>
-                      {log.confidence !== undefined && (
-                        <p className="mt-1 text-xs text-gray-500">
-                          Confidence: {(log.confidence * 100).toFixed(0)}%
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-          </CardContent>
-        </Card>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
     </div>
   );

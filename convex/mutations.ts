@@ -85,6 +85,7 @@ export const upsertBotConfig = mutation({
     tradeVolatileMarkets: v.optional(v.boolean()),
     volatilitySizeReduction: v.optional(v.number()),
     stopLossAtrMultiplier: v.optional(v.number()),
+    tradingPromptMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -558,5 +559,53 @@ export const releaseSymbolTradeLock = mutation({
     }
 
     return { success: false, reason: "lock_not_found" };
+  },
+});
+
+// Update circuit breaker state on botConfig
+export const updateCircuitBreakerState = mutation({
+  args: {
+    userId: v.string(),
+    circuitBreakerState: v.optional(v.string()),
+    consecutiveAiFailures: v.optional(v.number()),
+    consecutiveLosses: v.optional(v.number()),
+    circuitBreakerTrippedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const config = await ctx.db
+      .query("botConfig")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!config) return;
+
+    const { userId, ...updates } = args;
+    await ctx.db.patch(config._id, {
+      ...updates,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// Manual circuit breaker reset from dashboard
+export const resetCircuitBreaker = mutation({
+  args: {
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const config = await ctx.db
+      .query("botConfig")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!config) return;
+
+    await ctx.db.patch(config._id, {
+      circuitBreakerState: "active",
+      consecutiveAiFailures: 0,
+      consecutiveLosses: 0,
+      circuitBreakerTrippedAt: undefined,
+      updatedAt: Date.now(),
+    });
   },
 });

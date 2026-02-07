@@ -6,9 +6,12 @@ import {
   alphaArenaTradingPrompt,
   formatMarketDataAlphaArena,
   formatPositionsAlphaArena,
+  formatSentimentContext,
   parseAlphaArenaOutput,
+  parseAlphaArenaOutputWithWarnings,
   type AlphaArenaOutput,
 } from "../prompts/alphaArenaPrompt";
+import { ParserWarning, createWarning } from "../parsers/parserWarnings";
 import { generatePromptVariables, type BotConfig } from "../prompts/promptHelpers";
 import { tradeDecisionParser } from "../parsers/tradeDecision";
 import { ZhipuAI } from "../models/zhipuai";
@@ -337,12 +340,70 @@ export function createCompactTradingChain(
 // =============================================================================
 
 /**
- * Alpha Arena-style parser that handles the multi-decision output format
- * Uses RunnableLambda for proper LangChain integration
+ * Attempt to repair common JSON issues from LLM output:
+ * - Single quotes → double quotes (but not inside already-double-quoted strings)
+ * - Trailing commas before } or ]
+ * - Unquoted property names
+ */
+function repairJson(text: string): string {
+  let result = text;
+
+  // 1. Replace single-quoted keys and values with double-quoted ones
+  //    Matches: 'key' or 'value' but avoids touching apostrophes inside words
+  result = result.replace(/(?<=[\s,{[\]:])'/g, '"');
+  result = result.replace(/'(?=[\s,}\]:])/g, '"');
+
+  // 2. Broader single→double quote replacement for remaining cases
+  //    Only if the string still fails JSON.parse, we do a more aggressive pass
+  try {
+    JSON.parse(result);
+    return result;
+  } catch {
+    // More aggressive: replace all single quotes that look like JSON delimiters
+    result = text.replace(/'/g, '"');
+  }
+
+  // 3. Remove trailing commas before } or ]
+  result = result.replace(/,\s*([\]}])/g, "$1");
+
+  // 4. Quote unquoted property names: { foo: → { "foo":
+  result = result.replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":');
+
+  return result;
+}
+
+/**
+ * Extract the first balanced JSON object from a string using bracket-depth counting.
+ * Replaces the greedy regex `/\{[\s\S]*\}/` which could match across unrelated objects.
+ */
+function extractFirstJsonObject(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return text.substring(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Alpha Arena-style parser that handles the multi-decision output format.
+ * Uses bracket-depth JSON extraction and tracks warnings.
+ * Uses RunnableLambda for proper LangChain integration.
  */
 function createAlphaArenaParser() {
   return new RunnableLambda({
     func: async (input: any): Promise<any> => {
+      const warnings: ParserWarning[] = [];
+
       // Handle if the model returned an object directly (some models do this)
       let text: string;
       if (typeof input === "object" && input !== null) {
@@ -403,50 +464,122 @@ function createAlphaArenaParser() {
         console.log(`[AlphaArena Parser] Extracted ${thinking.length} chars from <think> tags`);
       }
 
-      // Try to extract JSON
+      // Try to extract JSON using bracket-depth parser (replaces greedy regex)
       if (!cleanedText.startsWith("{")) {
-        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          cleanedText = jsonMatch[0];
+        const extracted = extractFirstJsonObject(cleanedText);
+        if (extracted) {
+          cleanedText = extracted;
+          warnings.push(
+            createWarning(
+              "JSON_EXTRACTION_FALLBACK",
+              "JSON extracted using bracket-depth parser (content did not start with '{')"
+            )
+          );
         }
       }
 
+      // Try JSON.parse, then repair + retry if it fails
+      let parsed: AlphaArenaOutput;
       try {
-        const parsed = JSON.parse(cleanedText) as AlphaArenaOutput;
-
-        // Use the thinking from <think> tags if present, otherwise use the parsed thinking
-        if (thinking && !parsed.thinking) {
-          parsed.thinking = thinking;
+        parsed = JSON.parse(cleanedText) as AlphaArenaOutput;
+      } catch (firstError) {
+        console.log("[AlphaArena Parser] Initial JSON.parse failed, attempting repair...");
+        try {
+          const repaired = repairJson(cleanedText);
+          parsed = JSON.parse(repaired) as AlphaArenaOutput;
+          warnings.push(
+            createWarning(
+              "JSON_EXTRACTION_FALLBACK",
+              "JSON repaired (likely single quotes or trailing commas from LLM)"
+            )
+          );
+          console.log("[AlphaArena Parser] JSON repair succeeded");
+        } catch (repairError) {
+          // Last resort: try extracting a JSON object from the text
+          const extracted = extractFirstJsonObject(cleanedText);
+          if (extracted) {
+            try {
+              const repaired = repairJson(extracted);
+              parsed = JSON.parse(repaired) as AlphaArenaOutput;
+              warnings.push(
+                createWarning(
+                  "JSON_EXTRACTION_FALLBACK",
+                  "JSON extracted via bracket-depth + repair after parse failure"
+                )
+              );
+              console.log("[AlphaArena Parser] Bracket extraction + repair succeeded");
+            } catch {
+              console.error("[AlphaArena Parser] All JSON parse attempts failed:", firstError);
+              return {
+                decision: "HOLD",
+                symbol: null,
+                confidence: 0.99,
+                reasoning: `Parse error - defaulting to HOLD. Error: ${firstError}`,
+              };
+            }
+          } else {
+            console.error("[AlphaArena Parser] All JSON parse attempts failed:", firstError);
+            return {
+              decision: "HOLD",
+              symbol: null,
+              confidence: 0.99,
+              reasoning: `Parse error - defaulting to HOLD. Error: ${firstError}`,
+            };
+          }
         }
-
-        // Convert Alpha Arena format to legacy format
-        const legacyDecision = parseAlphaArenaOutput(parsed);
-
-        // Fix leverage if < 1
-        if (legacyDecision.leverage !== undefined && legacyDecision.leverage < 1) {
-          console.log(`[AlphaArena Parser] Correcting leverage from ${legacyDecision.leverage} to 1`);
-          legacyDecision.leverage = 1;
-        }
-
-        // Fix invalid symbols
-        const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
-        if (legacyDecision.symbol && !validSymbols.includes(legacyDecision.symbol)) {
-          console.log(`[AlphaArena Parser] Correcting invalid symbol "${legacyDecision.symbol}" to null`);
-          legacyDecision.symbol = null;
-          legacyDecision.decision = "HOLD";
-        }
-
-        console.log(`[AlphaArena Parser] Decision: ${legacyDecision.decision} ${legacyDecision.symbol || ""}`);
-        return legacyDecision;
-      } catch (error) {
-        console.error("[AlphaArena Parser] JSON parse failed:", error);
-        return {
-          decision: "HOLD",
-          symbol: null,
-          confidence: 0.99,
-          reasoning: `Parse error - defaulting to HOLD. Error: ${error}`,
-        };
       }
+
+      // Use the thinking from <think> tags if present, otherwise use the parsed thinking
+      if (thinking && !parsed.thinking) {
+        parsed.thinking = thinking;
+      }
+
+      // Convert Alpha Arena format to legacy format (with highest-confidence selection)
+      const { decision: legacyDecision, warnings: arenaWarnings } =
+        parseAlphaArenaOutputWithWarnings(parsed);
+      warnings.push(...arenaWarnings);
+
+      // Fix leverage if < 1
+      if (legacyDecision.leverage !== undefined && legacyDecision.leverage < 1) {
+        warnings.push(
+          createWarning(
+            "LEVERAGE_CORRECTED",
+            `Leverage corrected from ${legacyDecision.leverage} to 1`,
+            legacyDecision.leverage,
+            1
+          )
+        );
+        console.log(`[AlphaArena Parser] Correcting leverage from ${legacyDecision.leverage} to 1`);
+        legacyDecision.leverage = 1;
+      }
+
+      // Fix invalid symbols
+      const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+      if (legacyDecision.symbol && !validSymbols.includes(legacyDecision.symbol)) {
+        warnings.push(
+          createWarning(
+            "SYMBOL_CORRECTED",
+            `Invalid symbol "${legacyDecision.symbol}" corrected to null`,
+            legacyDecision.symbol,
+            null
+          )
+        );
+        console.log(`[AlphaArena Parser] Correcting invalid symbol "${legacyDecision.symbol}" to null`);
+        legacyDecision.symbol = null;
+        legacyDecision.decision = "HOLD";
+      }
+
+      if (warnings.length > 0) {
+        console.log(`[AlphaArena Parser] ${warnings.length} warning(s): ${warnings.map(w => w.type).join(", ")}`);
+      }
+
+      // Attach warnings to decision for downstream logging
+      if (warnings.length > 0) {
+        (legacyDecision as any)._parserWarnings = warnings;
+      }
+
+      console.log(`[AlphaArena Parser] Decision: ${legacyDecision.decision} ${legacyDecision.symbol || ""}`);
+      return legacyDecision;
     },
   });
 }
@@ -476,30 +609,42 @@ export function createAlphaArenaTradingChain(
   // Create Alpha Arena parser
   const alphaArenaParser = createAlphaArenaParser();
 
+  // Input type for the Alpha Arena chain
+  type AlphaArenaInput = {
+    detailedMarketData: Record<string, DetailedCoinData>;
+    positions?: any[];
+    accountState: any;
+    marketResearch?: any;
+  };
+
   // Create the chain with Alpha Arena prompts
   const chain = RunnableSequence.from([
     {
       // Format market data in Alpha Arena style
-      marketDataSection: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+      marketDataSection: (input: AlphaArenaInput) =>
         formatMarketDataAlphaArena(input.detailedMarketData),
 
       // Format positions in Alpha Arena style
-      positionsSection: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+      positionsSection: (input: AlphaArenaInput) =>
         formatPositionsAlphaArena(input.positions || []),
 
       // List of symbols with open positions (critical for AI to know what NOT to trade)
-      openPositionSymbols: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) => {
+      openPositionSymbols: (input: AlphaArenaInput) => {
         const positions = input.positions || [];
         if (positions.length === 0) return "None - all symbols available for entry";
         return positions.map((p: any) => `${p.symbol} (${p.side})`).join(", ");
       },
 
+      // Market sentiment context (from research loop)
+      sentimentContext: (input: AlphaArenaInput) =>
+        formatSentimentContext(input.marketResearch || null),
+
       // Account information
-      accountValue: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+      accountValue: (input: AlphaArenaInput) =>
         input.accountState.accountValue.toFixed(2),
-      availableCash: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+      availableCash: (input: AlphaArenaInput) =>
         input.accountState.withdrawable.toFixed(2),
-      positionCount: (input: { detailedMarketData: Record<string, DetailedCoinData>; positions?: any[]; accountState: any }) =>
+      positionCount: (input: AlphaArenaInput) =>
         (input.positions || []).length,
       maxPositions: () => config.maxTotalPositions || 3,
 

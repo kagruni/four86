@@ -1,5 +1,28 @@
 import { StructuredOutputParser } from "langchain/output_parsers";
 import { TradeDecisionSchema } from "./schemas";
+import { ParserWarning, createWarning } from "./parserWarnings";
+
+/**
+ * Extract the first balanced JSON object from a string using bracket-depth counting.
+ * Replaces the greedy regex `/\{[\s\S]*\}/` which could match too much.
+ */
+function extractFirstJsonObject(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return text.substring(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Extract reasoning from <think> tags (DeepSeek R1, V3.1, Kimi K2)
@@ -22,6 +45,27 @@ function extractReasoningTags(text: string): { reasoning: string | null; content
 }
 
 /**
+ * Attempt to repair common JSON issues from LLM output:
+ * - Single quotes → double quotes
+ * - Trailing commas before } or ]
+ * - Unquoted property names
+ */
+function repairJson(text: string): string {
+  let result = text;
+
+  // Replace single quotes with double quotes
+  result = result.replace(/'/g, '"');
+
+  // Remove trailing commas before } or ]
+  result = result.replace(/,\s*([\]}])/g, "$1");
+
+  // Quote unquoted property names: { foo: → { "foo":
+  result = result.replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":');
+
+  return result;
+}
+
+/**
  * Strip markdown code blocks and other formatting
  */
 function stripMarkdownFormatting(text: string): string {
@@ -35,6 +79,41 @@ function stripMarkdownFormatting(text: string): string {
   }
 
   return cleanedText;
+}
+
+const VALID_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+
+/**
+ * Apply leverage and symbol corrections, collecting warnings.
+ */
+function applyCorrections(rawParsed: any, warnings: ParserWarning[]): void {
+  // Fix leverage if < 1 (perpetual futures requirement)
+  if (rawParsed.leverage !== null && rawParsed.leverage !== undefined && rawParsed.leverage < 1) {
+    warnings.push(
+      createWarning(
+        "LEVERAGE_CORRECTED",
+        `Leverage corrected from ${rawParsed.leverage} to 1 (minimum for perpetual futures)`,
+        rawParsed.leverage,
+        1
+      )
+    );
+    console.log(`[Parser] Correcting leverage from ${rawParsed.leverage} to 1`);
+    rawParsed.leverage = 1;
+  }
+
+  // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
+  if (rawParsed.symbol && !VALID_SYMBOLS.includes(rawParsed.symbol)) {
+    warnings.push(
+      createWarning(
+        "SYMBOL_CORRECTED",
+        `Invalid symbol "${rawParsed.symbol}" corrected to null`,
+        rawParsed.symbol,
+        null
+      )
+    );
+    console.log(`[Parser] Correcting invalid symbol "${rawParsed.symbol}" to null`);
+    rawParsed.symbol = null;
+  }
 }
 
 // Custom parser that handles reasoning tags, markdown, and malformed responses
@@ -57,9 +136,9 @@ class ReasoningAwareParser extends StructuredOutputParser {
     // Try to extract JSON if the content isn't pure JSON
     if (!cleanedText.trim().startsWith("{")) {
       console.log("[Parser] Response doesn't start with JSON, attempting extraction...");
-      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanedText = jsonMatch[0];
+      const extracted = extractFirstJsonObject(cleanedText);
+      if (extracted) {
+        cleanedText = extracted;
         console.log(`[Parser] Extracted JSON: ${cleanedText.slice(0, 100)}...`);
       } else {
         console.error("[Parser] No JSON found in response");
@@ -69,19 +148,23 @@ class ReasoningAwareParser extends StructuredOutputParser {
 
     try {
       // Try direct JSON parse first (faster than LangChain's parser)
-      const rawParsed = JSON.parse(cleanedText);
-
-      // Fix leverage if < 1 (perpetual futures requirement)
-      if (rawParsed.leverage !== null && rawParsed.leverage !== undefined && rawParsed.leverage < 1) {
-        console.log(`[Parser] Correcting leverage from ${rawParsed.leverage} to 1`);
-        rawParsed.leverage = 1;
+      let rawParsed: any;
+      try {
+        rawParsed = JSON.parse(cleanedText);
+      } catch {
+        // JSON.parse failed — try repairing (single quotes, trailing commas, etc.)
+        console.log("[Parser] Direct JSON.parse failed, attempting repair...");
+        const repaired = repairJson(cleanedText);
+        rawParsed = JSON.parse(repaired);
+        console.log("[Parser] JSON repair succeeded");
       }
+      const warnings: ParserWarning[] = [];
 
-      // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
-      const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
-      if (rawParsed.symbol && !validSymbols.includes(rawParsed.symbol)) {
-        console.log(`[Parser] Correcting invalid symbol "${rawParsed.symbol}" to null`);
-        rawParsed.symbol = null;
+      // Apply corrections with warning tracking
+      applyCorrections(rawParsed, warnings);
+
+      if (warnings.length > 0) {
+        console.log(`[Parser] ${warnings.length} warning(s): ${warnings.map(w => w.type).join(", ")}`);
       }
 
       // Add chain-of-thought if extracted
@@ -91,7 +174,14 @@ class ReasoningAwareParser extends StructuredOutputParser {
       }
 
       // Validate with Zod schema
-      return TradeDecisionSchema.parse(rawParsed);
+      const validated = TradeDecisionSchema.parse(rawParsed);
+
+      // Attach warnings to decision for downstream logging
+      if (warnings.length > 0) {
+        (validated as any)._parserWarnings = warnings;
+      }
+
+      return validated;
     } catch (jsonError) {
       console.log("[Parser] Direct JSON parse failed, trying LangChain parser...");
       // Fall back to LangChain's parser
@@ -119,7 +209,19 @@ export function getFormatInstructions(): string {
 }
 
 // Parse the AI response (handles reasoning tags, markdown, and JSON)
+// Backward-compatible: returns only the decision
 export async function parseTradeDecision(text: string) {
+  const { decision } = await parseTradeDecisionWithWarnings(text);
+  return decision;
+}
+
+// Parse the AI response and return both decision and warnings
+export async function parseTradeDecisionWithWarnings(text: string): Promise<{
+  decision: any;
+  warnings: ParserWarning[];
+}> {
+  const warnings: ParserWarning[] = [];
+
   try {
     // First extract any reasoning from <think> tags
     const { reasoning, content } = extractReasoningTags(text);
@@ -129,27 +231,30 @@ export async function parseTradeDecision(text: string) {
 
     // Try to extract JSON if the content isn't pure JSON
     if (!cleanedText.startsWith("{")) {
-      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanedText = jsonMatch[0];
+      const extracted = extractFirstJsonObject(cleanedText);
+      if (extracted) {
+        cleanedText = extracted;
+        warnings.push(
+          createWarning(
+            "JSON_EXTRACTION_FALLBACK",
+            "JSON extracted using bracket-depth parser (content did not start with '{')"
+          )
+        );
       }
     }
 
-    // Parse JSON
-    const rawParsed = JSON.parse(cleanedText);
-
-    // Fix leverage if < 1 (perpetual futures requirement)
-    if (rawParsed.leverage !== null && rawParsed.leverage !== undefined && rawParsed.leverage < 1) {
-      console.log(`[Parser] Correcting leverage from ${rawParsed.leverage} to 1 (minimum for perpetual futures)`);
-      rawParsed.leverage = 1;
+    // Parse JSON (with repair fallback for single quotes, trailing commas)
+    let rawParsed: any;
+    try {
+      rawParsed = JSON.parse(cleanedText);
+    } catch {
+      const repaired = repairJson(cleanedText);
+      rawParsed = JSON.parse(repaired);
+      console.log("[Parser] JSON repair succeeded (standalone parser)");
     }
 
-    // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
-    const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
-    if (rawParsed.symbol && !validSymbols.includes(rawParsed.symbol)) {
-      console.log(`[Parser] Correcting invalid symbol "${rawParsed.symbol}" to null`);
-      rawParsed.symbol = null;
-    }
+    // Apply corrections with warning tracking
+    applyCorrections(rawParsed, warnings);
 
     // Add chain-of-thought if extracted
     if (reasoning) {
@@ -158,30 +263,34 @@ export async function parseTradeDecision(text: string) {
     }
 
     // Validate with schema
-    return TradeDecisionSchema.parse(rawParsed);
+    const decision = TradeDecisionSchema.parse(rawParsed);
+    return { decision, warnings };
   } catch (error) {
     console.error("Failed to parse trade decision:", error);
 
     // Fallback: try to extract JSON from the original text (after stripping think tags)
     const { content } = extractReasoningTags(text);
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+    const extracted = extractFirstJsonObject(content);
+    if (extracted) {
+      warnings.push(
+        createWarning(
+          "JSON_EXTRACTION_FALLBACK",
+          "JSON extracted via fallback bracket-depth parser after initial parse failure"
+        )
+      );
 
-      // Fix leverage if < 1
-      if (parsed.leverage !== null && parsed.leverage !== undefined && parsed.leverage < 1) {
-        console.log(`[Parser Fallback] Correcting leverage from ${parsed.leverage} to 1 (minimum for perpetual futures)`);
-        parsed.leverage = 1;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(extracted);
+      } catch {
+        parsed = JSON.parse(repairJson(extracted));
       }
 
-      // Fix invalid symbol values (AI sometimes returns "ALL", "NONE", etc.)
-      const validSymbols = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
-      if (parsed.symbol && !validSymbols.includes(parsed.symbol)) {
-        console.log(`[Parser Fallback] Correcting invalid symbol "${parsed.symbol}" to null`);
-        parsed.symbol = null;
-      }
+      // Apply corrections with warning tracking
+      applyCorrections(parsed, warnings);
 
-      return TradeDecisionSchema.parse(parsed);
+      const decision = TradeDecisionSchema.parse(parsed);
+      return { decision, warnings };
     }
 
     throw error;

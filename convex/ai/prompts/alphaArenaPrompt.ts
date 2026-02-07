@@ -204,6 +204,7 @@ Open Positions: {positionCount} / {maxPositions}
 ###[SYMBOLS WITH OPEN POSITIONS]
 {openPositionSymbols}
 
+{sentimentContext}
 ---
 CRITICAL RULES:
 1. If you have an open position on a symbol, you can ONLY output "hold" or "close" for that symbol
@@ -320,8 +321,47 @@ export function formatPositionsAlphaArena(positions: any[]): string {
 }
 
 // =============================================================================
+// SENTIMENT CONTEXT FORMATTER
+// =============================================================================
+
+/**
+ * Format market research/sentiment data for injection into the trading prompt.
+ * Returns empty string if no research data is available.
+ */
+export function formatSentimentContext(research: any | null): string {
+  if (!research) return "";
+
+  let context = "\n###[MARKET SENTIMENT CONTEXT]\n";
+  context += `Fear & Greed Index: ${research.fearGreedIndex}/100 (${research.fearGreedLabel})\n`;
+  context += `Overall Sentiment: ${research.overallSentiment}\n`;
+  context += `Market Narrative: "${research.marketNarrative}"\n`;
+
+  if (research.perCoinSentiment) {
+    context += "Per-Coin: ";
+    const coins = Object.entries(
+      research.perCoinSentiment as Record<string, any>
+    );
+    context += coins
+      .map(
+        ([coin, data]: [string, any]) =>
+          `${coin} ${data.sentiment} (${data.news_count} headlines)`
+      )
+      .join(", ");
+    context += "\n";
+  }
+
+  context += `Recommended Bias: ${research.recommendedBias}\n`;
+  context +=
+    "\nNOTE: Sentiment informs position sizing and risk appetite. Technical signals remain primary trade triggers.\n";
+
+  return context;
+}
+
+// =============================================================================
 // ALPHA ARENA OUTPUT PARSER
 // =============================================================================
+
+import { ParserWarning, createWarning } from "../parsers/parserWarnings";
 
 export interface AlphaArenaDecision {
   signal: "hold" | "close" | "entry";
@@ -340,10 +380,7 @@ export interface AlphaArenaOutput {
   decisions: Record<string, AlphaArenaDecision>;
 }
 
-/**
- * Parse Alpha Arena style output and convert to legacy format for execution
- */
-export function parseAlphaArenaOutput(output: AlphaArenaOutput): {
+export interface AlphaArenaLegacyDecision {
   decision: "HOLD" | "CLOSE" | "OPEN_LONG" | "OPEN_SHORT";
   symbol: string | null;
   confidence: number;
@@ -353,37 +390,133 @@ export function parseAlphaArenaOutput(output: AlphaArenaOutput): {
   stop_loss?: number;
   take_profit?: number;
   invalidation_condition?: string;
+}
+
+/**
+ * Convert a single Alpha Arena decision entry to legacy format
+ */
+function toLegacyDecision(
+  symbol: string,
+  dec: AlphaArenaDecision,
+  thinking: string
+): AlphaArenaLegacyDecision {
+  if (dec.signal === "entry") {
+    return {
+      decision: dec.side === "long" ? "OPEN_LONG" : "OPEN_SHORT",
+      symbol,
+      confidence: dec.confidence || 0.7,
+      reasoning: dec.reason || thinking,
+      leverage: dec.leverage,
+      size_usd: dec.size_usd,
+      stop_loss: dec.stop_loss,
+      take_profit: dec.take_profit,
+      invalidation_condition: dec.invalidation_condition,
+    };
+  }
+  // close
+  return {
+    decision: "CLOSE",
+    symbol,
+    confidence: dec.confidence || 0.9,
+    reasoning: dec.reason || thinking,
+  };
+}
+
+/**
+ * Parse Alpha Arena style output and convert to legacy format for execution.
+ * Backward-compatible: returns only the primary decision.
+ */
+export function parseAlphaArenaOutput(output: AlphaArenaOutput): AlphaArenaLegacyDecision {
+  const { decision } = parseAlphaArenaOutputWithWarnings(output);
+  return decision;
+}
+
+/**
+ * Parse Alpha Arena style output, selecting the highest-confidence actionable
+ * decision and tracking any dropped decisions as warnings.
+ */
+export function parseAlphaArenaOutputWithWarnings(output: AlphaArenaOutput): {
+  decision: AlphaArenaLegacyDecision;
+  warnings: ParserWarning[];
 } {
-  // Find the first actionable decision (not hold)
-  for (const [symbol, dec] of Object.entries(output.decisions)) {
-    if (dec.signal === "entry") {
-      return {
-        decision: dec.side === "long" ? "OPEN_LONG" : "OPEN_SHORT",
-        symbol,
-        confidence: dec.confidence || 0.7,
-        reasoning: dec.reason || output.thinking,
-        leverage: dec.leverage,
-        size_usd: dec.size_usd,
-        stop_loss: dec.stop_loss,
-        take_profit: dec.take_profit,
-        invalidation_condition: dec.invalidation_condition,
-      };
+  const warnings: ParserWarning[] = [];
+
+  // Collect ALL actionable decisions (entries and closes)
+  const actionable: { symbol: string; dec: AlphaArenaDecision }[] = [];
+
+  if (!output.decisions || typeof output.decisions !== "object") {
+    // Try to recover: some models put coin keys at the top level (e.g. { thinking, BTC: {...}, ETH: {...} })
+    const VALID_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
+    const recovered: Record<string, AlphaArenaDecision> = {};
+    for (const key of Object.keys(output)) {
+      if (VALID_SYMBOLS.includes(key) && typeof (output as any)[key] === "object") {
+        recovered[key] = (output as any)[key] as AlphaArenaDecision;
+      }
     }
-    if (dec.signal === "close") {
+
+    if (Object.keys(recovered).length > 0) {
+      console.log(`[AlphaArena Parser] Recovered ${Object.keys(recovered).length} decisions from top-level keys`);
+      warnings.push(
+        createWarning(
+          "JSON_EXTRACTION_FALLBACK",
+          `Decisions found at top-level instead of under 'decisions' key (${Object.keys(recovered).join(", ")})`
+        )
+      );
+      output.decisions = recovered;
+    } else {
       return {
-        decision: "CLOSE",
-        symbol,
-        confidence: 0.9,
-        reasoning: dec.reason || output.thinking,
+        decision: {
+          decision: "HOLD",
+          symbol: null,
+          confidence: 0.99,
+          reasoning: output.thinking || "No decisions object in AI response — defaulting to HOLD",
+        },
+        warnings,
       };
     }
   }
 
-  // All hold - return generic HOLD
+  for (const [symbol, dec] of Object.entries(output.decisions)) {
+    if (dec.signal === "entry" || dec.signal === "close") {
+      actionable.push({ symbol, dec });
+    }
+  }
+
+  // No actionable decisions — all hold
+  if (actionable.length === 0) {
+    return {
+      decision: {
+        decision: "HOLD",
+        symbol: null,
+        confidence: 0.99,
+        reasoning: output.thinking || "All positions stable, no high-conviction entries",
+      },
+      warnings,
+    };
+  }
+
+  // Sort by confidence descending, pick the highest
+  actionable.sort((a, b) => (b.dec.confidence || 0) - (a.dec.confidence || 0));
+
+  const primary = actionable[0];
+  const dropped = actionable.slice(1);
+
+  if (dropped.length > 0) {
+    warnings.push(
+      createWarning(
+        "MULTIPLE_DECISIONS_DROPPED",
+        `${dropped.length} additional actionable decision(s) dropped in favor of highest-confidence ${primary.symbol}`,
+        dropped.map(d => ({ symbol: d.symbol, signal: d.dec.signal, confidence: d.dec.confidence })),
+        { symbol: primary.symbol, signal: primary.dec.signal, confidence: primary.dec.confidence }
+      )
+    );
+    console.log(
+      `[AlphaArena Parser] Picked ${primary.symbol} (confidence ${primary.dec.confidence}), dropped ${dropped.length} other decision(s)`
+    );
+  }
+
   return {
-    decision: "HOLD",
-    symbol: null,
-    confidence: 0.99,
-    reasoning: output.thinking || "All positions stable, no high-conviction entries",
+    decision: toLegacyDecision(primary.symbol, primary.dec, output.thinking),
+    warnings,
   };
 }

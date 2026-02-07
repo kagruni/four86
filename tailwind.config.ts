@@ -18,6 +18,11 @@ const config = {
   		}
   	},
   	extend: {
+  		fontFamily: {
+  			sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+  			mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+  			heading: ['var(--font-heading)', 'var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+  		},
   		colors: {
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
@@ -81,11 +86,33 @@ const config = {
   				to: {
   					height: '0'
   				}
+  			},
+  			'fadeInUp': {
+  				from: {
+  					opacity: '0',
+  					transform: 'translateY(20px)'
+  				},
+  				to: {
+  					opacity: '1',
+  					transform: 'translateY(0)'
+  				}
+  			},
+  			'pulse-dot': {
+  				'0%, 100%': {
+  					transform: 'scale(1)',
+  					opacity: '1'
+  				},
+  				'50%': {
+  					transform: 'scale(1.5)',
+  					opacity: '0.7'
+  				}
   			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+  			'fade-in-up': 'fadeInUp 0.4s ease-out',
+  			'pulse-dot': 'pulse-dot 2s ease-in-out infinite'
   		}
   	}
   },

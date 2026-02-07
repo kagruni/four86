@@ -275,6 +275,7 @@ export const makeAlphaArenaTradingDecision = action({
     detailedMarketData: v.any(), // Record<string, DetailedCoinData>
     accountState: v.any(),
     positions: v.any(),
+    marketResearch: v.optional(v.any()), // Latest sentiment/news data
     config: v.object({
       maxLeverage: v.number(),
       maxPositionSize: v.number(),
@@ -319,6 +320,7 @@ export const makeAlphaArenaTradingDecision = action({
         detailedMarketData: args.detailedMarketData,
         accountState: args.accountState,
         positions: args.positions || [],
+        marketResearch: args.marketResearch || null,
       });
 
       const processingTime = Date.now() - startTime;

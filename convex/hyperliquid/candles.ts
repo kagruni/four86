@@ -41,33 +41,29 @@ export interface Candle {
 export type CandleInterval = "1m" | "2m" | "5m" | "15m" | "1h" | "4h" | "1d";
 
 /**
- * Internal helper to fetch candles from Hyperliquid API
- * This is not a Convex action - use within actions only
+ * Shared helper that handles the actual API call + response parsing.
+ * Accepts explicit startTime/endTime — used by both fetchCandlesInternal
+ * and fetchHistoricalCandles.
  *
  * @param symbol - Trading symbol (e.g., "BTC", "ETH")
  * @param interval - Candle timeframe
- * @param limit - Number of candles to fetch (max: 5000, default: 100)
+ * @param startTime - Start timestamp in milliseconds
+ * @param endTime - End timestamp in milliseconds
  * @param testnet - Use testnet API (default: true)
  * @returns Array of candles (oldest to newest)
  */
-export async function fetchCandlesInternal(
+async function fetchCandlesFromAPI(
   symbol: string,
   interval: CandleInterval,
-  limit: number = 100,
+  startTime: number,
+  endTime: number,
   testnet: boolean = true
 ): Promise<Candle[]> {
   const baseUrl = testnet
     ? "https://api.hyperliquid-testnet.xyz"
     : "https://api.hyperliquid.xyz";
 
-  const actualLimit = Math.min(limit, 5000);
-
   try {
-    // Calculate start and end times based on interval and limit
-    const now = Date.now();
-    const intervalMs = getIntervalMilliseconds(interval);
-    const startTime = now - (intervalMs * actualLimit);
-
     const response = await fetch(`${baseUrl}/info`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -77,7 +73,7 @@ export async function fetchCandlesInternal(
           coin: symbol,
           interval: interval,
           startTime: startTime,
-          endTime: now,
+          endTime: endTime,
         },
       }),
     });
@@ -174,6 +170,32 @@ export async function fetchCandlesInternal(
 }
 
 /**
+ * Internal helper to fetch candles from Hyperliquid API
+ * This is not a Convex action - use within actions only
+ *
+ * @param symbol - Trading symbol (e.g., "BTC", "ETH")
+ * @param interval - Candle timeframe
+ * @param limit - Number of candles to fetch (max: 5000, default: 100)
+ * @param testnet - Use testnet API (default: true)
+ * @returns Array of candles (oldest to newest)
+ */
+export async function fetchCandlesInternal(
+  symbol: string,
+  interval: CandleInterval,
+  limit: number = 100,
+  testnet: boolean = true
+): Promise<Candle[]> {
+  const actualLimit = Math.min(limit, 5000);
+
+  // Calculate start and end times based on interval and limit
+  const now = Date.now();
+  const intervalMs = getIntervalMilliseconds(interval);
+  const startTime = now - (intervalMs * actualLimit);
+
+  return await fetchCandlesFromAPI(symbol, interval, startTime, now, testnet);
+}
+
+/**
  * Fetch historical candle data from Hyperliquid API
  * Convex action wrapper for fetchCandlesInternal
  *
@@ -198,6 +220,40 @@ export const fetchCandles = action({
       args.interval as CandleInterval,
       args.limit,
       args.testnet
+    );
+  },
+});
+
+/**
+ * Fetch historical candle data for a specific time range.
+ * Unlike fetchCandles (which computes the window from limit),
+ * this action accepts explicit startTime / endTime — ideal for
+ * backtesting and charting.
+ *
+ * @example
+ * const candles = await ctx.runAction(api.hyperliquid.candles.fetchHistoricalCandles, {
+ *   symbol: "BTC",
+ *   interval: "1h",
+ *   startTime: Date.now() - 7 * 24 * 60 * 60 * 1000,
+ *   endTime: Date.now(),
+ *   testnet: true,
+ * });
+ */
+export const fetchHistoricalCandles = action({
+  args: {
+    symbol: v.string(),
+    interval: v.string(),
+    startTime: v.number(),
+    endTime: v.number(),
+    testnet: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    return await fetchCandlesFromAPI(
+      args.symbol,
+      args.interval as CandleInterval,
+      args.startTime,
+      args.endTime,
+      args.testnet ?? true
     );
   },
 });
@@ -286,8 +342,9 @@ export function getLatestCandle(candles: Candle[]): Candle | null {
  * @returns Interval duration in milliseconds
  */
 function getIntervalMilliseconds(interval: CandleInterval): number {
-  const intervals: Record<CandleInterval, number> = {
+  const intervals: Record<string, number> = {
     "1m": 60 * 1000,
+    "2m": 2 * 60 * 1000,
     "5m": 5 * 60 * 1000,
     "15m": 15 * 60 * 1000,
     "1h": 60 * 60 * 1000,

@@ -60,6 +60,18 @@ export default defineSchema({
     // Deprecated fields (for backward compatibility, will be removed in migration)
     stopLossEnabled: v.optional(v.boolean()), // DEPRECATED - always enabled for safety
 
+    // Feature flags (previously hard-coded)
+    tradingPromptMode: v.optional(v.string()), // "alpha_arena" | "compact" | "detailed"
+
+    // Circuit breaker fields
+    circuitBreakerState: v.optional(v.string()), // "active" | "tripped" | "cooldown"
+    consecutiveAiFailures: v.optional(v.number()),
+    consecutiveLosses: v.optional(v.number()),
+    circuitBreakerTrippedAt: v.optional(v.number()),
+    circuitBreakerCooldownMinutes: v.optional(v.number()), // default 30
+    maxConsecutiveAiFailures: v.optional(v.number()), // default 3
+    maxConsecutiveLosses: v.optional(v.number()), // default 5
+
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
@@ -162,6 +174,25 @@ export default defineSchema({
   }).index("by_userId", ["userId"])
     .index("by_userId_time", ["userId", "timestamp"]),
 
+  // Market research and sentiment data
+  marketResearch: defineTable({
+    userId: v.string(),
+    fearGreedIndex: v.number(),
+    fearGreedLabel: v.string(),
+    overallSentiment: v.string(),       // "very_bearish" to "very_bullish"
+    sentimentScore: v.number(),          // -1 to 1
+    perCoinSentiment: v.any(),           // { BTC: { sentiment, news_count, key_headline }, ... }
+    keyEvents: v.any(),                  // [{ headline, impact, asset, sentiment }]
+    marketNarrative: v.string(),         // LLM-generated summary
+    recommendedBias: v.string(),         // "risk_off" | "neutral" | "risk_on"
+    rawNewsData: v.any(),
+    aiAnalysis: v.any(),
+    sources: v.array(v.string()),
+    processingTimeMs: v.number(),
+    timestamp: v.number(),
+  }).index("by_userId", ["userId"])
+    .index("by_userId_time", ["userId", "timestamp"]),
+
   // System events/logs
   systemLogs: defineTable({
     userId: v.optional(v.string()),
@@ -189,4 +220,70 @@ export default defineSchema({
     expiresAt: v.number(), // Lock expires after 60 seconds
   }).index("by_userId_symbol", ["userId", "symbol"])
     .index("by_expiresAt", ["expiresAt"]),
+
+  // Backtest run configurations and results
+  backtestRuns: defineTable({
+    userId: v.string(),
+    status: v.string(), // "running" | "completed" | "failed"
+
+    // Configuration
+    symbol: v.string(),
+    startDate: v.number(), // timestamp
+    endDate: v.number(), // timestamp
+    modelName: v.string(),
+    tradingPromptMode: v.string(), // "alpha_arena" | "compact" | "detailed"
+    initialCapital: v.number(),
+    maxLeverage: v.number(),
+
+    // Results (populated on completion)
+    totalPnl: v.optional(v.number()),
+    totalPnlPct: v.optional(v.number()),
+    winRate: v.optional(v.number()),
+    totalTrades: v.optional(v.number()),
+    maxDrawdown: v.optional(v.number()),
+    maxDrawdownPct: v.optional(v.number()),
+    sharpeRatio: v.optional(v.number()),
+    finalCapital: v.optional(v.number()),
+
+    // Live progress (updated during run)
+    currentCapital: v.optional(v.number()),
+    currentTrades: v.optional(v.number()),
+    progressPct: v.optional(v.number()), // 0-100
+
+    // Metadata
+    error: v.optional(v.string()),
+    durationMs: v.optional(v.number()),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"])
+    .index("by_userId_status", ["userId", "status"]),
+
+  // Individual simulated trades within a backtest
+  backtestTrades: defineTable({
+    runId: v.id("backtestRuns"),
+    userId: v.string(),
+
+    // Trade details
+    symbol: v.string(),
+    action: v.string(), // "OPEN" | "CLOSE"
+    side: v.string(), // "LONG" | "SHORT"
+    entryPrice: v.number(),
+    exitPrice: v.optional(v.number()),
+    size: v.number(), // USD value
+    leverage: v.number(),
+
+    // Outcome
+    pnl: v.optional(v.number()),
+    pnlPct: v.optional(v.number()),
+    exitReason: v.optional(v.string()), // "take_profit" | "stop_loss" | "ai_close" | "end_of_period"
+
+    // AI context
+    confidence: v.optional(v.number()),
+    reasoning: v.optional(v.string()),
+
+    // Timing
+    entryTime: v.number(),
+    exitTime: v.optional(v.number()),
+  }).index("by_runId", ["runId"])
+    .index("by_userId", ["userId"]),
 });

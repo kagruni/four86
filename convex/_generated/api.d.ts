@@ -12,6 +12,7 @@ import type * as ai_agents_tradingAgent from "../ai/agents/tradingAgent.js";
 import type * as ai_chains_tradingChain from "../ai/chains/tradingChain.js";
 import type * as ai_models_openrouter from "../ai/models/openrouter.js";
 import type * as ai_models_zhipuai from "../ai/models/zhipuai.js";
+import type * as ai_parsers_parserWarnings from "../ai/parsers/parserWarnings.js";
 import type * as ai_parsers_schemas from "../ai/parsers/schemas.js";
 import type * as ai_parsers_tradeDecision from "../ai/parsers/tradeDecision.js";
 import type * as ai_prompts_alphaArenaPrompt from "../ai/prompts/alphaArenaPrompt.js";
@@ -20,6 +21,8 @@ import type * as ai_prompts_detailedSystem from "../ai/prompts/detailedSystem.js
 import type * as ai_prompts_promptHelpers from "../ai/prompts/promptHelpers.js";
 import type * as ai_prompts_system from "../ai/prompts/system.js";
 import type * as ai_tools_tradingTools from "../ai/tools/tradingTools.js";
+import type * as backtesting_backtestActions from "../backtesting/backtestActions.js";
+import type * as backtesting_backtestEngine from "../backtesting/backtestEngine.js";
 import type * as crons from "../crons.js";
 import type * as hyperliquid_candles from "../hyperliquid/candles.js";
 import type * as hyperliquid_client from "../hyperliquid/client.js";
@@ -30,6 +33,10 @@ import type * as migrations_removeStopLossEnabled from "../migrations/removeStop
 import type * as migrations_runMigration from "../migrations/runMigration.js";
 import type * as mutations from "../mutations.js";
 import type * as queries from "../queries.js";
+import type * as research_newsApis from "../research/newsApis.js";
+import type * as research_researchLoop from "../research/researchLoop.js";
+import type * as research_researchMutations from "../research/researchMutations.js";
+import type * as research_sentimentAnalyzer from "../research/sentimentAnalyzer.js";
 import type * as signals_divergenceDetection from "../signals/divergenceDetection.js";
 import type * as signals_entrySignals from "../signals/entrySignals.js";
 import type * as signals_levelDetection from "../signals/levelDetection.js";
@@ -42,9 +49,15 @@ import type * as testing_diagnosticPositions from "../testing/diagnosticPosition
 import type * as testing_manualPositionSync from "../testing/manualPositionSync.js";
 import type * as testing_manualTrigger from "../testing/manualTrigger.js";
 import type * as testing_recoverPositions from "../testing/recoverPositions.js";
+import type * as trading_circuitBreaker from "../trading/circuitBreaker.js";
+import type * as trading_converters_positionConverter from "../trading/converters/positionConverter.js";
+import type * as trading_executors_tradeExecutor from "../trading/executors/tradeExecutor.js";
+import type * as trading_logger from "../trading/logger.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
 import type * as trading_positionSync from "../trading/positionSync.js";
 import type * as trading_tradingLoop from "../trading/tradingLoop.js";
+import type * as trading_validators_positionValidator from "../trading/validators/positionValidator.js";
+import type * as trading_validators_trendGuard from "../trading/validators/trendGuard.js";
 
 import type {
   ApiFromModules,
@@ -65,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "ai/chains/tradingChain": typeof ai_chains_tradingChain;
   "ai/models/openrouter": typeof ai_models_openrouter;
   "ai/models/zhipuai": typeof ai_models_zhipuai;
+  "ai/parsers/parserWarnings": typeof ai_parsers_parserWarnings;
   "ai/parsers/schemas": typeof ai_parsers_schemas;
   "ai/parsers/tradeDecision": typeof ai_parsers_tradeDecision;
   "ai/prompts/alphaArenaPrompt": typeof ai_prompts_alphaArenaPrompt;
@@ -73,6 +87,8 @@ declare const fullApi: ApiFromModules<{
   "ai/prompts/promptHelpers": typeof ai_prompts_promptHelpers;
   "ai/prompts/system": typeof ai_prompts_system;
   "ai/tools/tradingTools": typeof ai_tools_tradingTools;
+  "backtesting/backtestActions": typeof backtesting_backtestActions;
+  "backtesting/backtestEngine": typeof backtesting_backtestEngine;
   crons: typeof crons;
   "hyperliquid/candles": typeof hyperliquid_candles;
   "hyperliquid/client": typeof hyperliquid_client;
@@ -83,6 +99,10 @@ declare const fullApi: ApiFromModules<{
   "migrations/runMigration": typeof migrations_runMigration;
   mutations: typeof mutations;
   queries: typeof queries;
+  "research/newsApis": typeof research_newsApis;
+  "research/researchLoop": typeof research_researchLoop;
+  "research/researchMutations": typeof research_researchMutations;
+  "research/sentimentAnalyzer": typeof research_sentimentAnalyzer;
   "signals/divergenceDetection": typeof signals_divergenceDetection;
   "signals/entrySignals": typeof signals_entrySignals;
   "signals/levelDetection": typeof signals_levelDetection;
@@ -95,9 +115,15 @@ declare const fullApi: ApiFromModules<{
   "testing/manualPositionSync": typeof testing_manualPositionSync;
   "testing/manualTrigger": typeof testing_manualTrigger;
   "testing/recoverPositions": typeof testing_recoverPositions;
+  "trading/circuitBreaker": typeof trading_circuitBreaker;
+  "trading/converters/positionConverter": typeof trading_converters_positionConverter;
+  "trading/executors/tradeExecutor": typeof trading_executors_tradeExecutor;
+  "trading/logger": typeof trading_logger;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
   "trading/positionSync": typeof trading_positionSync;
   "trading/tradingLoop": typeof trading_tradingLoop;
+  "trading/validators/positionValidator": typeof trading_validators_positionValidator;
+  "trading/validators/trendGuard": typeof trading_validators_trendGuard;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

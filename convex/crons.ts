@@ -24,4 +24,11 @@ crons.interval(
   internal.mutations.cleanupExpiredLocks
 );
 
+// Research/sentiment cycle - runs every 12 hours
+crons.interval(
+  "research-cycle",
+  { hours: 12 },
+  internal.research.researchLoop.runResearchCycle
+);
+
 export default crons;

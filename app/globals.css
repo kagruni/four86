@@ -66,5 +66,18 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+}
+
+@layer utilities {
+  .gradient-separator {
+    @apply h-px bg-gradient-to-r from-transparent via-black/20 to-transparent;
+  }
+
+  .font-mono-nums {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
   }
 }
