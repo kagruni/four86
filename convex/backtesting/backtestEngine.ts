@@ -6,21 +6,110 @@ import { v } from "convex/values";
 import { fetchCandlesInternal } from "../hyperliquid/candles";
 
 /**
- * Backtest Engine (Chunked)
+ * Backtest Engine (Chunked) — Realistic Hyperliquid Simulation
  *
  * Runs backtests in chunks to stay under Convex's 600s action timeout.
  * Each chunk processes up to MAX_AI_CALLS_PER_CHUNK AI decisions,
  * then schedules the next chunk with carried-over state.
+ *
+ * Realistic mechanics:
+ * - Correct taker fee (0.045% base tier)
+ * - Dynamic slippage by asset liquidity and order size
+ * - Hourly funding rate charges
+ * - Per-candle liquidation checks
+ * - Per-asset max leverage caps
  */
 
 // Max AI calls per chunk — keeps each action well under 600s
 // ~12 AI calls * ~15s each = ~180s, plus overhead = safely under 600s
 const MAX_AI_CALLS_PER_CHUNK = 12;
 
-// Realistic trading costs
-const TAKER_FEE_PCT = 0.00035; // 0.035% Hyperliquid taker fee per side
-const SLIPPAGE_PCT = 0.0005; // 0.05% estimated slippage per fill
-const COST_PER_SIDE = TAKER_FEE_PCT + SLIPPAGE_PCT; // 0.085% total per side
+// ─── Realistic Hyperliquid Trading Costs ─────────────────────────────────────
+
+const TAKER_FEE_PCT = 0.00045; // 0.045% base tier (correct for <$5M volume)
+const LIQUIDATION_FEE_PCT = 0.005; // 0.5% liquidation penalty
+const FUNDING_INTERVAL_MS = 3600000; // 1 hour between funding charges
+
+type LiquidityTier = "high" | "medium" | "low";
+
+interface AssetConfig {
+  maxLeverage: number;
+  maintenanceMarginRate: number; // fraction (e.g. 0.0125 = 1.25%)
+  liquidityTier: LiquidityTier;
+  defaultFundingRate8h: number; // per 8h (e.g. 0.0001 = 0.01%)
+}
+
+const ASSET_CONFIG: Record<string, AssetConfig> = {
+  BTC: { maxLeverage: 40, maintenanceMarginRate: 0.0125, liquidityTier: "high", defaultFundingRate8h: 0.0001 },
+  ETH: { maxLeverage: 25, maintenanceMarginRate: 0.02, liquidityTier: "high", defaultFundingRate8h: 0.0001 },
+  SOL: { maxLeverage: 20, maintenanceMarginRate: 0.025, liquidityTier: "medium", defaultFundingRate8h: 0.00015 },
+  XRP: { maxLeverage: 20, maintenanceMarginRate: 0.025, liquidityTier: "medium", defaultFundingRate8h: 0.00015 },
+  BNB: { maxLeverage: 10, maintenanceMarginRate: 0.05, liquidityTier: "low", defaultFundingRate8h: 0.0002 },
+  DOGE: { maxLeverage: 10, maintenanceMarginRate: 0.05, liquidityTier: "low", defaultFundingRate8h: 0.0002 },
+};
+
+const DEFAULT_ASSET_CONFIG: AssetConfig = {
+  maxLeverage: 10,
+  maintenanceMarginRate: 0.05,
+  liquidityTier: "low",
+  defaultFundingRate8h: 0.0002,
+};
+
+function getAssetConfig(symbol: string): AssetConfig {
+  return ASSET_CONFIG[symbol] || DEFAULT_ASSET_CONFIG;
+}
+
+/**
+ * Calculate dynamic slippage based on notional size and asset liquidity.
+ * Scales with order size — larger orders get worse fills.
+ */
+function calculateSlippage(notionalUsd: number, liquidityTier: LiquidityTier): number {
+  switch (liquidityTier) {
+    case "high": // BTC, ETH — deep books
+      return 0.0001 + 0.0001 * (notionalUsd / 100_000);
+    case "medium": // SOL, XRP
+      return 0.0003 + 0.0003 * (notionalUsd / 50_000);
+    case "low": // BNB, DOGE — thin books
+      return 0.0005 + 0.0005 * (notionalUsd / 25_000);
+    default:
+      return 0.0005;
+  }
+}
+
+/**
+ * Calculate funding cost for a position over a time period.
+ * Counts integer hours elapsed and applies hourly rate (1/8 of 8h rate).
+ * Longs pay positive funding; shorts receive (and vice versa for negative).
+ */
+function calculateFundingForPeriod(
+  symbol: string,
+  side: string,
+  notional: number,
+  fromTime: number,
+  toTime: number
+): number {
+  const config = getAssetConfig(symbol);
+  const hourlyRate = config.defaultFundingRate8h / 8;
+  const hoursElapsed = Math.floor((toTime - fromTime) / FUNDING_INTERVAL_MS);
+  if (hoursElapsed <= 0) return 0;
+
+  // Positive funding rate = longs pay, shorts receive
+  // We assume default positive rate (typical in crypto)
+  const rawCost = notional * hourlyRate * hoursElapsed;
+  return side === "LONG" ? rawCost : -rawCost; // negative = shorts earn
+}
+
+/**
+ * Advance funding checkpoint time to avoid double-charging.
+ * Snaps forward to the last whole hour boundary that fits in [fromTime, toTime].
+ */
+function advanceFundingTime(fromTime: number, toTime: number): number {
+  const hoursElapsed = Math.floor((toTime - fromTime) / FUNDING_INTERVAL_MS);
+  if (hoursElapsed <= 0) return fromTime;
+  return fromTime + hoursElapsed * FUNDING_INTERVAL_MS;
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface BacktestResult {
   totalPnl: number;
@@ -31,6 +120,9 @@ interface BacktestResult {
   maxDrawdownPct: number;
   sharpeRatio: number;
   finalCapital: number;
+  totalFees: number;
+  totalFunding: number;
+  liquidationCount: number;
 }
 
 /**
@@ -51,8 +143,11 @@ export const runBacktest = internalAction({
     testnet: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const assetConfig = getAssetConfig(args.symbol);
+    const effectiveMaxLeverage = Math.min(args.maxLeverage, assetConfig.maxLeverage);
+
     console.log(
-      `[BACKTEST] Starting backtest for ${args.symbol} from ${new Date(args.startDate).toISOString()} to ${new Date(args.endDate).toISOString()}`
+      `[BACKTEST] Starting backtest for ${args.symbol} from ${new Date(args.startDate).toISOString()} to ${new Date(args.endDate).toISOString()}, maxLev: ${effectiveMaxLeverage}x (user: ${args.maxLeverage}x, asset: ${assetConfig.maxLeverage}x)`
     );
 
     try {
@@ -106,7 +201,7 @@ export const runBacktest = internalAction({
           symbol: args.symbol,
           modelName: args.modelName,
           initialCapital: args.initialCapital,
-          maxLeverage: args.maxLeverage,
+          maxLeverage: effectiveMaxLeverage,
           openrouterApiKey: args.openrouterApiKey,
           startTime: Date.now(),
           // Candle data (serialized)
@@ -124,6 +219,8 @@ export const runBacktest = internalAction({
           maxDrawdown: 0,
           maxDrawdownPct: 0,
           totalFees: 0,
+          totalFunding: 0,
+          liquidationCount: 0,
           tradeCount: 0,
           winCount: 0,
           // For Sharpe ratio (running sums)
@@ -176,6 +273,8 @@ export const processBacktestChunk = internalAction({
     maxDrawdown: v.number(),
     maxDrawdownPct: v.number(),
     totalFees: v.number(),
+    totalFunding: v.number(),
+    liquidationCount: v.number(),
     tradeCount: v.number(),
     winCount: v.number(),
     // Sharpe running sums
@@ -197,6 +296,8 @@ export const processBacktestChunk = internalAction({
         return;
       }
 
+      const assetConfig = getAssetConfig(args.symbol);
+
       // Deserialize state
       const periodCandles = JSON.parse(args.periodCandlesJson);
       const candles1h = JSON.parse(args.candles1hJson);
@@ -207,6 +308,8 @@ export const processBacktestChunk = internalAction({
       let maxDrawdown = args.maxDrawdown;
       let maxDrawdownPct = args.maxDrawdownPct;
       let totalFees = args.totalFees;
+      let totalFunding = args.totalFunding;
+      let liquidationCount = args.liquidationCount;
       let tradeCount = args.tradeCount;
       let winCount = args.winCount;
       let returnsSum = args.returnsSum;
@@ -240,13 +343,110 @@ export const processBacktestChunk = internalAction({
           );
         }
 
-        // Check if current position hit SL/TP
+        // ─── Position checks: funding, liquidation, SL/TP ─────────────
         if (currentPosition) {
           const prevIndex = Math.max(0, candleIndex - args.stepSize);
+          let positionClosed = false;
+
           for (let j = prevIndex; j <= candleIndex; j++) {
             const checkCandle = periodCandles[j];
             if (!checkCandle) continue;
 
+            const notional = currentPosition.size * currentPosition.leverage;
+            const margin = currentPosition.size; // margin = position size (collateral)
+
+            // (a) Funding charge — hourly
+            const fundingCost = calculateFundingForPeriod(
+              args.symbol,
+              currentPosition.side,
+              notional,
+              currentPosition.lastFundingCheckTime,
+              checkCandle.t
+            );
+            if (fundingCost !== 0) {
+              currentPosition.accumulatedFunding += fundingCost;
+              currentPosition.lastFundingCheckTime = advanceFundingTime(
+                currentPosition.lastFundingCheckTime,
+                checkCandle.t
+              );
+            }
+
+            // (b) Liquidation check — at candle's worst price
+            const worstPrice = currentPosition.side === "LONG"
+              ? checkCandle.l
+              : checkCandle.h;
+
+            let unrealizedPnl: number;
+            if (currentPosition.side === "LONG") {
+              unrealizedPnl =
+                ((worstPrice - currentPosition.entryPrice) /
+                  currentPosition.entryPrice) *
+                notional;
+            } else {
+              unrealizedPnl =
+                ((currentPosition.entryPrice - worstPrice) /
+                  currentPosition.entryPrice) *
+                notional;
+            }
+
+            const positionEquity = margin + unrealizedPnl - currentPosition.accumulatedFunding;
+            const maintenanceMargin = notional * assetConfig.maintenanceMarginRate;
+
+            if (positionEquity <= maintenanceMargin) {
+              // LIQUIDATION — forced close at worst price
+              const liqFee = notional * LIQUIDATION_FEE_PCT;
+              const exitFee = notional * TAKER_FEE_PCT;
+              const liqPnl = unrealizedPnl - liqFee - exitFee - currentPosition.accumulatedFunding;
+
+              totalFees += liqFee + exitFee;
+              totalFunding += currentPosition.accumulatedFunding;
+              liquidationCount++;
+
+              const pnlPct = (liqPnl / currentPosition.size) * 100;
+              capital += liqPnl;
+              tradeCount++;
+              if (liqPnl > 0) winCount++; // unlikely for liquidation
+              returnsSum += pnlPct;
+              returnsSquaredSum += pnlPct * pnlPct;
+              returnsCount++;
+
+              await ctx.runMutation(
+                internal.backtesting.backtestActions.saveBacktestTrade,
+                {
+                  runId: args.runId,
+                  userId: args.userId,
+                  symbol: args.symbol,
+                  action: "CLOSE",
+                  side: currentPosition.side,
+                  entryPrice: currentPosition.entryPrice,
+                  exitPrice: worstPrice,
+                  size: currentPosition.size,
+                  leverage: currentPosition.leverage,
+                  pnl: liqPnl,
+                  pnlPct,
+                  exitReason: "liquidation",
+                  fundingPaid: currentPosition.accumulatedFunding,
+                  confidence: currentPosition.confidence,
+                  reasoning: currentPosition.reasoning,
+                  entryTime: currentPosition.entryTime,
+                  exitTime: checkCandle.t,
+                }
+              );
+
+              currentPosition = null;
+              positionClosed = true;
+
+              // Track drawdown
+              if (capital > peakCapital) peakCapital = capital;
+              const drawdown = peakCapital - capital;
+              const drawdownPct = (drawdown / peakCapital) * 100;
+              if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+              if (drawdownPct > maxDrawdownPct) maxDrawdownPct = drawdownPct;
+
+              break;
+            }
+
+            // (c) SL/TP check with slippage
             let hitSL = false;
             let hitTP = false;
 
@@ -259,31 +459,51 @@ export const processBacktestChunk = internalAction({
             }
 
             if (hitSL || hitTP) {
-              const exitPrice = hitSL
-                ? currentPosition.stopLoss
-                : currentPosition.takeProfit;
+              // Calculate volatility multiplier from candle range
+              const candleRange = (checkCandle.h - checkCandle.l) / checkCandle.c;
+              const volatilityMultiplier = Math.max(1.0, candleRange / 0.005); // baseline 0.5% range
+
+              const baseSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
+
+              let exitPrice: number;
               const exitReason = hitSL ? "stop_loss" : "take_profit";
+
+              if (hitSL) {
+                // SL gets full slippage in worse direction, scaled by volatility
+                const slippagePct = baseSlippage * volatilityMultiplier;
+                if (currentPosition.side === "LONG") {
+                  exitPrice = currentPosition.stopLoss * (1 - slippagePct);
+                } else {
+                  exitPrice = currentPosition.stopLoss * (1 + slippagePct);
+                }
+              } else {
+                // TP gets half slippage (less urgency, limit-like execution)
+                const slippagePct = baseSlippage * 0.5;
+                if (currentPosition.side === "LONG") {
+                  exitPrice = currentPosition.takeProfit * (1 - slippagePct);
+                } else {
+                  exitPrice = currentPosition.takeProfit * (1 + slippagePct);
+                }
+              }
 
               let pnl: number;
               if (currentPosition.side === "LONG") {
                 pnl =
                   ((exitPrice - currentPosition.entryPrice) /
                     currentPosition.entryPrice) *
-                  currentPosition.size *
-                  currentPosition.leverage;
+                  notional;
               } else {
                 pnl =
                   ((currentPosition.entryPrice - exitPrice) /
                     currentPosition.entryPrice) *
-                  currentPosition.size *
-                  currentPosition.leverage;
+                  notional;
               }
 
-              // Deduct fees + slippage (entry + exit = 2 sides)
-              const notional = currentPosition.size * currentPosition.leverage;
-              const roundTripCost = notional * COST_PER_SIDE * 2;
-              pnl -= roundTripCost;
-              totalFees += roundTripCost;
+              // Deduct exit fee + accumulated funding
+              const exitFee = notional * TAKER_FEE_PCT;
+              pnl -= exitFee + currentPosition.accumulatedFunding;
+              totalFees += exitFee;
+              totalFunding += currentPosition.accumulatedFunding;
 
               const pnlPct = (pnl / currentPosition.size) * 100;
               capital += pnl;
@@ -309,6 +529,7 @@ export const processBacktestChunk = internalAction({
                   pnl,
                   pnlPct,
                   exitReason,
+                  fundingPaid: currentPosition.accumulatedFunding,
                   confidence: currentPosition.confidence,
                   reasoning: currentPosition.reasoning,
                   entryTime: currentPosition.entryTime,
@@ -317,6 +538,7 @@ export const processBacktestChunk = internalAction({
               );
 
               currentPosition = null;
+              positionClosed = true;
 
               // Track drawdown
               if (capital > peakCapital) peakCapital = capital;
@@ -327,6 +549,11 @@ export const processBacktestChunk = internalAction({
 
               break;
             }
+          }
+
+          // If position was closed (liquidation or SL/TP), skip to capital check
+          if (positionClosed) {
+            // fall through to capital check below
           }
         }
 
@@ -387,6 +614,8 @@ export const processBacktestChunk = internalAction({
               maxDrawdown,
               maxDrawdownPct,
               totalFees,
+              totalFunding,
+              liquidationCount,
               tradeCount,
               winCount,
               returnsSum,
@@ -457,28 +686,48 @@ Max Leverage: ${args.maxLeverage}x`;
               (capital * (aiDecision.size_pct || 20)) / 100
             );
 
+            // Enforce per-asset max leverage
+            const effectiveLeverage = Math.min(
+              aiDecision.leverage || 5,
+              args.maxLeverage,
+              assetConfig.maxLeverage
+            );
+
+            const side = aiDecision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
+            const notional = positionSize * effectiveLeverage;
+
+            // Apply dynamic entry slippage
+            const entrySlippage = calculateSlippage(notional, assetConfig.liquidityTier);
+            const entryPrice = side === "LONG"
+              ? currentPrice * (1 + entrySlippage) // buy higher
+              : currentPrice * (1 - entrySlippage); // sell lower
+
+            // Entry fee
+            const entryFee = notional * TAKER_FEE_PCT;
+            totalFees += entryFee;
+
             currentPosition = {
               symbol: args.symbol,
-              side: aiDecision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
-              entryPrice: currentPrice,
+              side,
+              entryPrice,
               size: positionSize,
-              leverage: Math.min(
-                aiDecision.leverage || 5,
-                args.maxLeverage
-              ),
+              leverage: effectiveLeverage,
               stopLoss:
                 aiDecision.stop_loss ||
-                (aiDecision.decision === "OPEN_LONG"
+                (side === "LONG"
                   ? currentPrice * 0.97
                   : currentPrice * 1.03),
               takeProfit:
                 aiDecision.take_profit ||
-                (aiDecision.decision === "OPEN_LONG"
+                (side === "LONG"
                   ? currentPrice * 1.008
                   : currentPrice * 0.992),
               entryTime: currentCandle.t,
               confidence: aiDecision.confidence || 0.5,
               reasoning: aiDecision.reasoning || "Backtest AI decision",
+              // Funding tracking
+              lastFundingCheckTime: currentCandle.t,
+              accumulatedFunding: 0,
             };
 
             // Save entry trade
@@ -490,7 +739,7 @@ Max Leverage: ${args.maxLeverage}x`;
                 symbol: args.symbol,
                 action: "OPEN",
                 side: currentPosition.side,
-                entryPrice: currentPrice,
+                entryPrice,
                 size: positionSize,
                 leverage: currentPosition.leverage,
                 confidence: currentPosition.confidence,
@@ -513,26 +762,42 @@ Max Leverage: ${args.maxLeverage}x`;
       // Close any remaining position at end of period
       if (currentPosition) {
         const lastCandle = periodCandles[periodCandles.length - 1];
-        const exitPrice = lastCandle.c;
+        const notional = currentPosition.size * currentPosition.leverage;
+
+        // Charge remaining funding up to last candle
+        const remainingFunding = calculateFundingForPeriod(
+          args.symbol,
+          currentPosition.side,
+          notional,
+          currentPosition.lastFundingCheckTime,
+          lastCandle.t
+        );
+        currentPosition.accumulatedFunding += remainingFunding;
+
+        // Apply exit slippage
+        const exitSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
+        const exitPrice = currentPosition.side === "LONG"
+          ? lastCandle.c * (1 - exitSlippage) // sell lower
+          : lastCandle.c * (1 + exitSlippage); // buy higher to cover
+
         let pnl: number;
         if (currentPosition.side === "LONG") {
           pnl =
             ((exitPrice - currentPosition.entryPrice) /
               currentPosition.entryPrice) *
-            currentPosition.size *
-            currentPosition.leverage;
+            notional;
         } else {
           pnl =
             ((currentPosition.entryPrice - exitPrice) /
               currentPosition.entryPrice) *
-            currentPosition.size *
-            currentPosition.leverage;
+            notional;
         }
 
-        const notional = currentPosition.size * currentPosition.leverage;
-        const roundTripCost = notional * COST_PER_SIDE * 2;
-        pnl -= roundTripCost;
-        totalFees += roundTripCost;
+        // Deduct exit fee + accumulated funding
+        const exitFee = notional * TAKER_FEE_PCT;
+        pnl -= exitFee + currentPosition.accumulatedFunding;
+        totalFees += exitFee;
+        totalFunding += currentPosition.accumulatedFunding;
 
         capital += pnl;
         const pnlPct = (pnl / currentPosition.size) * 100;
@@ -557,6 +822,7 @@ Max Leverage: ${args.maxLeverage}x`;
             pnl,
             pnlPct,
             exitReason: "end_of_period",
+            fundingPaid: currentPosition.accumulatedFunding,
             confidence: currentPosition.confidence,
             reasoning: currentPosition.reasoning,
             entryTime: currentPosition.entryTime,
@@ -589,6 +855,9 @@ Max Leverage: ${args.maxLeverage}x`;
         maxDrawdownPct,
         sharpeRatio,
         finalCapital: capital,
+        totalFees,
+        totalFunding,
+        liquidationCount,
       };
 
       // Save results
@@ -602,7 +871,7 @@ Max Leverage: ${args.maxLeverage}x`;
       );
 
       console.log(
-        `[BACKTEST] Complete: ${tradeCount} trades, P&L: $${totalPnl.toFixed(2)} (${totalPnlPct.toFixed(1)}%), Win Rate: ${results.winRate.toFixed(1)}%, Fees+Slippage: $${totalFees.toFixed(2)}`
+        `[BACKTEST] Complete: ${tradeCount} trades, P&L: $${totalPnl.toFixed(2)} (${totalPnlPct.toFixed(1)}%), Win Rate: ${results.winRate.toFixed(1)}%, Fees: $${totalFees.toFixed(2)}, Funding: $${totalFunding.toFixed(2)}, Liquidations: ${liquidationCount}`
       );
     } catch (error) {
       console.error("[BACKTEST] Chunk failed:", error);

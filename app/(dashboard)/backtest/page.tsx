@@ -623,7 +623,7 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
   return (
     <div className="p-4">
       {/* Summary stats */}
-      <div className="mb-4 grid grid-cols-4 gap-4">
+      <div className="mb-4 grid grid-cols-4 gap-4 sm:grid-cols-7">
         <div>
           <p className="text-xs text-gray-500">Max Drawdown</p>
           <p className="font-mono text-sm tabular-nums text-gray-900">
@@ -643,6 +643,24 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
           <p className="text-xs text-gray-500">Initial Capital</p>
           <p className="font-mono text-sm tabular-nums text-gray-900">
             ${run.initialCapital.toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Trading Fees</p>
+          <p className="font-mono text-sm tabular-nums text-red-600">
+            -${(run.totalFees ?? 0).toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Funding Paid</p>
+          <p className={`font-mono text-sm tabular-nums ${(run.totalFunding ?? 0) > 0 ? "text-red-600" : "text-gray-900"}`}>
+            {(run.totalFunding ?? 0) > 0 ? "-" : "+"}${Math.abs(run.totalFunding ?? 0).toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Liquidations</p>
+          <p className={`font-mono text-sm tabular-nums ${(run.liquidationCount ?? 0) > 0 ? "text-red-600" : "text-gray-900"}`}>
+            {run.liquidationCount ?? 0}
           </p>
         </div>
         <div>

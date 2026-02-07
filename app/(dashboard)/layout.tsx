@@ -4,6 +4,7 @@ import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import Image from "next/image";
 import { Activity, Settings, BarChart3, FlaskConical } from "lucide-react";
 
 const navigation = [
@@ -25,12 +26,17 @@ export default function DashboardLayout({
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.05)] backdrop-blur-sm bg-white/95">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
+          <div className="flex h-24 items-center justify-between">
             <div className="flex items-center">
               <Link href="/dashboard" className="flex items-center">
-                <span className="font-mono text-2xl font-bold tracking-[0.2em] text-black">
-                  FOUR86
-                </span>
+                <Image
+                  src="/vectorlogo.svg"
+                  alt="Four86"
+                  width={120}
+                  height={58}
+                  className="h-16 w-auto"
+                  priority
+                />
               </Link>
             </div>
             <nav className="hidden md:flex md:items-center md:space-x-2">

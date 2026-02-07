@@ -108,6 +108,7 @@ export const saveBacktestTrade = internalMutation({
     pnl: v.optional(v.number()),
     pnlPct: v.optional(v.number()),
     exitReason: v.optional(v.string()),
+    fundingPaid: v.optional(v.number()),
     confidence: v.optional(v.number()),
     reasoning: v.optional(v.string()),
     entryTime: v.number(),
@@ -136,6 +137,9 @@ export const completeBacktestRun = internalMutation({
     sharpeRatio: v.number(),
     finalCapital: v.number(),
     durationMs: v.number(),
+    totalFees: v.optional(v.number()),
+    totalFunding: v.optional(v.number()),
+    liquidationCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { runId, ...results } = args;

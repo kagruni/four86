@@ -250,6 +250,11 @@ export default defineSchema({
     currentTrades: v.optional(v.number()),
     progressPct: v.optional(v.number()), // 0-100
 
+    // Realistic cost tracking
+    totalFees: v.optional(v.number()),        // Total trading fees paid
+    totalFunding: v.optional(v.number()),     // Net funding rate costs
+    liquidationCount: v.optional(v.number()), // Number of forced liquidations
+
     // Metadata
     error: v.optional(v.string()),
     durationMs: v.optional(v.number()),
@@ -275,7 +280,8 @@ export default defineSchema({
     // Outcome
     pnl: v.optional(v.number()),
     pnlPct: v.optional(v.number()),
-    exitReason: v.optional(v.string()), // "take_profit" | "stop_loss" | "ai_close" | "end_of_period"
+    exitReason: v.optional(v.string()), // "take_profit" | "stop_loss" | "ai_close" | "end_of_period" | "liquidation"
+    fundingPaid: v.optional(v.number()), // Funding rate cost for this trade
 
     // AI context
     confidence: v.optional(v.number()),
