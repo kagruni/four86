@@ -117,7 +117,7 @@ function applyCorrections(rawParsed: any, warnings: ParserWarning[]): void {
 }
 
 // Custom parser that handles reasoning tags, markdown, and malformed responses
-class ReasoningAwareParser extends StructuredOutputParser {
+class ReasoningAwareParser extends StructuredOutputParser<typeof TradeDecisionSchema> {
   async parse(text: string): Promise<any> {
     console.log(`[Parser] Raw input length: ${text?.length || 0} chars`);
 
@@ -197,11 +197,7 @@ class ReasoningAwareParser extends StructuredOutputParser {
 }
 
 // Create parser instance using reasoning-aware custom class
-const baseParser = StructuredOutputParser.fromZodSchema(TradeDecisionSchema);
-export const tradeDecisionParser = new ReasoningAwareParser(
-  (baseParser as any).schema,
-  (baseParser as any).zodSchema
-);
+export const tradeDecisionParser = new ReasoningAwareParser(TradeDecisionSchema);
 
 // Get format instructions to add to prompt
 export function getFormatInstructions(): string {

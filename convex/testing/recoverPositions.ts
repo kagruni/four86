@@ -1,5 +1,5 @@
 import { action } from "../_generated/server";
-import { api, internal } from "../_generated/api";
+import { api, internal } from "../fnRefs";
 import { v } from "convex/values";
 
 /**
@@ -17,7 +17,7 @@ export const recoverMissingPositions = action({
         userId: args.userId,
       });
 
-      const dbSymbols = dbPositions.map(p => p.symbol);
+      const dbSymbols = dbPositions.map((p: any) => p.symbol);
       console.log(`[recover] Database has: ${dbSymbols.join(", ") || "none"}`);
 
       // 2. Get user credentials

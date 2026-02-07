@@ -1,5 +1,5 @@
 import { action } from "../_generated/server";
-import { api, internal } from "../_generated/api";
+import { api, internal } from "../fnRefs";
 import { v } from "convex/values";
 
 /**
@@ -18,7 +18,7 @@ export const checkPositionStatus = action({
       });
 
       console.log("[diagnostic] Database positions:", dbPositions.length);
-      dbPositions.forEach(pos => {
+      dbPositions.forEach((pos: any) => {
         console.log(`  - ${pos.symbol} ${pos.side} size: $${pos.size}`);
       });
 
@@ -64,11 +64,11 @@ export const checkPositionStatus = action({
       });
 
       // 5. Find mismatches
-      const dbSymbols = dbPositions.map(p => p.symbol);
+      const dbSymbols = dbPositions.map((p: any) => p.symbol);
       const hlSymbols = parsedHLPositions.map((p: any) => p.coin);
 
-      const inDbNotHL = dbSymbols.filter(s => !hlSymbols.includes(s));
-      const inHLNotDb = hlSymbols.filter(s => !dbSymbols.includes(s));
+      const inDbNotHL = dbSymbols.filter((s: any) => !hlSymbols.includes(s));
+      const inHLNotDb = hlSymbols.filter((s: any) => !dbSymbols.includes(s));
 
       console.log("[diagnostic] In DB but not HL:", inDbNotHL);
       console.log("[diagnostic] In HL but not DB:", inHLNotDb);

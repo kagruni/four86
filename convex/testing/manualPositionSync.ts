@@ -1,5 +1,5 @@
 import { action } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internal } from "../fnRefs";
 
 /**
  * Manual trigger for position sync - for testing

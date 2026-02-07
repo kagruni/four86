@@ -1,7 +1,7 @@
 "use node";
 
 import { internalAction } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internal } from "../fnRefs";
 
 /**
  * Research Loop — Scheduled action that fetches news and produces sentiment analysis.

@@ -6,13 +6,14 @@ import { api } from "@/convex/_generated/api";
 import { Loader2 } from "lucide-react";
 import {
   ComposedChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   ReferenceArea,
-  Customized,
+  ReferenceDot,
 } from "recharts";
 
 // ---------------------------------------------------------------------------
@@ -71,8 +72,97 @@ function formatYTick(price: number) {
 }
 
 function fmtPrice(price: number) {
-  if (price >= 1000) return `$${price.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  if (price >= 1000)
+    return `$${price.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })}`;
   return `$${price.toFixed(2)}`;
+}
+
+function snapToNearest(target: number, candles: CandleData[]): number {
+  if (candles.length === 0) return target;
+  let best = candles[0].time;
+  let bestDist = Math.abs(target - best);
+  for (const c of candles) {
+    const dist = Math.abs(target - c.time);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = c.time;
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Custom ReferenceDot shapes
+// ---------------------------------------------------------------------------
+
+function LongEntryShape(props: any) {
+  const { cx = 0, cy = 0 } = props;
+  return (
+    <g>
+      <polygon
+        points={`${cx},${cy - 10} ${cx - 8},${cy + 4} ${cx + 8},${cy + 4}`}
+        fill="#000"
+        stroke="#fff"
+        strokeWidth={1.5}
+      />
+    </g>
+  );
+}
+
+function ShortEntryShape(props: any) {
+  const { cx = 0, cy = 0 } = props;
+  return (
+    <g>
+      <polygon
+        points={`${cx},${cy + 10} ${cx - 8},${cy - 4} ${cx + 8},${cy - 4}`}
+        fill="#737373"
+        stroke="#fff"
+        strokeWidth={1.5}
+      />
+    </g>
+  );
+}
+
+function ProfitExitShape(props: any) {
+  const { cx = 0, cy = 0 } = props;
+  return (
+    <circle cx={cx} cy={cy} r={6} fill="#000" stroke="#fff" strokeWidth={1.5} />
+  );
+}
+
+function LossExitShape(props: any) {
+  const { cx = 0, cy = 0 } = props;
+  return (
+    <g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={6}
+        fill="#dc2626"
+        stroke="#fff"
+        strokeWidth={1.5}
+      />
+      <line
+        x1={cx - 3}
+        y1={cy - 3}
+        x2={cx + 3}
+        y2={cy + 3}
+        stroke="#fff"
+        strokeWidth={1.5}
+      />
+      <line
+        x1={cx + 3}
+        y1={cy - 3}
+        x2={cx - 3}
+        y2={cy + 3}
+        stroke="#fff"
+        strokeWidth={1.5}
+      />
+    </g>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -133,170 +223,6 @@ function ChartTooltip({ active, payload, label, trades }: any) {
 }
 
 // ---------------------------------------------------------------------------
-// Candlestick layer (rendered via Customized)
-// ---------------------------------------------------------------------------
-
-function createCandlestickLayer(candles: CandleData[]) {
-  return function CandlestickLayer(props: any) {
-    const { xAxisMap, yAxisMap } = props;
-    if (!xAxisMap || !yAxisMap) return null;
-
-    const xAxis = Object.values(xAxisMap)[0] as any;
-    const yAxis = Object.values(yAxisMap)[0] as any;
-    if (!xAxis?.scale || !yAxis?.scale) return null;
-
-    const chartWidth = xAxis.width || 600;
-    const barW = Math.max(1, Math.min(8, (chartWidth / candles.length) * 0.6));
-
-    return (
-      <g>
-        {candles.map((d, i) => {
-          const x = xAxis.scale(d.time);
-          if (x === undefined || isNaN(x)) return null;
-          const yO = yAxis.scale(d.open);
-          const yC = yAxis.scale(d.close);
-          const yH = yAxis.scale(d.high);
-          const yL = yAxis.scale(d.low);
-          const up = d.close >= d.open;
-          const bodyTop = Math.min(yO, yC);
-          const bodyH = Math.max(Math.abs(yC - yO), 1);
-
-          return (
-            <g key={i}>
-              <line
-                x1={x}
-                x2={x}
-                y1={yH}
-                y2={yL}
-                stroke={up ? "#000" : "#000"}
-                strokeWidth={1}
-              />
-              <rect
-                x={x - barW / 2}
-                y={bodyTop}
-                width={barW}
-                height={bodyH}
-                fill={up ? "#fff" : "#000"}
-                stroke="#000"
-                strokeWidth={1}
-              />
-            </g>
-          );
-        })}
-      </g>
-    );
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Trade overlay layer — connecting lines, markers, labels
-// ---------------------------------------------------------------------------
-
-function createTradeOverlay(
-  markers: TradeMarker[],
-  opts: { showLines: boolean; showLabels: boolean }
-) {
-  return function TradeOverlay(props: any) {
-    const { xAxisMap, yAxisMap } = props;
-    if (!xAxisMap || !yAxisMap) return null;
-
-    const xAxis = Object.values(xAxisMap)[0] as any;
-    const yAxis = Object.values(yAxisMap)[0] as any;
-    if (!xAxis?.scale || !yAxis?.scale) return null;
-
-    return (
-      <g>
-        {markers.map((t, i) => {
-          const x1 = xAxis.scale(t.entryTime);
-          const y1 = yAxis.scale(t.entryPrice);
-          const x2 = xAxis.scale(t.exitTime);
-          const y2 = yAxis.scale(t.exitPrice);
-          if ([x1, y1, x2, y2].some((v) => v === undefined || isNaN(v)))
-            return null;
-
-          const profit = t.pnl >= 0;
-          const lineColor = profit ? "#000" : "#dc2626";
-
-          return (
-            <g key={i}>
-              {/* Connecting dashed line */}
-              {opts.showLines && (
-                <line
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  stroke={lineColor}
-                  strokeWidth={1}
-                  strokeDasharray="4 3"
-                  opacity={0.4}
-                />
-              )}
-
-              {/* Entry marker */}
-              {t.side === "LONG" ? (
-                <polygon
-                  points={`${x1},${y1 - 9} ${x1 - 7},${y1 + 3} ${x1 + 7},${y1 + 3}`}
-                  fill="#000"
-                  stroke="#fff"
-                  strokeWidth={1.5}
-                />
-              ) : (
-                <polygon
-                  points={`${x1},${y1 + 9} ${x1 - 7},${y1 - 3} ${x1 + 7},${y1 - 3}`}
-                  fill="#737373"
-                  stroke="#fff"
-                  strokeWidth={1.5}
-                />
-              )}
-
-              {/* Entry price label */}
-              {opts.showLabels && (
-                <text
-                  x={x1}
-                  y={t.side === "LONG" ? y1 - 14 : y1 + 18}
-                  textAnchor="middle"
-                  fill="#525252"
-                  fontSize={9}
-                  fontFamily="monospace"
-                >
-                  {fmtPrice(t.entryPrice)}
-                </text>
-              )}
-
-              {/* Exit marker */}
-              <circle
-                cx={x2}
-                cy={y2}
-                r={5}
-                fill={profit ? "#000" : "#dc2626"}
-                stroke="#fff"
-                strokeWidth={1.5}
-              />
-
-              {/* P&L label at exit */}
-              {opts.showLabels && (
-                <text
-                  x={x2 + 9}
-                  y={y2 + 4}
-                  textAnchor="start"
-                  fill={profit ? "#000" : "#dc2626"}
-                  fontSize={10}
-                  fontWeight="600"
-                  fontFamily="monospace"
-                >
-                  {profit ? "+" : ""}${t.pnl.toFixed(2)}
-                </text>
-              )}
-            </g>
-          );
-        })}
-      </g>
-    );
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Toggle button
 // ---------------------------------------------------------------------------
 
@@ -340,10 +266,9 @@ export default function BacktestChart({
   const [error, setError] = useState<string | null>(null);
 
   // View toggles
-  const [showCandlesticks, setShowCandlesticks] = useState(true);
   const [showTradeZones, setShowTradeZones] = useState(true);
-  const [showConnectors, setShowConnectors] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
+  const [showHighLow, setShowHighLow] = useState(false);
 
   const fetchCandlesAction = useAction(
     api.hyperliquid.candles.fetchHistoricalCandles
@@ -368,15 +293,15 @@ export default function BacktestChart({
         return;
       }
 
-      const data: CandleData[] = (raw as any[]).map((c: any) => ({
-        time: c.t,
-        open: c.o,
-        high: c.h,
-        low: c.l,
-        close: c.c,
-      }));
-
-      setCandles(data);
+      setCandles(
+        (raw as any[]).map((c: any) => ({
+          time: c.t,
+          open: c.o,
+          high: c.h,
+          low: c.l,
+          close: c.c,
+        }))
+      );
     } catch (err) {
       console.error("Failed to load candles:", err);
       setError("Failed to load price data.");
@@ -390,7 +315,7 @@ export default function BacktestChart({
     loadCandles();
   }, [loadCandles]);
 
-  // Build trade markers
+  // Build trade markers snapped to candle times
   const tradeMarkers = useMemo<TradeMarker[]>(
     () =>
       trades
@@ -402,29 +327,25 @@ export default function BacktestChart({
             t.exitPrice != null
         )
         .map((t: any) => ({
-          entryTime: t.entryTime,
-          exitTime: t.exitTime,
+          entryTime: snapToNearest(t.entryTime, candles),
+          exitTime: snapToNearest(t.exitTime, candles),
           entryPrice: t.entryPrice,
           exitPrice: t.exitPrice,
           side: t.side,
           pnl: t.pnl ?? 0,
         })),
-    [trades]
+    [trades, candles]
   );
 
-  // Memoize custom layers
-  const CandlestickLayer = useMemo(
-    () => createCandlestickLayer(candles),
-    [candles]
-  );
-  const TradeOverlayLayer = useMemo(
-    () =>
-      createTradeOverlay(tradeMarkers, {
-        showLines: showConnectors,
-        showLabels,
-      }),
-    [tradeMarkers, showConnectors, showLabels]
-  );
+  // Compute Y-axis domain
+  const yDomain = useMemo<[number, number]>(() => {
+    if (candles.length === 0) return [0, 1];
+    const prices = candles.flatMap((c) => [c.high, c.low]);
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const pad = (max - min) * 0.06 || max * 0.02;
+    return [min - pad, max + pad];
+  }, [candles]);
 
   // ---- Loading ----
   if (loading) {
@@ -455,23 +376,11 @@ export default function BacktestChart({
     );
   }
 
-  // Y-axis domain from high/low
-  const allPrices = candles.flatMap((c) => [c.high, c.low]);
-  const minPrice = Math.min(...allPrices);
-  const maxPrice = Math.max(...allPrices);
-  const padding = (maxPrice - minPrice) * 0.08 || maxPrice * 0.02;
-
   return (
     <div className="border-t border-gray-200 pt-3 pb-2">
       {/* View toggles */}
       <div className="mb-2 flex items-center gap-2 px-1">
         <span className="text-xs text-gray-400 mr-1">View:</span>
-        <ToggleBtn
-          active={showCandlesticks}
-          onClick={() => setShowCandlesticks((v) => !v)}
-        >
-          Candlesticks
-        </ToggleBtn>
         <ToggleBtn
           active={showTradeZones}
           onClick={() => setShowTradeZones((v) => !v)}
@@ -479,24 +388,35 @@ export default function BacktestChart({
           Trade Zones
         </ToggleBtn>
         <ToggleBtn
-          active={showConnectors}
-          onClick={() => setShowConnectors((v) => !v)}
-        >
-          Connectors
-        </ToggleBtn>
-        <ToggleBtn
           active={showLabels}
           onClick={() => setShowLabels((v) => !v)}
         >
-          Labels
+          P&L Labels
+        </ToggleBtn>
+        <ToggleBtn
+          active={showHighLow}
+          onClick={() => setShowHighLow((v) => !v)}
+        >
+          High/Low Band
         </ToggleBtn>
       </div>
 
       <ResponsiveContainer width="100%" height={360}>
         <ComposedChart
           data={candles}
-          margin={{ top: 16, right: 64, bottom: 4, left: 12 }}
+          margin={{ top: 16, right: 48, bottom: 4, left: 12 }}
         >
+          <defs>
+            <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#d4d4d4" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="#d4d4d4" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="bandGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#e5e5e5" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="#e5e5e5" stopOpacity={0.1} />
+            </linearGradient>
+          </defs>
+
           <CartesianGrid
             vertical={false}
             strokeDasharray="3 3"
@@ -516,7 +436,7 @@ export default function BacktestChart({
             dataKey="close"
             tickFormatter={formatYTick}
             tick={{ fontSize: 11, fontFamily: "monospace", fill: "#737373" }}
-            domain={[minPrice - padding, maxPrice + padding]}
+            domain={yDomain}
             axisLine={false}
             tickLine={false}
             width={64}
@@ -525,6 +445,31 @@ export default function BacktestChart({
           <Tooltip
             content={<ChartTooltip trades={trades} />}
             cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
+          />
+
+          {/* High/Low band — shows price range */}
+          {showHighLow && (
+            <Area
+              type="monotone"
+              dataKey="high"
+              stroke="none"
+              fill="url(#bandGrad)"
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          )}
+
+          {/* Close price line */}
+          <Area
+            type="monotone"
+            dataKey="close"
+            stroke="#000"
+            strokeWidth={1.5}
+            fill="url(#priceGrad)"
+            dot={false}
+            activeDot={{ r: 3, fill: "#000", stroke: "#fff", strokeWidth: 1 }}
+            isAnimationActive={false}
           />
 
           {/* Trade zones — shaded regions between entry and exit */}
@@ -536,28 +481,64 @@ export default function BacktestChart({
                 x2={t.exitTime}
                 fill={
                   t.pnl >= 0
-                    ? "rgba(0,0,0,0.04)"
-                    : "rgba(220,38,38,0.06)"
+                    ? "rgba(0,0,0,0.05)"
+                    : "rgba(220,38,38,0.07)"
                 }
                 stroke={
                   t.pnl >= 0
-                    ? "rgba(0,0,0,0.12)"
-                    : "rgba(220,38,38,0.18)"
+                    ? "rgba(0,0,0,0.15)"
+                    : "rgba(220,38,38,0.2)"
                 }
                 strokeDasharray="3 3"
                 ifOverflow="hidden"
               />
             ))}
 
-          {/* Candlesticks */}
-          {showCandlesticks && (
-            <Customized component={CandlestickLayer} />
-          )}
+          {/* Entry markers */}
+          {tradeMarkers.map((m, i) => (
+            <ReferenceDot
+              key={`entry-${i}`}
+              x={m.entryTime}
+              y={m.entryPrice}
+              shape={m.side === "LONG" ? LongEntryShape : ShortEntryShape}
+              ifOverflow="extendDomain"
+              label={
+                showLabels
+                  ? {
+                      value: fmtPrice(m.entryPrice),
+                      position: m.side === "LONG" ? "top" : "bottom",
+                      fill: "#525252",
+                      fontSize: 9,
+                      fontFamily: "monospace",
+                      offset: 12,
+                    }
+                  : undefined
+              }
+            />
+          ))}
 
-          {/* Trade markers, connectors, labels */}
-          {tradeMarkers.length > 0 && (
-            <Customized component={TradeOverlayLayer} />
-          )}
+          {/* Exit markers */}
+          {tradeMarkers.map((m, i) => (
+            <ReferenceDot
+              key={`exit-${i}`}
+              x={m.exitTime}
+              y={m.exitPrice}
+              shape={m.pnl >= 0 ? ProfitExitShape : LossExitShape}
+              ifOverflow="extendDomain"
+              label={
+                showLabels
+                  ? {
+                      value: `${m.pnl >= 0 ? "+" : ""}$${m.pnl.toFixed(2)}`,
+                      position: "right",
+                      fill: m.pnl >= 0 ? "#000" : "#dc2626",
+                      fontSize: 10,
+                      fontFamily: "monospace",
+                      offset: 8,
+                    }
+                  : undefined
+              }
+            />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
 
@@ -565,41 +546,37 @@ export default function BacktestChart({
       <div className="mt-1 flex items-center justify-center gap-4 text-xs text-gray-400">
         <span className="flex items-center gap-1">
           <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect x="3" y="2" width="6" height="8" fill="#fff" stroke="#000" strokeWidth="1" />
-            <line x1="6" y1="0" x2="6" y2="12" stroke="#000" strokeWidth="1" />
+            <polygon
+              points="6,1 1,10 11,10"
+              fill="#000"
+              stroke="#fff"
+              strokeWidth="0.5"
+            />
           </svg>
-          Up
+          Long Entry
         </span>
         <span className="flex items-center gap-1">
           <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect x="3" y="2" width="6" height="8" fill="#000" stroke="#000" strokeWidth="1" />
-            <line x1="6" y1="0" x2="6" y2="12" stroke="#000" strokeWidth="1" />
+            <polygon
+              points="6,11 1,2 11,2"
+              fill="#737373"
+              stroke="#fff"
+              strokeWidth="0.5"
+            />
           </svg>
-          Down
-        </span>
-        <span className="flex items-center gap-1">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <polygon points="6,1 1,10 11,10" fill="#000" stroke="#fff" strokeWidth="0.5" />
-          </svg>
-          Long
-        </span>
-        <span className="flex items-center gap-1">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <polygon points="6,11 1,2 11,2" fill="#737373" stroke="#fff" strokeWidth="0.5" />
-          </svg>
-          Short
+          Short Entry
         </span>
         <span className="flex items-center gap-1">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <circle cx="6" cy="6" r="4" fill="#000" stroke="#fff" strokeWidth="1" />
           </svg>
-          Profit
+          Profit Exit
         </span>
         <span className="flex items-center gap-1">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <circle cx="6" cy="6" r="4" fill="#dc2626" stroke="#fff" strokeWidth="1" />
           </svg>
-          Loss
+          Loss Exit
         </span>
       </div>
     </div>

@@ -18,7 +18,7 @@ export const syncAllPositions = internalAction({
       }
 
       // Group positions by userId
-      const userIds = [...new Set(allPositions.map(p => p.userId))];
+      const userIds = [...new Set(allPositions.map((p: any) => p.userId))];
       console.log(`[positionSync] Syncing positions for ${userIds.length} user(s)`);
 
       for (const userId of userIds) {

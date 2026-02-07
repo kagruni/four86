@@ -1,6 +1,7 @@
 import { action, mutation, internalMutation, internalQuery, query } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internal } from "../fnRefs";
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 
 /**
  * Start a new backtest run
@@ -16,7 +17,7 @@ export const startBacktest = action({
     initialCapital: v.number(),
     maxLeverage: v.number(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"backtestRuns">> => {
     // Get user credentials for API key
     const credentials = await ctx.runQuery(
       internal.queries.getFullUserCredentials,

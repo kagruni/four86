@@ -1,6 +1,6 @@
 import { action } from "../../_generated/server";
 import { v } from "convex/values";
-import { internal } from "../../_generated/api";
+import { internal } from "../../fnRefs";
 import { createTradingChain, createDetailedTradingChain, createCompactTradingChain, createAlphaArenaTradingChain } from "../chains/tradingChain";
 import type { TradeDecision } from "../parsers/schemas";
 
@@ -136,12 +136,31 @@ export const makeDetailedTradingDecision = action({
         limit: 5,
       });
 
-      // Create the detailed trading chain
+      // Create the detailed trading chain with defaults for optional config fields
+      const fullConfig = {
+        maxLeverage: args.config.maxLeverage,
+        maxPositionSize: args.config.maxPositionSize,
+        maxDailyLoss: args.config.maxDailyLoss ?? 500,
+        minAccountValue: args.config.minAccountValue ?? 100,
+        perTradeRiskPct: args.config.perTradeRiskPct ?? 2.0,
+        maxTotalPositions: args.config.maxTotalPositions ?? 3,
+        maxSameDirectionPositions: args.config.maxSameDirectionPositions ?? 2,
+        consecutiveLossLimit: args.config.consecutiveLossLimit ?? 3,
+        tradingMode: args.config.tradingMode ?? "moderate",
+        minEntryConfidence: args.config.minEntryConfidence ?? 0.6,
+        minRiskRewardRatio: args.config.minRiskRewardRatio ?? 1.5,
+        stopOutCooldownHours: args.config.stopOutCooldownHours ?? 1,
+        minEntrySignals: args.config.minEntrySignals ?? 2,
+        require4hAlignment: args.config.require4hAlignment ?? true,
+        tradeVolatileMarkets: args.config.tradeVolatileMarkets ?? true,
+        volatilitySizeReduction: args.config.volatilitySizeReduction ?? 0.5,
+        stopLossAtrMultiplier: args.config.stopLossAtrMultiplier ?? 1.5,
+      };
       const chain = createDetailedTradingChain(
         args.modelType,
         args.modelName,
         apiKey,
-        args.config
+        fullConfig
       );
 
       // Invoke the chain with detailed market data

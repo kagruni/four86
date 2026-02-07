@@ -260,7 +260,7 @@ export async function placeOrder(
           },
         },
       ],
-      grouping: "na", // Not using order grouping
+      grouping: "na" as const, // Not using order grouping
     };
 
     console.log(`[placeOrder] Order request object:`, JSON.stringify(orderRequest, null, 2));
@@ -333,13 +333,13 @@ export async function placeStopLoss(
           t: {
             trigger: {
               isMarket: true, // Execute at market when triggered (10% slippage)
-              tpsl: "sl", // Stop loss
+              tpsl: "sl" as const, // Stop loss
               triggerPx: formattedTriggerPrice,
             },
           },
         },
       ],
-      grouping: "normalTpsl", // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
+      grouping: "normalTpsl" as const, // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
     };
 
     console.log(`[placeStopLoss] Order request:`, JSON.stringify(orderRequest, null, 2));
@@ -422,13 +422,13 @@ export async function placeTakeProfit(
           t: {
             trigger: {
               isMarket: true, // Execute at market when triggered
-              tpsl: "tp", // Take profit
+              tpsl: "tp" as const, // Take profit
               triggerPx: formattedTriggerPrice,
             },
           },
         },
       ],
-      grouping: "normalTpsl", // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
+      grouping: "normalTpsl" as const, // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
     };
 
     console.log(`[placeTakeProfit] Order request:`, JSON.stringify(orderRequest, null, 2));

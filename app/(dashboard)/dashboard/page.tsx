@@ -52,7 +52,7 @@ export default function DashboardPage() {
   });
 
   // Fetch LIVE positions with real-time prices
-  const getLivePositions = useAction(api.queries.getLivePositions);
+  const getLivePositions = useAction(api.liveQueries.getLivePositions);
   const [positions, setPositions] = useState<any[]>([]);
   const [isLoadingPositions, setIsLoadingPositions] = useState(false);
 
