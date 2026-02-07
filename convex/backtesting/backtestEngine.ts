@@ -21,8 +21,9 @@ import { fetchCandlesInternal } from "../hyperliquid/candles";
  */
 
 // Max AI calls per chunk — keeps each action well under 600s
-// ~12 AI calls * ~15s each = ~180s, plus overhead = safely under 600s
-const MAX_AI_CALLS_PER_CHUNK = 12;
+// Slower models (DeepSeek V3.2 Speciale) take ~60-70s per call
+// 7 calls * ~70s = ~490s + overhead = safely under 600s
+const MAX_AI_CALLS_PER_CHUNK = 7;
 
 // ─── Realistic Hyperliquid Trading Costs ─────────────────────────────────────
 
@@ -931,7 +932,7 @@ Respond ONLY with JSON:
             { role: "user", content: marketContext },
           ],
           temperature: 0.3,
-          max_tokens: 2000,
+          max_tokens: 4000,
         }),
       }
     );

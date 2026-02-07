@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { motion } from "framer-motion";
+import TelegramSettings from "./TelegramSettings";
 
 const AI_MODELS = [
   { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Recommended)" },
@@ -421,7 +422,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="credentials" className="w-full">
-          <TabsList className="bg-gray-100 p-1 w-full grid grid-cols-3">
+          <TabsList className="bg-gray-100 p-1 w-full grid grid-cols-4">
             <TabsTrigger
               value="credentials"
               className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
@@ -439,6 +440,12 @@ export default function SettingsPage() {
               className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
             >
               Advanced
+            </TabsTrigger>
+            <TabsTrigger
+              value="telegram"
+              className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
+            >
+              Telegram
             </TabsTrigger>
           </TabsList>
 
@@ -1113,6 +1120,17 @@ export default function SettingsPage() {
                   </AlertDescription>
                 </Alert>
               )}
+            </motion.div>
+          </TabsContent>
+
+          {/* Tab 4: Telegram */}
+          <TabsContent value="telegram">
+            <motion.div
+              initial={tabFadeVariants.initial}
+              animate={tabFadeVariants.animate}
+              transition={tabFadeVariants.transition}
+            >
+              <TelegramSettings />
             </motion.div>
           </TabsContent>
         </Tabs>

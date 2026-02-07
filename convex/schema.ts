@@ -292,4 +292,28 @@ export default defineSchema({
     exitTime: v.optional(v.number()),
   }).index("by_runId", ["runId"])
     .index("by_userId", ["userId"]),
+
+  // Telegram bot integration settings
+  telegramSettings: defineTable({
+    userId: v.string(),
+    chatId: v.optional(v.string()),
+    isLinked: v.boolean(),
+    isEnabled: v.boolean(),
+    // Notification toggles
+    notifyTradeOpened: v.boolean(),
+    notifyTradeClosed: v.boolean(),
+    notifyRiskAlerts: v.boolean(),
+    notifyDailySummary: v.boolean(),
+    // Linking flow
+    verificationCode: v.optional(v.string()),
+    verificationExpiresAt: v.optional(v.number()),
+    // Confirmation flow for dangerous commands
+    pendingAction: v.optional(v.string()),       // "closeall" | "close_BTC" etc.
+    pendingActionToken: v.optional(v.string()),
+    pendingActionExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"])
+    .index("by_chatId", ["chatId"])
+    .index("by_verificationCode", ["verificationCode"]),
 });

@@ -296,6 +296,15 @@ export const runTradingCycle = internalAction({
 
             if (aiFailState.circuitBreakerState === "tripped") {
               console.log(`[LOOP-${loopId}] [CIRCUIT BREAKER] TRIPPED after ${aiFailState.consecutiveAiFailures} AI failures`);
+              // Telegram risk alert (fire-and-forget)
+              try {
+                ctx.runAction(internal.telegram.notifier.notifyRiskAlert, {
+                  userId: bot.userId,
+                  type: "circuit_breaker",
+                  message: `Circuit breaker tripped after ${aiFailState.consecutiveAiFailures} consecutive AI failures`,
+                  details: "Trading has been paused automatically. Check your AI model configuration.",
+                });
+              } catch (e) { /* Telegram failure must never block trading */ }
             }
             throw aiError;
           }
@@ -338,6 +347,15 @@ export const runTradingCycle = internalAction({
             message: "Trading cycle error",
             data: { error: String(error) },
           });
+          // Telegram risk alert (fire-and-forget)
+          try {
+            ctx.runAction(internal.telegram.notifier.notifyRiskAlert, {
+              userId: bot.userId,
+              type: "bot_error",
+              message: "Trading cycle encountered an error",
+              details: error instanceof Error ? error.message : String(error),
+            });
+          } catch (e) { /* Telegram failure must never block trading */ }
         } finally {
           await ctx.runMutation(api.mutations.releaseTradingLock, {
             userId: bot.userId,

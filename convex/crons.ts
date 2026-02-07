@@ -31,4 +31,11 @@ crons.interval(
   internal.research.researchLoop.runResearchCycle
 );
 
+// Telegram daily summary - runs every 24 hours
+crons.interval(
+  "telegram-daily-summary",
+  { hours: 24 },
+  internal.telegram.dailySummary.sendDailySummaries
+);
+
 export default crons;

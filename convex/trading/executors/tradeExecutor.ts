@@ -9,6 +9,7 @@
 import { recordTradeOutcome } from "../circuitBreaker";
 import { createLogger, withTiming } from "../logger";
 import { recordTradeInMemory } from "../validators/positionValidator";
+import { internal } from "../../fnRefs";
 
 /**
  * Execute a CLOSE trade decision.
@@ -96,6 +97,25 @@ export async function executeClose(
     userId: bot.userId,
     symbol: decision.symbol,
   });
+
+  // Telegram notification (fire-and-forget)
+  try {
+    const pnl = positionToClose.unrealizedPnl ?? 0;
+    const pnlPct = positionToClose.unrealizedPnlPct ?? 0;
+    const durationMs = Date.now() - (positionToClose.openedAt ?? Date.now());
+    ctx.runAction(internal.telegram.notifier.notifyTradeClosed, {
+      userId: bot.userId,
+      symbol: decision.symbol,
+      side: positionToClose.side,
+      entryPrice: positionToClose.entryPrice,
+      exitPrice: positionToClose.currentPrice,
+      pnl,
+      pnlPct,
+      durationMs,
+    });
+  } catch (e) {
+    // Telegram failure must never block trading
+  }
 
   // ✅ CIRCUIT BREAKER: Record trade outcome (win/loss)
   const tradeWon = (positionToClose.unrealizedPnl ?? 0) >= 0;
@@ -256,6 +276,24 @@ export async function executeOpen(
     orderDurationMs,
     txHash: result.txHash,
   });
+
+  // Telegram notification (fire-and-forget)
+  try {
+    ctx.runAction(internal.telegram.notifier.notifyTradeOpened, {
+      userId: bot.userId,
+      symbol: decision.symbol!,
+      side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
+      sizeUsd: decision.size_usd!,
+      leverage: decision.leverage!,
+      entryPrice: result.price,
+      stopLoss: decision.stop_loss,
+      takeProfit: decision.take_profit,
+      confidence: decision.confidence,
+      reasoning: decision.reasoning || "",
+    });
+  } catch (e) {
+    // Telegram failure must never block trading
+  }
 
   // Update in-memory tracker
   const side = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
