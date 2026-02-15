@@ -109,6 +109,21 @@ export async function executeClose(
     side: positionToClose.side,
   });
 
+  // Cancel existing TP/SL orders before closing to avoid orphaned trigger orders
+  try {
+    const cancelResult = await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+      privateKey: credentials.hyperliquidPrivateKey,
+      address: credentials.hyperliquidAddress,
+      symbol: decision.symbol,
+      testnet: credentials.hyperliquidTestnet,
+    });
+    if (cancelResult.cancelledCount > 0) {
+      log.info(`Cancelled ${cancelResult.cancelledCount} existing TP/SL orders for ${decision.symbol} before closing`);
+    }
+  } catch (cancelError) {
+    log.warn(`Failed to cancel existing orders for ${decision.symbol} (proceeding with close): ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
+  }
+
   // Close position (opposite side)
   const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
     privateKey: credentials.hyperliquidPrivateKey,
@@ -512,6 +527,24 @@ async function placeStopLossWithRetry(
   const MAX_SL_RETRIES = 3;
 
   for (let attempt = 1; attempt <= MAX_SL_RETRIES && !stopLossPlaced; attempt++) {
+    // Before retrying, check if a previous attempt already landed on the exchange
+    if (attempt > 1) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Let exchange settle
+        const existing = await ctx.runAction(api.hyperliquid.client.verifyTpSlOrders, {
+          address: credentials.hyperliquidAddress,
+          symbol: decision.symbol!,
+          testnet: credentials.hyperliquidTestnet,
+        });
+        if (existing.hasSl) {
+          console.log(`✅ Stop-loss already exists on exchange (detected before retry ${attempt}) — skipping`);
+          return true;
+        }
+      } catch (e) {
+        console.warn(`⚠️ Could not verify existing SL before retry:`, e instanceof Error ? e.message : String(e));
+      }
+    }
+
     try {
       console.log(`Placing stop-loss order at $${decision.stop_loss} (attempt ${attempt}/${MAX_SL_RETRIES})...`);
       const slResult = await ctx.runAction(api.hyperliquid.client.placeStopLoss, {
@@ -550,6 +583,24 @@ async function placeTakeProfitWithRetry(
   const MAX_TP_RETRIES = 3;
 
   for (let attempt = 1; attempt <= MAX_TP_RETRIES && !takeProfitPlaced; attempt++) {
+    // Before retrying, check if a previous attempt already landed on the exchange
+    if (attempt > 1) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Let exchange settle
+        const existing = await ctx.runAction(api.hyperliquid.client.verifyTpSlOrders, {
+          address: credentials.hyperliquidAddress,
+          symbol: decision.symbol!,
+          testnet: credentials.hyperliquidTestnet,
+        });
+        if (existing.hasTp) {
+          console.log(`✅ Take-profit already exists on exchange (detected before retry ${attempt}) — skipping`);
+          return true;
+        }
+      } catch (e) {
+        console.warn(`⚠️ Could not verify existing TP before retry:`, e instanceof Error ? e.message : String(e));
+      }
+    }
+
     try {
       console.log(`Placing take-profit order at $${decision.take_profit} (attempt ${attempt}/${MAX_TP_RETRIES})...`);
       const tpResult = await ctx.runAction(api.hyperliquid.client.placeTakeProfit, {

@@ -264,12 +264,44 @@ export interface CompactBotConfig {
   minEntryConfidence?: number;
   maxTotalPositions?: number;
   maxSameDirectionPositions?: number;
+  stopLossAtrMultiplier?: number;
+  minRiskRewardRatio?: number;
+  require4hAlignment?: boolean;
+  tradeVolatileMarkets?: boolean;
+  volatilitySizeReduction?: number;
+  tradingMode?: string;
 }
 
 /**
  * Generate prompt template variables for compact chain
  */
 function generateCompactPromptVariables(config: CompactBotConfig) {
+  const stopLossAtrMultiplier = config.stopLossAtrMultiplier ?? 1.5;
+  const minRiskRewardRatio = config.minRiskRewardRatio ?? 2.0;
+  const takeProfitAtrMultiplier = stopLossAtrMultiplier * minRiskRewardRatio;
+  const tradeVolatileMarkets = config.tradeVolatileMarkets ?? true;
+  const volatilitySizeReduction = config.volatilitySizeReduction ?? 50;
+  const require4hAlignment = config.require4hAlignment ?? false;
+  const tradingMode = config.tradingMode ?? "balanced";
+
+  // Trading mode description
+  let tradingModeDescription = "Balanced (Standard settings, quality trades with reasonable frequency)";
+  if (tradingMode === "conservative") {
+    tradingModeDescription = "Conservative (Higher confidence, fewer trades, quality over quantity)";
+  } else if (tradingMode === "aggressive") {
+    tradingModeDescription = "Aggressive (More trades, lower confidence threshold, active trading)";
+  }
+
+  // Volatility rules
+  const volatileTradeRule = tradeVolatileMarkets
+    ? `High volatility (ATR% > 2.5%): Reduce size by ${volatilitySizeReduction}%, use lower leverage`
+    : "High volatility (ATR% > 2.5%): DO NOT trade, wait for stabilization";
+
+  // 4h alignment rules
+  const trend4hRule = require4hAlignment
+    ? "MANDATORY: Only trade when intraday and 4h trends are aligned (counter-trend trades forbidden)"
+    : "4h alignment recommended but not required — counter-trend trades allowed if intraday signals are strong";
+
   return {
     maxLeverage: config.maxLeverage,
     maxPositionSize: config.maxPositionSize,
@@ -277,6 +309,12 @@ function generateCompactPromptVariables(config: CompactBotConfig) {
     minEntryConfidence: config.minEntryConfidence ?? 0.6,
     maxTotalPositions: config.maxTotalPositions ?? 3,
     maxSameDirectionPositions: config.maxSameDirectionPositions ?? 2,
+    stopLossAtrMultiplier,
+    minRiskRewardRatio,
+    takeProfitAtrMultiplier,
+    tradingModeDescription,
+    volatileTradeRule,
+    trend4hRule,
   };
 }
 
@@ -672,9 +710,13 @@ export function createAlphaArenaTradingChain(
   // Create the chain with Alpha Arena prompts
   const chain = RunnableSequence.from([
     {
-      // Format market data in Alpha Arena style
+      // Format market data in Alpha Arena style with ATR-based zones
       marketDataSection: (input: AlphaArenaInput) =>
-        formatMarketDataAlphaArena(input.detailedMarketData),
+        formatMarketDataAlphaArena(
+          input.detailedMarketData,
+          promptVars.stopLossAtrMultiplier,
+          promptVars.minRiskRewardRatio
+        ),
 
       // Format positions in Alpha Arena style
       positionsSection: (input: AlphaArenaInput) =>

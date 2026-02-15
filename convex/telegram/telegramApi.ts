@@ -90,6 +90,8 @@ export const setMyCommands = internalAction({
         { command: "pnl", description: "Today's P&L summary" },
         { command: "start", description: "Start the trading bot" },
         { command: "stop", description: "Stop the trading bot" },
+        { command: "orders", description: "View all open orders" },
+        { command: "cancel", description: "Cancel a specific order" },
         { command: "close", description: "Close a specific position" },
         { command: "closeall", description: "Close all positions" },
         { command: "help", description: "Show available commands" },
@@ -119,3 +121,4 @@ export const setMyCommands = internalAction({
     }
   },
 });
+

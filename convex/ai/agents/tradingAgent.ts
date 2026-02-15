@@ -302,6 +302,12 @@ export const makeAlphaArenaTradingDecision = action({
       maxTotalPositions: v.optional(v.number()),
       maxSameDirectionPositions: v.optional(v.number()),
       minEntryConfidence: v.optional(v.number()),
+      stopLossAtrMultiplier: v.optional(v.number()),
+      minRiskRewardRatio: v.optional(v.number()),
+      require4hAlignment: v.optional(v.boolean()),
+      tradeVolatileMarkets: v.optional(v.boolean()),
+      volatilitySizeReduction: v.optional(v.number()),
+      tradingMode: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {

@@ -505,6 +505,32 @@ export const cancelAllOrdersForSymbol = action({
   },
 });
 
+// Cancel a single order by ID
+export const cancelOrder = action({
+  args: {
+    privateKey: v.string(),
+    address: v.string(),
+    symbol: v.string(),
+    orderId: v.number(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      const result = await sdk.cancelOrder(
+        args.privateKey,
+        args.address,
+        args.symbol,
+        args.orderId,
+        args.testnet
+      );
+      return result;
+    } catch (error) {
+      console.log("Error cancelling order:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to cancel order: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
 // NUCLEAR CLOSE: Cancel all orders then close position
 export const nuclearClosePosition = action({
   args: {

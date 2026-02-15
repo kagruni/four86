@@ -5,6 +5,7 @@ import {
   formatStatus,
   formatPnl,
   formatBalance,
+  formatOrders,
 } from "./messageTemplates";
 
 // ---------------------------------------------------------------------------
@@ -188,6 +189,104 @@ async function handleBalance(
   });
 
   await reply(ctx, chatId, formatted);
+}
+
+async function handleOrders(
+  ctx: any,
+  chatId: string,
+  userId: string
+): Promise<void> {
+  const credentials = await ctx.runQuery(
+    internal.queries.getFullUserCredentials,
+    { userId }
+  );
+
+  if (!credentials?.hyperliquidAddress) {
+    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
+    return;
+  }
+
+  const testnet = credentials.hyperliquidTestnet ?? true;
+
+  const orders = await ctx.runAction(
+    api.hyperliquid.client.getFrontendOpenOrders,
+    { address: credentials.hyperliquidAddress, testnet }
+  );
+
+  const formatted = formatOrders(
+    (orders || []).map((o: any, i: number) => ({
+      index: i + 1,
+      symbol: o.coin,
+      side: o.side,
+      size: o.sz,
+      price: o.limitPx || o.px || "0",
+      orderType: o.orderType || "Limit",
+      isTrigger: o.isTrigger ?? false,
+      triggerPrice: o.triggerPx,
+      oid: o.oid,
+    }))
+  );
+
+  await reply(ctx, chatId, formatted);
+}
+
+async function handleCancel(
+  ctx: any,
+  chatId: string,
+  userId: string,
+  text: string
+): Promise<void> {
+  const parts = text.split(/\s+/);
+  const orderNum = parseInt(parts[1], 10);
+
+  if (!orderNum || isNaN(orderNum)) {
+    await reply(ctx, chatId, "Usage: `/cancel <number>`\nGet order numbers from `/orders`.");
+    return;
+  }
+
+  const credentials = await ctx.runQuery(
+    internal.queries.getFullUserCredentials,
+    { userId }
+  );
+
+  if (!credentials?.hyperliquidAddress) {
+    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
+    return;
+  }
+
+  const testnet = credentials.hyperliquidTestnet ?? true;
+
+  const orders = await ctx.runAction(
+    api.hyperliquid.client.getFrontendOpenOrders,
+    { address: credentials.hyperliquidAddress, testnet }
+  );
+
+  if (!orders || orderNum < 1 || orderNum > orders.length) {
+    await reply(ctx, chatId, `Invalid order number. Run \`/orders\` to see current orders.`);
+    return;
+  }
+
+  const order = orders[orderNum - 1];
+  const token = generateToken();
+
+  await ctx.runMutation(
+    internal.telegram.telegramMutations.storePendingConfirmation,
+    {
+      userId,
+      action: `cancelorder_${order.coin}_${order.oid}`,
+      token,
+      expiresAt: Date.now() + 60000,
+    }
+  );
+
+  const sideLabel = order.side === "B" ? "BUY" : "SELL";
+  const typeLabel = order.isTrigger ? (order.orderType || "Trigger") : "Limit";
+
+  await reply(
+    ctx,
+    chatId,
+    `Cancel *${order.coin}* ${sideLabel} ${typeLabel} order?\nSend \`/confirm ${token}\` within 60 seconds.`
+  );
 }
 
 async function handleStop(
@@ -406,6 +505,21 @@ async function handleConfirm(
     });
 
     await reply(ctx, chatId, `*${symbol}* position closed.`);
+  } else if (action.startsWith("cancelorder_")) {
+    // action format: "cancelorder_BTC_12345"
+    const actionParts = action.split("_");
+    const symbol = actionParts[1];
+    const oid = parseInt(actionParts[2], 10);
+
+    await ctx.runAction(api.hyperliquid.client.cancelOrder, {
+      privateKey: credentials.hyperliquidPrivateKey,
+      address: credentials.hyperliquidAddress,
+      symbol,
+      orderId: oid,
+      testnet,
+    });
+
+    await reply(ctx, chatId, `Order \`${oid}\` for *${symbol}* cancelled.`);
   } else {
     await reply(ctx, chatId, "Unknown pending action.");
   }
@@ -422,6 +536,8 @@ function getHelpText(): string {
     "`/pnl` - Today's P&L summary",
     "`/start` - Start the trading bot",
     "`/stop` - Stop the trading bot",
+    "`/orders` - View all open orders (limit + TP/SL)",
+    "`/cancel <N>` - Cancel order by number (from /orders)",
     "`/close <SYMBOL>` - Close a specific position",
     "`/closeall` - Close all positions",
     "`/help` - Show this message",
@@ -500,6 +616,12 @@ export const handleTelegramWebhook = httpAction(async (ctx, request) => {
           break;
         case "/start":
           await handleStart(ctx, chatId, userId);
+          break;
+        case "/orders":
+          await handleOrders(ctx, chatId, userId);
+          break;
+        case "/cancel":
+          await handleCancel(ctx, chatId, userId, text);
           break;
         case "/closeall":
           await handleCloseAll(ctx, chatId, userId);

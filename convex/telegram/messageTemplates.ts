@@ -224,6 +224,52 @@ export function formatPositions(positions: PositionData[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Open Orders
+// ---------------------------------------------------------------------------
+
+interface OrderData {
+  index: number;
+  symbol: string;
+  side: string;
+  size: string;
+  price: string;
+  orderType: string;
+  isTrigger: boolean;
+  triggerPrice?: string;
+  oid: number;
+}
+
+export function formatOrders(orders: OrderData[]): string {
+  if (orders.length === 0) {
+    return "\u{1F4CB} *Open Orders*\n\nNo open orders.";
+  }
+
+  const lines: string[] = [
+    `\u{1F4CB} *Open Orders* (${orders.length})`,
+    "",
+  ];
+
+  for (const o of orders) {
+    const sideLabel = o.side === "B" ? "BUY" : "SELL";
+    const typeLabel = o.isTrigger ? o.orderType : "Limit";
+    const priceInfo = o.isTrigger && o.triggerPrice
+      ? `trigger \`$${o.triggerPrice}\``
+      : `\`$${o.price}\``;
+
+    lines.push(
+      `\`${o.index}.\` *${o.symbol}* ${sideLabel} \u{00B7} ${typeLabel}`,
+    );
+    lines.push(
+      `   ${priceInfo} \u{00B7} sz \`${o.size}\``,
+    );
+    lines.push("");
+  }
+
+  lines.push(`_Cancel with_ \`/cancel <number>\``);
+  return lines.join("\n").trimEnd();
+}
+
+// ---------------------------------------------------------------------------
 // Bot Status
 // ---------------------------------------------------------------------------
 

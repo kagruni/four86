@@ -746,6 +746,30 @@ export async function cancelAllOrdersForSymbol(
 }
 
 /**
+ * Cancel a single order by its order ID.
+ */
+export async function cancelOrder(
+  privateKey: string,
+  address: string,
+  symbol: string,
+  orderId: number,
+  testnet: boolean
+): Promise<{ success: boolean }> {
+  try {
+    const assetInfo = await getAssetInfo(symbol, testnet);
+    const exchangeClient = createExchangeClient(privateKey, testnet);
+    const result = await exchangeClient.cancel({
+      cancels: [{ a: assetInfo.assetId, o: orderId }],
+    });
+    console.log(`[cancelOrder] Cancel result for ${symbol} oid=${orderId}:`, JSON.stringify(result));
+    return { success: true };
+  } catch (error) {
+    console.error("Error cancelling order:", error);
+    throw new Error(`Failed to cancel order: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
  * NUCLEAR CLOSE: Cancel all orders for a symbol, then close the position
  * Use this when normal close doesn't work due to TP/SL orders blocking
  */

@@ -254,6 +254,12 @@ export const runTradingCycle = internalAction({
                   maxTotalPositions: bot.maxTotalPositions ?? 3,
                   maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
                   minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+                  stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
+                  minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
+                  require4hAlignment: bot.require4hAlignment ?? false,
+                  tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
+                  volatilitySizeReduction: bot.volatilitySizeReduction ?? 50,
+                  tradingMode: bot.tradingMode ?? "balanced",
                 },
               });
               systemPromptName = "Alpha Arena trading system (leverage + TP/SL discipline)";
