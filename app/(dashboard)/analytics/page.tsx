@@ -715,9 +715,9 @@ export default function AnalyticsPage() {
                   />
                   <YAxis
                     tickFormatter={(v: number) =>
-                      `$${(v / 1000).toFixed(v >= 1000 ? 1 : 0)}${
-                        v >= 1000 ? "k" : ""
-                      }`
+                      v >= 10000
+                        ? `$${(v / 1000).toFixed(1)}k`
+                        : `$${v.toFixed(0)}`
                     }
                     tick={{
                       fontSize: 11,
@@ -727,7 +727,7 @@ export default function AnalyticsPage() {
                     axisLine={false}
                     tickLine={false}
                     width={55}
-                    domain={["auto", "auto"]}
+                    domain={["dataMin - 5", "dataMax + 5"]}
                   />
                   <Tooltip content={<EquityCurveTooltip />} />
                   <Area

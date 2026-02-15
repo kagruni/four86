@@ -153,7 +153,7 @@ MANDATORY TREND-FOLLOWING RULES:
    - RSI > 70 in DOWNTREND = "short opportunity" = consider SHORT
 
 OUTPUT FORMAT:
-Respond with ONLY valid JSON. One decision per coin. Format:
+CRITICAL: Your entire response must be a single valid JSON object. Do NOT write any text, explanations, or markdown before or after the JSON. No prose, no commentary — ONLY JSON. One decision per coin. Format:
 {{
   "thinking": "Your chain-of-thought analysis for each coin...",
   "decisions": {{
@@ -400,12 +400,18 @@ function toLegacyDecision(
   dec: AlphaArenaDecision,
   thinking: string
 ): AlphaArenaLegacyDecision {
+  // Use reason if it's substantive (not a placeholder like "...")
+  const reason = dec.reason && dec.reason.length > 10 && !/^\.{2,}$/.test(dec.reason.trim())
+    ? dec.reason : undefined;
+  const validReasoning = reason || (thinking && thinking.length > 10 ? thinking : undefined)
+    || `${dec.signal} ${symbol}`;
+
   if (dec.signal === "entry") {
     return {
       decision: dec.side === "long" ? "OPEN_LONG" : "OPEN_SHORT",
       symbol,
       confidence: dec.confidence || 0.7,
-      reasoning: dec.reason || thinking,
+      reasoning: validReasoning,
       leverage: dec.leverage,
       size_usd: dec.size_usd,
       stop_loss: dec.stop_loss,
@@ -418,7 +424,7 @@ function toLegacyDecision(
     decision: "CLOSE",
     symbol,
     confidence: dec.confidence || 0.9,
-    reasoning: dec.reason || thinking,
+    reasoning: validReasoning,
   };
 }
 
@@ -440,6 +446,10 @@ export function parseAlphaArenaOutputWithWarnings(output: AlphaArenaOutput): {
   warnings: ParserWarning[];
 } {
   const warnings: ParserWarning[] = [];
+
+  // Helper: check if thinking is a real reasoning string, not a placeholder like "..."
+  const validThinking = (s: string | undefined): string | undefined =>
+    s && s.length > 10 && !/^\.{2,}$/.test(s.trim()) && !/^…+$/.test(s.trim()) ? s : undefined;
 
   // Collect ALL actionable decisions (entries and closes)
   const actionable: { symbol: string; dec: AlphaArenaDecision }[] = [];
@@ -463,13 +473,38 @@ export function parseAlphaArenaOutputWithWarnings(output: AlphaArenaOutput): {
         )
       );
       output.decisions = recovered;
+    } else if ((output as any).decision && typeof (output as any).decision === "string") {
+      // Legacy single-decision format: { decision: "HOLD"|"OPEN_LONG"|..., confidence, symbol, ... }
+      const legacy = output as any;
+      const legacyDecision = String(legacy.decision).toUpperCase();
+      console.log(`[AlphaArena Parser] Recovered legacy single-decision format: ${legacyDecision}`);
+      warnings.push(
+        createWarning(
+          "LEGACY_FORMAT_RECOVERED",
+          `Model returned legacy single-decision format (${legacyDecision}) instead of Alpha Arena multi-decision format`
+        )
+      );
+      return {
+        decision: {
+          decision: legacyDecision as AlphaArenaLegacyDecision["decision"],
+          symbol: legacy.symbol || null,
+          confidence: typeof legacy.confidence === "number" ? legacy.confidence : 0.7,
+          reasoning: legacy.reasoning || legacy.reason || validThinking(output.thinking) || `Legacy format: ${legacyDecision}`,
+          leverage: legacy.leverage,
+          size_usd: legacy.size_usd,
+          stop_loss: legacy.stop_loss,
+          take_profit: legacy.take_profit,
+          invalidation_condition: legacy.invalidation_condition,
+        },
+        warnings,
+      };
     } else {
       return {
         decision: {
           decision: "HOLD",
           symbol: null,
           confidence: 0.99,
-          reasoning: output.thinking || "No decisions object in AI response — defaulting to HOLD",
+          reasoning: validThinking(output.thinking) || "No decisions object in AI response — defaulting to HOLD",
         },
         warnings,
       };
@@ -489,7 +524,7 @@ export function parseAlphaArenaOutputWithWarnings(output: AlphaArenaOutput): {
         decision: "HOLD",
         symbol: null,
         confidence: 0.99,
-        reasoning: output.thinking || "All positions stable, no high-conviction entries",
+        reasoning: validThinking(output.thinking) || "All positions stable, no high-conviction entries",
       },
       warnings,
     };

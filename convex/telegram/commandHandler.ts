@@ -512,6 +512,8 @@ export const handleTelegramWebhook = httpAction(async (ctx, request) => {
           break;
         case "/help":
           await reply(ctx, chatId, getHelpText());
+          // Register command menu (idempotent, ensures / menu is set up)
+          try { ctx.runAction(internal.telegram.telegramApi.setMyCommands, {}); } catch {}
           break;
         default:
           await reply(ctx, chatId, "Unknown command. Send /help for available commands.");

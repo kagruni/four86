@@ -8,6 +8,7 @@ export type ParserWarningType =
   | "LEVERAGE_CORRECTED"
   | "SYMBOL_CORRECTED"
   | "JSON_EXTRACTION_FALLBACK"
+  | "LEGACY_FORMAT_RECOVERED"
   | "MULTIPLE_DECISIONS_DROPPED";
 
 export interface ParserWarning {

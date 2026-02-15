@@ -29,37 +29,79 @@ export async function executeClose(
     userId: bot.userId,
   });
 
-  const positionToClose = positions.find((p: any) => p.symbol === decision.symbol);
+  let positionToClose = positions.find((p: any) => p.symbol === decision.symbol);
 
-  if (!positionToClose) {
-    log.warn(`No position found for ${decision.symbol}, skipping close`);
-    return;
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // Fetch actual position from Hyperliquid
+  // If DB is empty (e.g., positions opened before DB tracking),
+  // build positionToClose from Hyperliquid data.
+  // ═══════════════════════════════════════════════════════════════
+  let actualSize: number;
 
-  // Get actual position size from Hyperliquid (not from database)
-  const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
-    address: credentials.hyperliquidAddress,
-    testnet: credentials.hyperliquidTestnet,
-  });
-
-  // Find the actual position on Hyperliquid
-  const actualPosition = hyperliquidPositions.find((p: any) => {
-    const coin = p.position?.coin || p.coin;
-    return coin === decision.symbol;
-  });
-
-  if (!actualPosition) {
-    log.warn(`No actual position on Hyperliquid for ${decision.symbol}, removing from database`);
-    await ctx.runMutation(api.mutations.closePosition, {
-      userId: bot.userId,
-      symbol: decision.symbol,
+  try {
+    const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+      address: credentials.hyperliquidAddress,
+      testnet: credentials.hyperliquidTestnet,
     });
-    return;
-  }
 
-  // Get the actual size from Hyperliquid (szi is signed)
-  const szi = actualPosition.position?.szi || actualPosition.szi || "0";
-  const actualSize = Math.abs(parseFloat(szi));
+    // Find the actual position on Hyperliquid
+    const actualPosition = hyperliquidPositions.find((p: any) => {
+      const coin = p.position?.coin || p.coin;
+      return coin === decision.symbol;
+    });
+
+    if (!actualPosition) {
+      log.warn(`No actual position on Hyperliquid for ${decision.symbol}, removing from database`);
+      if (positionToClose) {
+        await ctx.runMutation(api.mutations.closePosition, {
+          userId: bot.userId,
+          symbol: decision.symbol,
+        });
+      }
+      return;
+    }
+
+    // Get the actual size from Hyperliquid (szi is signed)
+    const pos = actualPosition.position || actualPosition;
+    const szi = pos.szi || "0";
+    actualSize = Math.abs(parseFloat(szi));
+
+    // If DB position is missing, build it from Hyperliquid data
+    if (!positionToClose) {
+      log.warn(`No DB position for ${decision.symbol} — building from Hyperliquid data`);
+      const entryPx = parseFloat(pos.entryPx || "0");
+      const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+      const positionValue = parseFloat(pos.positionValue || "0");
+      const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
+
+      positionToClose = {
+        symbol: decision.symbol,
+        side: parseFloat(szi) > 0 ? "LONG" : "SHORT",
+        size: positionValue,
+        leverage,
+        entryPrice: entryPx,
+        currentPrice: entryPx,
+        unrealizedPnl,
+        unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / positionValue) * 100 : 0,
+      };
+    }
+  } catch (error) {
+    // API unavailable — use DB position data as fallback
+    if (!positionToClose) {
+      log.error(`Cannot close ${decision.symbol} — no DB position and Hyperliquid API unavailable`);
+      return;
+    }
+
+    log.warn(`Hyperliquid API unavailable, using DB position data for close: ${error instanceof Error ? error.message : String(error)}`);
+
+    // Convert DB size (USD) to coin size using the position's entry price
+    const fallbackPrice = positionToClose.currentPrice || positionToClose.entryPrice;
+    if (!fallbackPrice || fallbackPrice <= 0) {
+      log.error(`Cannot close ${decision.symbol} — no price data available and API is down`);
+      return;
+    }
+    actualSize = positionToClose.size / fallbackPrice;
+  }
 
   log.info(`Closing ${decision.symbol} position`, {
     databaseSize: positionToClose.size,
@@ -77,15 +119,33 @@ export async function executeClose(
     testnet: credentials.hyperliquidTestnet,
   });
 
-  // Save trade record
+  // Get current price for accurate exit pricing
+  let exitPrice = positionToClose.currentPrice || 0;
+  try {
+    const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+      symbols: [decision.symbol],
+      testnet: credentials.hyperliquidTestnet,
+    });
+    exitPrice = currentMarket[decision.symbol]?.price || exitPrice;
+  } catch {
+    /* Use DB price as fallback */
+  }
+
+  // Calculate realized P&L
+  const realizedPnl = positionToClose.unrealizedPnl ?? 0;
+  const realizedPnlPct = positionToClose.unrealizedPnlPct ?? 0;
+
+  // Save trade record with actual P&L data
   await ctx.runMutation(api.mutations.saveTrade, {
     userId: bot.userId,
     symbol: decision.symbol,
     action: "CLOSE",
-    side: "CLOSE",
-    size: 0,
-    leverage: 1,
-    price: 0,
+    side: positionToClose.side,
+    size: positionToClose.size,
+    leverage: positionToClose.leverage || 1,
+    price: exitPrice,
+    pnl: realizedPnl,
+    pnlPct: realizedPnlPct,
     aiReasoning: decision.reasoning,
     aiModel: bot.modelName,
     confidence: decision.confidence,
@@ -201,6 +261,58 @@ export async function executeOpen(
   const isLongPosition = decision.decision === "OPEN_LONG";
 
   // ═══════════════════════════════════════════════════════════════
+  // VALIDATE & FIX TP/SL VALUES
+  // ═══════════════════════════════════════════════════════════════
+
+  // Detect if AI returned percentages instead of absolute prices
+  // e.g., stop_loss: 0.03 (3%) instead of $97,000 for BTC
+  if (decision.stop_loss && decision.stop_loss < entryPrice * 0.1) {
+    // Looks like a percentage (less than 10% of entry price)
+    const pct = decision.stop_loss <= 1 ? decision.stop_loss : decision.stop_loss / 100;
+    const corrected = isLongPosition
+      ? entryPrice * (1 - pct)
+      : entryPrice * (1 + pct);
+    console.log(`⚠️ stop_loss looks like a percentage (${decision.stop_loss}), converting: $${decision.stop_loss} → $${corrected.toFixed(2)}`);
+    decision.stop_loss = corrected;
+  }
+
+  if (decision.take_profit && decision.take_profit < entryPrice * 0.1) {
+    // Looks like a percentage (less than 10% of entry price)
+    const pct = decision.take_profit <= 1 ? decision.take_profit : decision.take_profit / 100;
+    const corrected = isLongPosition
+      ? entryPrice * (1 + pct)
+      : entryPrice * (1 - pct);
+    console.log(`⚠️ take_profit looks like a percentage (${decision.take_profit}), converting: $${decision.take_profit} → $${corrected.toFixed(2)}`);
+    decision.take_profit = corrected;
+  }
+
+  // Validate SL direction: LONG SL must be below entry, SHORT SL must be above entry
+  if (decision.stop_loss) {
+    if (isLongPosition && decision.stop_loss >= entryPrice) {
+      const corrected = entryPrice * 0.97;
+      console.log(`⚠️ LONG stop_loss ($${decision.stop_loss}) >= entry ($${entryPrice}), correcting to 3% below: $${corrected.toFixed(2)}`);
+      decision.stop_loss = corrected;
+    } else if (!isLongPosition && decision.stop_loss <= entryPrice) {
+      const corrected = entryPrice * 1.03;
+      console.log(`⚠️ SHORT stop_loss ($${decision.stop_loss}) <= entry ($${entryPrice}), correcting to 3% above: $${corrected.toFixed(2)}`);
+      decision.stop_loss = corrected;
+    }
+  }
+
+  // Validate TP direction: LONG TP must be above entry, SHORT TP must be below entry
+  if (decision.take_profit) {
+    if (isLongPosition && decision.take_profit <= entryPrice) {
+      const corrected = entryPrice * 1.008;
+      console.log(`⚠️ LONG take_profit ($${decision.take_profit}) <= entry ($${entryPrice}), correcting to 0.8% above: $${corrected.toFixed(2)}`);
+      decision.take_profit = corrected;
+    } else if (!isLongPosition && decision.take_profit >= entryPrice) {
+      const corrected = entryPrice * 0.992;
+      console.log(`⚠️ SHORT take_profit ($${decision.take_profit}) >= entry ($${entryPrice}), correcting to 0.8% below: $${corrected.toFixed(2)}`);
+      decision.take_profit = corrected;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // MANDATORY STOP LOSS WITH RETRY AND CLOSE-ON-FAILURE
   // ═══════════════════════════════════════════════════════════════
 
@@ -212,22 +324,26 @@ export async function executeOpen(
     console.log(`⚠️ No stop loss specified, using default 3%: $${decision.stop_loss.toFixed(2)}`);
   }
 
-  const stopLossPlaced = await placeStopLossWithRetry(
-    ctx, api, credentials, decision, sizeInCoins, isLongPosition, entryPrice, bot
-  );
-
-  // CRITICAL: If stop loss failed, close position for safety
-  if (!stopLossPlaced) {
-    await emergencyClose(ctx, api, credentials, decision, bot, sizeInCoins, isLongPosition, entryPrice);
-    return;
+  // Default to 0.8% take profit if AI didn't specify one
+  if (!decision.take_profit) {
+    decision.take_profit = isLongPosition
+      ? entryPrice * 1.008
+      : entryPrice * 0.992;
+    console.log(`⚠️ No take profit specified, using default 0.8%: $${decision.take_profit.toFixed(2)}`);
   }
 
-  // Place take-profit order if specified (with retry logic)
-  if (decision.take_profit) {
-    await placeTakeProfitWithRetry(
-      ctx, api, credentials, decision, sizeInCoins, isLongPosition, entryPrice, bot
-    );
-  }
+  log.info(`TP/SL values for ${decision.symbol}:`, {
+    entryPrice,
+    stopLoss: decision.stop_loss,
+    takeProfit: decision.take_profit,
+    slDistancePct: ((Math.abs(entryPrice - decision.stop_loss) / entryPrice) * 100).toFixed(2) + "%",
+    tpDistancePct: ((Math.abs(decision.take_profit - entryPrice) / entryPrice) * 100).toFixed(2) + "%",
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // SAVE TRADE + POSITION FIRST (before TP/SL)
+  // This ensures the position is tracked even if TP/SL placement fails
+  // ═══════════════════════════════════════════════════════════════
 
   // Save trade record
   await ctx.runMutation(api.mutations.saveTrade, {
@@ -276,6 +392,65 @@ export async function executeOpen(
     orderDurationMs,
     txHash: result.txHash,
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // PLACE TP/SL ORDERS (position is already saved above)
+  // ═══════════════════════════════════════════════════════════════
+
+  const stopLossPlaced = await placeStopLossWithRetry(
+    ctx, api, credentials, decision, sizeInCoins, isLongPosition, entryPrice, bot
+  );
+
+  // Place take-profit regardless of SL result (they're independent)
+  const takeProfitPlaced = await placeTakeProfitWithRetry(
+    ctx, api, credentials, decision, sizeInCoins, isLongPosition, entryPrice, bot
+  );
+
+  // CRITICAL: If stop loss failed after all retries, emergency close
+  if (!stopLossPlaced) {
+    await emergencyClose(ctx, api, credentials, decision, bot, sizeInCoins, isLongPosition, entryPrice);
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // VERIFY TP/SL ORDERS ACTUALLY EXIST ON EXCHANGE
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    // Small delay to let orders propagate
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const verification = await ctx.runAction(api.hyperliquid.client.verifyTpSlOrders, {
+      address: credentials.hyperliquidAddress,
+      symbol: decision.symbol!,
+      testnet: credentials.hyperliquidTestnet,
+    });
+
+    if (!verification.hasSl) {
+      console.error(`🚨 VERIFICATION FAILED: No stop-loss order found on exchange for ${decision.symbol}!`);
+      console.error(`   Expected SL at $${decision.stop_loss} — order may not have been placed correctly`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "CRITICAL",
+        message: `TP/SL verification: No SL found on exchange for ${decision.symbol}`,
+        data: {
+          symbol: decision.symbol,
+          expectedSl: decision.stop_loss,
+          expectedTp: decision.take_profit,
+          ordersFound: verification.orders,
+        },
+      });
+    }
+
+    if (!verification.hasTp) {
+      console.warn(`⚠️ VERIFICATION: No take-profit order found on exchange for ${decision.symbol}`);
+    }
+
+    if (verification.hasSl && verification.hasTp) {
+      console.log(`✅ TP/SL verification passed for ${decision.symbol}: SL and TP confirmed on exchange`);
+    }
+  } catch (verifyError) {
+    console.warn(`⚠️ TP/SL verification skipped (non-critical):`, verifyError instanceof Error ? verifyError.message : String(verifyError));
+  }
 
   // Telegram notification (fire-and-forget)
   try {
@@ -334,7 +509,7 @@ async function placeStopLossWithRetry(
   sizeInCoins: number, isLongPosition: boolean, entryPrice: number, bot: any
 ): Promise<boolean> {
   let stopLossPlaced = false;
-  const MAX_SL_RETRIES = 2;
+  const MAX_SL_RETRIES = 3;
 
   for (let attempt = 1; attempt <= MAX_SL_RETRIES && !stopLossPlaced; attempt++) {
     try {
@@ -348,15 +523,18 @@ async function placeStopLossWithRetry(
         testnet: credentials.hyperliquidTestnet,
       });
 
-      if (slResult && slResult.success !== false) {
+      if (slResult && slResult.success === true) {
         stopLossPlaced = true;
-        console.log(`✅ Stop-loss placed successfully at $${decision.stop_loss}`);
+        console.log(`✅ Stop-loss placed successfully at $${decision.stop_loss} (txHash: ${slResult.txHash})`);
+      } else {
+        console.error(`❌ Stop-loss returned unexpected result:`, JSON.stringify(slResult));
       }
     } catch (error) {
       console.error(`❌ Stop-loss attempt ${attempt} failed:`, error);
       if (attempt < MAX_SL_RETRIES) {
-        console.log(`⏳ Waiting 1 second before retry...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const delayMs = 2000 * attempt; // 2s, 4s
+        console.log(`⏳ Waiting ${delayMs / 1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
   }
@@ -369,7 +547,7 @@ async function placeTakeProfitWithRetry(
   sizeInCoins: number, isLongPosition: boolean, entryPrice: number, bot: any
 ): Promise<boolean> {
   let takeProfitPlaced = false;
-  const MAX_TP_RETRIES = 2;
+  const MAX_TP_RETRIES = 3;
 
   for (let attempt = 1; attempt <= MAX_TP_RETRIES && !takeProfitPlaced; attempt++) {
     try {
@@ -383,15 +561,18 @@ async function placeTakeProfitWithRetry(
         testnet: credentials.hyperliquidTestnet,
       });
 
-      if (tpResult && tpResult.success !== false) {
+      if (tpResult && tpResult.success === true) {
         takeProfitPlaced = true;
-        console.log(`✅ Take-profit placed successfully at $${decision.take_profit}`);
+        console.log(`✅ Take-profit placed successfully at $${decision.take_profit} (txHash: ${tpResult.txHash})`);
+      } else {
+        console.error(`❌ Take-profit returned unexpected result:`, JSON.stringify(tpResult));
       }
     } catch (error) {
       console.error(`❌ Take-profit attempt ${attempt} failed:`, error);
       if (attempt < MAX_TP_RETRIES) {
-        console.log(`⏳ Waiting 1 second before retry...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const delayMs = 2000 * attempt; // 2s, 4s
+        console.log(`⏳ Waiting ${delayMs / 1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
   }

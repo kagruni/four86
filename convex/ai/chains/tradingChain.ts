@@ -348,6 +348,17 @@ export function createCompactTradingChain(
 function repairJson(text: string): string {
   let result = text;
 
+  // 0. Remove literal ellipsis patterns that models sometimes add
+  //    e.g. { "BTC": { "signal": "hold" }, ... } or trailing ...
+  result = result.replace(/,\s*\.{3}\s*(?=[}\]])/g, ""); // , ... } or , ... ]
+  result = result.replace(/,\s*…\s*(?=[}\]])/g, "");     // , … } (unicode ellipsis)
+  result = result.replace(/\.{3}\s*(?=[}\]])/g, "");      // ... } without comma
+  result = result.replace(/…\s*(?=[}\]])/g, "");           // … } without comma
+  // Remove // comments (single-line) that some models add
+  result = result.replace(/\/\/[^\n]*/g, "");
+  // Remove /* ... */ comments
+  result = result.replace(/\/\*[\s\S]*?\*\//g, "");
+
   // 1. Replace single-quoted keys and values with double-quoted ones
   //    Matches: 'key' or 'value' but avoids touching apostrophes inside words
   result = result.replace(/(?<=[\s,{[\]:])'/g, '"');
@@ -361,6 +372,11 @@ function repairJson(text: string): string {
   } catch {
     // More aggressive: replace all single quotes that look like JSON delimiters
     result = text.replace(/'/g, '"');
+    // Re-apply ellipsis removal after quote replacement
+    result = result.replace(/,\s*\.{3}\s*(?=[}\]])/g, "");
+    result = result.replace(/,\s*…\s*(?=[}\]])/g, "");
+    result = result.replace(/\.{3}\s*(?=[}\]])/g, "");
+    result = result.replace(/…\s*(?=[}\]])/g, "");
   }
 
   // 3. Remove trailing commas before } or ]
@@ -449,7 +465,16 @@ function createAlphaArenaParser() {
 
       // Strip markdown code blocks
       let cleanedText = text.trim();
-      if (cleanedText.startsWith("```")) {
+      // Handle code fences anywhere in the text (not just at the start)
+      const codeFenceMatch = cleanedText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (codeFenceMatch) {
+        // Capture any prose text before the code fence as potential reasoning
+        const preCodeText = cleanedText.substring(0, cleanedText.indexOf("```")).trim();
+        cleanedText = codeFenceMatch[1].trim();
+        if (preCodeText) {
+          console.log(`[AlphaArena Parser] Captured ${preCodeText.length} chars of pre-JSON reasoning`);
+        }
+      } else if (cleanedText.startsWith("```")) {
         cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "");
         cleanedText = cleanedText.replace(/\n?```\s*$/, "");
         cleanedText = cleanedText.trim();
@@ -464,8 +489,16 @@ function createAlphaArenaParser() {
         console.log(`[AlphaArena Parser] Extracted ${thinking.length} chars from <think> tags`);
       }
 
-      // Try to extract JSON using bracket-depth parser (replaces greedy regex)
+      // Capture any prose text before JSON as potential reasoning
+      let preJsonReasoning = "";
       if (!cleanedText.startsWith("{")) {
+        const firstBrace = cleanedText.indexOf("{");
+        if (firstBrace > 0) {
+          preJsonReasoning = cleanedText.substring(0, firstBrace).trim();
+          if (preJsonReasoning.length > 20) {
+            console.log(`[AlphaArena Parser] Captured ${preJsonReasoning.length} chars of pre-JSON reasoning`);
+          }
+        }
         const extracted = extractFirstJsonObject(cleanedText);
         if (extracted) {
           cleanedText = extracted;
@@ -510,28 +543,47 @@ function createAlphaArenaParser() {
               console.log("[AlphaArena Parser] Bracket extraction + repair succeeded");
             } catch {
               console.error("[AlphaArena Parser] All JSON parse attempts failed:", firstError);
+              console.error("[AlphaArena Parser] Response preview:", cleanedText.slice(0, 300));
+              // Use thinking or pre-JSON reasoning text if available, otherwise a clear message
+              const fallbackReasoning = thinking || preJsonReasoning ||
+                "AI response could not be parsed (JSON syntax error). Defaulting to HOLD for safety.";
               return {
                 decision: "HOLD",
                 symbol: null,
-                confidence: 0.99,
-                reasoning: `Parse error - defaulting to HOLD. Error: ${firstError}`,
+                confidence: 0.5,
+                reasoning: fallbackReasoning,
               };
             }
           } else {
-            console.error("[AlphaArena Parser] All JSON parse attempts failed:", firstError);
+            console.error("[AlphaArena Parser] No JSON found in response. Preview:", cleanedText.slice(0, 300));
+            const fallbackReasoning = thinking || preJsonReasoning ||
+              "No structured decision found in AI response. Defaulting to HOLD for safety.";
             return {
               decision: "HOLD",
               symbol: null,
-              confidence: 0.99,
-              reasoning: `Parse error - defaulting to HOLD. Error: ${firstError}`,
+              confidence: 0.5,
+              reasoning: fallbackReasoning,
             };
           }
         }
       }
 
-      // Use the thinking from <think> tags if present, otherwise use the parsed thinking
-      if (thinking && !parsed.thinking) {
-        parsed.thinking = thinking;
+      // Check if parsed.thinking is a real reasoning string or just a placeholder
+      const isValidThinking = (s: string | undefined): boolean =>
+        !!s && s.length > 10 && !/^\.{2,}$/.test(s.trim()) && !/^…+$/.test(s.trim());
+
+      // Use the thinking from <think> tags, pre-JSON prose, or parsed thinking (in priority order)
+      // Always prefer longer, more substantive reasoning over placeholders like "..."
+      if (!isValidThinking(parsed.thinking)) {
+        if (thinking && thinking.length > 10) {
+          parsed.thinking = thinking;
+          console.log(`[AlphaArena Parser] Using <think> tag reasoning (${thinking.length} chars)`);
+        } else if (preJsonReasoning && preJsonReasoning.length > 20) {
+          parsed.thinking = preJsonReasoning;
+          console.log(`[AlphaArena Parser] Using pre-JSON reasoning (${preJsonReasoning.length} chars)`);
+        } else {
+          console.log(`[AlphaArena Parser] No valid reasoning found. parsed.thinking="${parsed.thinking}", thinking="${thinking?.slice(0, 50)}", preJson="${preJsonReasoning?.slice(0, 50)}"`);
+        }
       }
 
       // Convert Alpha Arena format to legacy format (with highest-confidence selection)

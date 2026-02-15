@@ -21,9 +21,14 @@ import { fetchCandlesInternal } from "../hyperliquid/candles";
  */
 
 // Max AI calls per chunk — keeps each action well under 600s
-// Slower models (DeepSeek V3.2 Speciale) take ~60-70s per call
-// 7 calls * ~70s = ~490s + overhead = safely under 600s
-const MAX_AI_CALLS_PER_CHUNK = 7;
+const MAX_AI_CALLS_PER_CHUNK = 12;
+
+// Time-based safety: bail out of chunk before Convex's hard 600s kill
+// Leave 90s buffer for scheduling next chunk + cleanup mutations
+const CHUNK_TIME_BUDGET_MS = 510_000; // 510s = 8.5 minutes
+
+// Per-AI-call fetch timeout — prevents a single hung request from eating the budget
+const AI_FETCH_TIMEOUT_MS = 120_000; // 120s per call
 
 // ─── Realistic Hyperliquid Trading Costs ─────────────────────────────────────
 
@@ -321,9 +326,10 @@ export const processBacktestChunk = internalAction({
       let aiCallsThisChunk = 0;
       let candleIndex = args.candleIndex;
       let capitalDepleted = false;
+      const chunkStartMs = Date.now();
 
       console.log(
-        `[BACKTEST] Chunk starting at candle ${candleIndex}, capital: $${capital.toFixed(2)}, trades: ${tradeCount}, AI calls budget: ${MAX_AI_CALLS_PER_CHUNK}, apiKey: ${args.openrouterApiKey ? args.openrouterApiKey.slice(0, 8) + "..." : "MISSING"}, model: ${args.modelName}`
+        `[BACKTEST] Chunk starting at candle ${candleIndex}, capital: $${capital.toFixed(2)}, trades: ${tradeCount}, AI calls budget: ${MAX_AI_CALLS_PER_CHUNK}, time budget: ${CHUNK_TIME_BUDGET_MS / 1000}s, apiKey: ${args.openrouterApiKey ? args.openrouterApiKey.slice(0, 8) + "..." : "MISSING"}, model: ${args.modelName}`
       );
 
       // Process steps until we run out of candles or hit AI call limit
@@ -571,6 +577,60 @@ export const processBacktestChunk = internalAction({
           );
           capitalDepleted = true;
           break;
+        }
+
+        // Time watchdog: bail out before Convex's hard 600s kill
+        const elapsedMs = Date.now() - chunkStartMs;
+        if (elapsedMs >= CHUNK_TIME_BUDGET_MS) {
+          console.log(
+            `[BACKTEST] Time budget exhausted (${(elapsedMs / 1000).toFixed(0)}s elapsed, ${aiCallsThisChunk} AI calls). Scheduling next chunk...`
+          );
+
+          await ctx.runMutation(
+            internal.backtesting.backtestActions.updateBacktestProgress,
+            {
+              runId: args.runId,
+              currentCapital: capital,
+              currentTrades: tradeCount,
+              progressPct: Math.min(100, Math.round((stepCount / args.totalSteps) * 100)),
+            }
+          );
+
+          await ctx.scheduler.runAfter(
+            0,
+            internal.backtesting.backtestEngine.processBacktestChunk,
+            {
+              runId: args.runId,
+              userId: args.userId,
+              symbol: args.symbol,
+              modelName: args.modelName,
+              initialCapital: args.initialCapital,
+              maxLeverage: args.maxLeverage,
+              openrouterApiKey: args.openrouterApiKey,
+              startTime: args.startTime,
+              periodCandlesJson: args.periodCandlesJson,
+              candles1hJson: args.candles1hJson,
+              candles4hJson: args.candles4hJson,
+              candleIndex,
+              stepSize: args.stepSize,
+              totalSteps: args.totalSteps,
+              stepCount,
+              capital,
+              peakCapital,
+              maxDrawdown,
+              maxDrawdownPct,
+              totalFees,
+              totalFunding,
+              liquidationCount,
+              tradeCount,
+              winCount,
+              returnsSum,
+              returnsSquaredSum,
+              returnsCount,
+              positionJson: JSON.stringify(currentPosition),
+            }
+          );
+          return;
         }
 
         // Check if we've hit the AI call limit for this chunk
@@ -915,6 +975,9 @@ Respond ONLY with JSON:
 }`;
 
   const startMs = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_FETCH_TIMEOUT_MS);
+
   let response: Response;
   try {
     response = await fetch(
@@ -934,12 +997,19 @@ Respond ONLY with JSON:
           temperature: 0.3,
           max_tokens: 4000,
         }),
+        signal: controller.signal,
       }
     );
-  } catch (fetchError) {
+  } catch (fetchError: any) {
+    clearTimeout(timeoutId);
+    if (fetchError?.name === "AbortError") {
+      console.error(`[BACKTEST-AI] Fetch timed out after ${AI_FETCH_TIMEOUT_MS / 1000}s`);
+      return { decision: "HOLD", reasoning: "AI call timed out" };
+    }
     console.error(`[BACKTEST-AI] Fetch failed after ${Date.now() - startMs}ms:`, fetchError);
-    throw fetchError; // Let the caller's catch block handle it
+    throw fetchError;
   }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "unknown");

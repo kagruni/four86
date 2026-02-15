@@ -14,6 +14,43 @@ let metadataCache: {
 
 const METADATA_CACHE_TTL = 60000; // 1 minute cache
 
+/**
+ * Retry wrapper for transient API failures (502, 503, 429, network errors).
+ * Uses exponential backoff: 1s → 2s → 4s
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries = 3
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      const isTransient =
+        msg.includes("502") ||
+        msg.includes("503") ||
+        msg.includes("504") ||
+        msg.includes("429") ||
+        msg.includes("Bad Gateway") ||
+        msg.includes("Service Unavailable") ||
+        msg.includes("ECONNRESET") ||
+        msg.includes("ETIMEDOUT") ||
+        msg.includes("fetch failed");
+
+      if (isTransient && attempt < maxRetries) {
+        const delayMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+        console.log(`[${label}] Transient error (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms: ${msg.slice(0, 120)}`);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`[${label}] Unreachable`);
+}
+
 // Symbol to Hyperliquid asset ID mapping (DEPRECATED - use getAssetId instead)
 // These are fallback mainnet IDs - actual IDs are fetched from meta endpoint
 const SYMBOL_TO_ASSET_ID: Record<string, number> = {
@@ -74,10 +111,12 @@ export async function getAssetMetadata(testnet: boolean): Promise<{
     };
   }
 
-  // Fetch fresh metadata
+  // Fetch fresh metadata (with retry for transient failures)
   console.log(`[getAssetMetadata] Fetching metadata for ${testnet ? "testnet" : "mainnet"}...`);
-  const infoClient = createInfoClient(testnet);
-  const [meta, ctx] = await infoClient.metaAndAssetCtxs();
+  const [meta, ctx] = await withRetry(async () => {
+    const infoClient = createInfoClient(testnet);
+    return await infoClient.metaAndAssetCtxs();
+  }, "getAssetMetadata");
 
   // Cache the result
   metadataCache = {
@@ -226,7 +265,7 @@ export async function placeOrder(
     // Format price and size according to Hyperliquid requirements
     // - Price: ≤5 significant figures, ≤(6 - szDecimals) decimals for perps
     // - Size: rounded to szDecimals
-    const formattedPrice = formatPrice(price.toString(), szDecimals, false);
+    const formattedPrice = formatPrice(price.toString(), szDecimals, true);
     const formattedSize = formatSize(size.toString(), szDecimals);
 
     // Log all parameters before creating order
@@ -265,19 +304,32 @@ export async function placeOrder(
 
     console.log(`[placeOrder] Order request object:`, JSON.stringify(orderRequest, null, 2));
 
-    // Place the order
-    const result = await exchangeClient.order(orderRequest);
+    // Place the order (with retry for transient API failures)
+    const result = await withRetry(
+      () => exchangeClient.order(orderRequest),
+      "placeOrder"
+    );
 
     // Extract order ID from response
     const status = result?.response?.data?.statuses?.[0];
     let txHash = "pending";
 
+    console.log(`[placeOrder] Raw response:`, JSON.stringify(result?.response?.data, null, 2)?.slice(0, 500));
+
     if (status) {
+      if ("error" in status) {
+        console.error(`[placeOrder] Order rejected by Hyperliquid:`, status.error);
+        throw new Error(`Order rejected: ${status.error}`);
+      }
       if ("filled" in status) {
         txHash = `filled_${status.filled.oid}`;
+        console.log(`[placeOrder] Order FILLED: oid=${status.filled.oid}, totalSz=${status.filled.totalSz}, avgPx=${status.filled.avgPx}`);
       } else if ("resting" in status) {
         txHash = `resting_${status.resting.oid}`;
+        console.log(`[placeOrder] Order RESTING: oid=${status.resting.oid}`);
       }
+    } else {
+      console.warn(`[placeOrder] No status in response - order may not have been placed`);
     }
 
     return {
@@ -309,8 +361,8 @@ export async function placeStopLoss(
 
     const exchangeClient = createExchangeClient(privateKey, testnet);
 
-    // Format trigger price and size
-    const formattedTriggerPrice = formatPrice(triggerPrice.toString(), szDecimals, false);
+    // Format trigger price and size (isPerp=true for perpetual futures)
+    const formattedTriggerPrice = formatPrice(triggerPrice.toString(), szDecimals, true);
     const formattedSize = formatSize(size.toString(), szDecimals);
 
     console.log(`[placeStopLoss] Placing stop-loss for ${symbol}:`, {
@@ -339,12 +391,16 @@ export async function placeStopLoss(
           },
         },
       ],
-      grouping: "normalTpsl" as const, // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
+      grouping: "positionTpsl" as const, // Position-level TP/SL — adjusts with position size
     };
 
     console.log(`[placeStopLoss] Order request:`, JSON.stringify(orderRequest, null, 2));
 
-    const result = await exchangeClient.order(orderRequest);
+    // Retry the exchange call for transient API failures (502, 503, etc.)
+    const result = await withRetry(
+      () => exchangeClient.order(orderRequest),
+      "placeStopLoss"
+    );
 
     // Log full response for debugging
     console.log(`[placeStopLoss] Full API response:`, JSON.stringify(result, null, 2));
@@ -365,7 +421,9 @@ export async function placeStopLoss(
         console.log(`[placeStopLoss] Unknown status type:`, status);
       }
     } else {
-      console.warn(`[placeStopLoss] No status in response`);
+      console.error(`[placeStopLoss] No status in response — order may not have been placed`);
+      console.error(`[placeStopLoss] Full result keys:`, Object.keys(result || {}));
+      throw new Error(`Stop loss order returned no status — API response missing statuses`);
     }
 
     console.log(`[placeStopLoss] Successfully placed stop-loss order: ${txHash}`);
@@ -398,8 +456,8 @@ export async function placeTakeProfit(
 
     const exchangeClient = createExchangeClient(privateKey, testnet);
 
-    // Format trigger price and size
-    const formattedTriggerPrice = formatPrice(triggerPrice.toString(), szDecimals, false);
+    // Format trigger price and size (isPerp=true for perpetual futures)
+    const formattedTriggerPrice = formatPrice(triggerPrice.toString(), szDecimals, true);
     const formattedSize = formatSize(size.toString(), szDecimals);
 
     console.log(`[placeTakeProfit] Placing take-profit for ${symbol}:`, {
@@ -428,12 +486,16 @@ export async function placeTakeProfit(
           },
         },
       ],
-      grouping: "normalTpsl" as const, // IMPORTANT: Use normalTpsl for TP/SL orders, not "na"
+      grouping: "positionTpsl" as const, // Position-level TP/SL — adjusts with position size
     };
 
     console.log(`[placeTakeProfit] Order request:`, JSON.stringify(orderRequest, null, 2));
 
-    const result = await exchangeClient.order(orderRequest);
+    // Retry the exchange call for transient API failures (502, 503, etc.)
+    const result = await withRetry(
+      () => exchangeClient.order(orderRequest),
+      "placeTakeProfit"
+    );
 
     // Log full response for debugging
     console.log(`[placeTakeProfit] Full API response:`, JSON.stringify(result, null, 2));
@@ -454,7 +516,9 @@ export async function placeTakeProfit(
         console.log(`[placeTakeProfit] Unknown status type:`, status);
       }
     } else {
-      console.warn(`[placeTakeProfit] No status in response`);
+      console.error(`[placeTakeProfit] No status in response — order may not have been placed`);
+      console.error(`[placeTakeProfit] Full result keys:`, Object.keys(result || {}));
+      throw new Error(`Take profit order returned no status — API response missing statuses`);
     }
 
     console.log(`[placeTakeProfit] Successfully placed take-profit order: ${txHash}`);
@@ -525,7 +589,7 @@ export async function getMarketPrice(
   symbol: string,
   testnet: boolean
 ): Promise<number> {
-  try {
+  return withRetry(async () => {
     const infoClient = createInfoClient(testnet);
     const allMids = await infoClient.allMids();
 
@@ -535,10 +599,7 @@ export async function getMarketPrice(
     }
 
     return parseFloat(price);
-  } catch (error) {
-    console.error("Error fetching market price:", error);
-    throw new Error(`Failed to fetch market price: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  }, `getMarketPrice(${symbol})`);
 }
 
 /**
@@ -549,10 +610,11 @@ export async function getUserPositions(
   testnet: boolean
 ): Promise<any> {
   try {
-    const infoClient = createInfoClient(testnet);
-    const state = await infoClient.clearinghouseState({ user: address });
-
-    return state.assetPositions || [];
+    return await withRetry(async () => {
+      const infoClient = createInfoClient(testnet);
+      const state = await infoClient.clearinghouseState({ user: address });
+      return state.assetPositions || [];
+    }, "getUserPositions");
   } catch (error) {
     console.error("Error fetching user positions:", error);
     throw new Error(`Failed to fetch user positions: ${error instanceof Error ? error.message : String(error)}`);
@@ -567,14 +629,72 @@ export async function getUserOpenOrders(
   testnet: boolean
 ): Promise<any[]> {
   try {
-    const infoClient = createInfoClient(testnet);
-    const openOrders = await infoClient.openOrders({ user: address });
-
-    console.log(`[getUserOpenOrders] Found ${openOrders.length} open orders for ${address}`);
-    return openOrders;
+    return await withRetry(async () => {
+      const infoClient = createInfoClient(testnet);
+      const openOrders = await infoClient.openOrders({ user: address });
+      console.log(`[getUserOpenOrders] Found ${openOrders.length} open orders for ${address}`);
+      return openOrders;
+    }, "getUserOpenOrders");
   } catch (error) {
     console.error("Error fetching user open orders:", error);
     throw new Error(`Failed to fetch user open orders: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get user's frontend open orders (includes trigger orders like TP/SL).
+ * Unlike `openOrders`, this includes: orderType, isTrigger, triggerPx, isPositionTpsl.
+ */
+export async function getFrontendOpenOrders(
+  address: string,
+  testnet: boolean
+): Promise<any[]> {
+  try {
+    return await withRetry(async () => {
+      const infoClient = createInfoClient(testnet);
+      const orders = await infoClient.frontendOpenOrders({ user: address });
+      console.log(`[getFrontendOpenOrders] Found ${orders.length} orders (including trigger orders)`);
+      return orders;
+    }, "getFrontendOpenOrders");
+  } catch (error) {
+    console.error("Error fetching frontend open orders:", error);
+    throw new Error(`Failed to fetch frontend open orders: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Verify that TP/SL trigger orders exist on the exchange for a given symbol.
+ * Returns the count and details of trigger orders found.
+ */
+export async function verifyTpSlOrders(
+  address: string,
+  symbol: string,
+  testnet: boolean
+): Promise<{ hasSl: boolean; hasTp: boolean; orders: any[] }> {
+  try {
+    const allOrders = await getFrontendOpenOrders(address, testnet);
+
+    // Filter to trigger orders for this symbol
+    const triggerOrders = allOrders.filter((o: any) =>
+      o.coin === symbol && o.isTrigger === true
+    );
+
+    const hasSl = triggerOrders.some((o: any) =>
+      o.orderType === "Stop Market" || o.orderType === "Stop Limit"
+    );
+    const hasTp = triggerOrders.some((o: any) =>
+      o.orderType === "Take Profit Market" || o.orderType === "Take Profit Limit"
+    );
+
+    console.log(`[verifyTpSlOrders] ${symbol}: SL=${hasSl}, TP=${hasTp}, trigger orders=${triggerOrders.length}`);
+    for (const o of triggerOrders) {
+      console.log(`  - ${o.orderType} | side=${o.side} | triggerPx=${o.triggerPx} | sz=${o.sz}`);
+    }
+
+    return { hasSl, hasTp, orders: triggerOrders };
+  } catch (error) {
+    console.error(`[verifyTpSlOrders] Error verifying TP/SL for ${symbol}:`, error);
+    return { hasSl: false, hasTp: false, orders: [] };
   }
 }
 

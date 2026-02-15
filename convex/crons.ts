@@ -38,4 +38,11 @@ crons.interval(
   internal.telegram.dailySummary.sendDailySummaries
 );
 
+// Account snapshots - captures equity curve data every 15 minutes
+crons.interval(
+  "account-snapshot",
+  { minutes: 15 },
+  internal.snapshots.snapshotCycle.takeAccountSnapshots
+);
+
 export default crons;

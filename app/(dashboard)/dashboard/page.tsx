@@ -814,8 +814,10 @@ export default function DashboardPage() {
                             {formatTimestamp(log.createdAt)}
                           </span>
                         </div>
-                        <p className="mt-2 text-sm text-black">
-                          {log.reasoning}
+                        <p className="mt-2 text-sm text-black line-clamp-4">
+                          {log.reasoning && log.reasoning.trim().startsWith("{")
+                            ? "AI analysis completed — no high-conviction setups detected."
+                            : log.reasoning}
                         </p>
                         {log.confidence !== undefined && (
                           <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">

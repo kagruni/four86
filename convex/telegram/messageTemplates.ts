@@ -52,26 +52,35 @@ interface TradeOpenedData {
 }
 
 export function formatTradeOpened(data: TradeOpenedData): string {
-  const sideEmoji = data.side.toUpperCase() === "LONG" ? "\u{1F7E2}" : "\u{1F534}";
+  const isLong = data.side.toUpperCase() === "LONG";
+  const dirEmoji = isLong ? "\u{2197}\u{FE0F}" : "\u{2198}\u{FE0F}";
+
   const lines: string[] = [
-    `${sideEmoji} *Trade Opened*`,
+    `${dirEmoji} *New Trade*`,
     "",
-    `*${data.symbol} ${data.side.toUpperCase()}* at \`${formatUsd(data.entryPrice)}\``,
-    `Size: \`${formatUsd(data.sizeUsd)}\` | Leverage: \`${data.leverage}x\``,
+    `*${data.symbol}* ${data.side.toUpperCase()} \`${data.leverage}x\` \u{00B7} \`${formatUsd(data.sizeUsd)}\``,
+    `Entry: \`${formatUsd(data.entryPrice)}\``,
   ];
 
-  if (data.stopLoss !== undefined) {
-    lines.push(`Stop Loss: \`${formatUsd(data.stopLoss)}\``);
+  if (data.stopLoss !== undefined && data.takeProfit !== undefined) {
+    lines.push(`SL: \`${formatUsd(data.stopLoss)}\` \u{00B7} TP: \`${formatUsd(data.takeProfit)}\``);
+  } else {
+    if (data.stopLoss !== undefined) lines.push(`SL: \`${formatUsd(data.stopLoss)}\``);
+    if (data.takeProfit !== undefined) lines.push(`TP: \`${formatUsd(data.takeProfit)}\``);
   }
-  if (data.takeProfit !== undefined) {
-    lines.push(`Take Profit: \`${formatUsd(data.takeProfit)}\``);
-  }
+
   if (data.confidence !== undefined) {
     lines.push(`Confidence: \`${data.confidence}%\``);
   }
 
-  lines.push("");
-  lines.push(`_Reasoning: ${data.reasoning}_`);
+  // Clean reasoning of markdown-breaking characters
+  if (data.reasoning) {
+    const cleanReasoning = data.reasoning
+      .replace(/[_*`\[\]]/g, "")
+      .slice(0, 200);
+    lines.push("");
+    lines.push(`_${cleanReasoning}_`);
+  }
 
   return lines.join("\n");
 }
@@ -98,9 +107,9 @@ export function formatTradeClosed(data: TradeClosedData): string {
   const lines: string[] = [
     `${headerEmoji} *Trade Closed*`,
     "",
-    `*${data.symbol} ${data.side.toUpperCase()}*`,
-    `Entry: \`${formatUsd(data.entryPrice)}\` \u{2192} Exit: \`${formatUsd(data.exitPrice)}\``,
-    `${pnlEmoji} P&L: \`${formatUsd(data.pnl)}\` (\`${formatPct(data.pnlPct)}\`)`,
+    `*${data.symbol}* ${data.side.toUpperCase()}`,
+    `\`${formatUsd(data.entryPrice)}\` \u{2192} \`${formatUsd(data.exitPrice)}\``,
+    `${pnlEmoji} \`${formatUsd(data.pnl)}\` (\`${formatPct(data.pnlPct)}\`)`,
     `Duration: \`${formatDuration(data.durationMs)}\``,
   ];
 
@@ -180,27 +189,36 @@ interface PositionData {
 
 export function formatPositions(positions: PositionData[]): string {
   if (positions.length === 0) {
-    return "\u{1F4AD} *Open Positions*\n\nNo open positions.";
+    return "\u{1F4CA} *Positions*\n\nNo open positions.";
   }
 
   const lines: string[] = [
-    `\u{1F4AD} *Open Positions* (${positions.length})`,
+    `\u{1F4CA} *Positions* (${positions.length})`,
     "",
   ];
 
+  let totalPnl = 0;
+
   for (const pos of positions) {
+    totalPnl += pos.unrealizedPnl;
     const pnlEmoji = pos.unrealizedPnl >= 0 ? "\u{1F7E2}" : "\u{1F534}";
+    const dirEmoji = pos.side.toUpperCase() === "LONG" ? "\u{2197}\u{FE0F}" : "\u{2198}\u{FE0F}";
+
     lines.push(
-      `*${pos.symbol} ${pos.side.toUpperCase()}* \`${pos.leverage}x\``,
+      `${dirEmoji} *${pos.symbol}* ${pos.side.toUpperCase()} \`${pos.leverage}x\` \u{00B7} \`${formatUsd(pos.size)}\``,
     );
     lines.push(
-      `Entry: \`${formatUsd(pos.entryPrice)}\` | Now: \`${formatUsd(pos.currentPrice)}\``,
+      `\`${formatUsd(pos.entryPrice)}\` \u{2192} \`${formatUsd(pos.currentPrice)}\``,
     );
     lines.push(
-      `${pnlEmoji} uPnL: \`${formatUsd(pos.unrealizedPnl)}\` (\`${formatPct(pos.unrealizedPnlPct)}\`)`,
+      `${pnlEmoji} \`${formatUsd(pos.unrealizedPnl)}\` (\`${formatPct(pos.unrealizedPnlPct)}\`)`,
     );
     lines.push("");
   }
+
+  // Total P&L footer
+  const totalEmoji = totalPnl >= 0 ? "\u{1F7E2}" : "\u{1F534}";
+  lines.push(`${totalEmoji} *Total uPnL:* \`${formatUsd(totalPnl)}\``);
 
   return lines.join("\n").trimEnd();
 }

@@ -10,6 +10,28 @@ import {
   calculatePriceChange,
 } from "../indicators/technicalIndicators";
 
+/**
+ * Fetch with retry for transient Hyperliquid API errors (502, 503, etc.)
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3
+): Promise<Response> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, options);
+    if (response.ok || attempt >= maxRetries) return response;
+
+    const isTransient = [502, 503, 504, 429].includes(response.status);
+    if (!isTransient) return response;
+
+    const delayMs = 1000 * Math.pow(2, attempt - 1);
+    console.log(`[fetchWithRetry] ${response.status} on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms`);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error("[fetchWithRetry] Unreachable");
+}
+
 interface MarketData {
   symbol: string;
   price: number;
@@ -38,13 +60,17 @@ export const getMarketData = action({
 
     try {
       // Get all market prices
-      const priceResponse = await fetch(`${baseUrl}/info`, {
+      const priceResponse = await fetchWithRetry(`${baseUrl}/info`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "allMids",
         }),
       });
+
+      if (!priceResponse.ok) {
+        throw new Error(`${priceResponse.status} ${priceResponse.statusText}`);
+      }
 
       const prices = await priceResponse.json();
 
@@ -151,7 +177,7 @@ export const getAccountState = action({
       : "https://api.hyperliquid.xyz";
 
     try {
-      const response = await fetch(`${baseUrl}/info`, {
+      const response = await fetchWithRetry(`${baseUrl}/info`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -159,6 +185,10 @@ export const getAccountState = action({
           user: args.address,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
 
       const data = await response.json();
 
@@ -193,7 +223,7 @@ export const getAccountState = action({
         positions: data.assetPositions || [],
       };
     } catch (error) {
-      console.log("Error fetching account state:", error instanceof Error ? error.message : String(error));
+      console.warn("[getAccountState] API unavailable:", error instanceof Error ? error.message : String(error));
       throw new Error(`Failed to fetch account state: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
@@ -380,6 +410,9 @@ export const closePosition = action({
 });
 
 // Get user positions from Hyperliquid
+// IMPORTANT: This action THROWS on API failure. Callers MUST catch errors.
+// Returning [] on failure would be dangerous — executeClose and positionSync
+// would mistake API failure for "no positions" and wipe the database.
 export const getUserPositions = action({
   args: {
     address: v.string(),
@@ -390,13 +423,14 @@ export const getUserPositions = action({
       const positions = await sdk.getUserPositions(args.address, args.testnet);
       return positions;
     } catch (error) {
-      console.log("Error fetching user positions:", error instanceof Error ? error.message : String(error));
+      console.warn("[getUserPositions] API unavailable:", error instanceof Error ? error.message : String(error));
       throw new Error(`Failed to fetch user positions: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });
 
 // Get user open orders from Hyperliquid
+// Returns empty array on API failure (graceful degradation for read-only queries)
 export const getUserOpenOrders = action({
   args: {
     address: v.string(),
@@ -407,8 +441,42 @@ export const getUserOpenOrders = action({
       const openOrders = await sdk.getUserOpenOrders(args.address, args.testnet);
       return openOrders;
     } catch (error) {
-      console.log("Error fetching user open orders:", error instanceof Error ? error.message : String(error));
-      throw new Error(`Failed to fetch user open orders: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn("[getUserOpenOrders] API unavailable, returning empty:", error instanceof Error ? error.message : String(error));
+      return [];
+    }
+  },
+});
+
+// Get frontend open orders (includes trigger orders like TP/SL)
+// Returns empty array on API failure (graceful degradation for read-only queries)
+export const getFrontendOpenOrders = action({
+  args: {
+    address: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      return await sdk.getFrontendOpenOrders(args.address, args.testnet);
+    } catch (error) {
+      console.warn("[getFrontendOpenOrders] API unavailable, returning empty:", error instanceof Error ? error.message : String(error));
+      return [];
+    }
+  },
+});
+
+// Verify TP/SL trigger orders exist on the exchange for a symbol
+export const verifyTpSlOrders = action({
+  args: {
+    address: v.string(),
+    symbol: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      return await sdk.verifyTpSlOrders(args.address, args.symbol, args.testnet);
+    } catch (error) {
+      console.error("Error verifying TP/SL orders:", error);
+      return { hasSl: false, hasTp: false, orders: [] };
     }
   },
 });

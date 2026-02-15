@@ -138,21 +138,76 @@ export const runTradingCycle = internalAction({
           });
 
           // ── 5. Position Sync ──────────────────────────────────────
-          const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
-            address: credentials.hyperliquidAddress,
-            testnet: credentials.hyperliquidTestnet,
-          });
+          let hyperliquidPositions: any[] = [];
+          let hlPositionsFetched = false;
+
+          try {
+            hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+              address: credentials.hyperliquidAddress,
+              testnet: credentials.hyperliquidTestnet,
+            });
+            hlPositionsFetched = true;
+          } catch (error) {
+            console.warn(`[LOOP-${loopId}] Hyperliquid positions API unavailable, skipping sync: ${error instanceof Error ? error.message : String(error)}`);
+          }
 
           const hyperliquidSymbols = extractHyperliquidSymbols(hyperliquidPositions);
 
-          await ctx.runMutation(api.mutations.syncPositions, {
+          // Only sync positions if we successfully fetched from Hyperliquid
+          // Syncing with empty data when API is down would wipe all DB positions
+          if (hlPositionsFetched) {
+            await ctx.runMutation(api.mutations.syncPositions, {
+              userId: bot.userId,
+              hyperliquidSymbols,
+            });
+          }
+
+          let dbPositions = await ctx.runQuery(api.queries.getPositions, {
             userId: bot.userId,
-            hyperliquidSymbols,
           });
 
-          const dbPositions = await ctx.runQuery(api.queries.getPositions, {
-            userId: bot.userId,
-          });
+          // ── Backfill: Save HL positions missing from DB ───────────
+          // Positions opened before DB tracking (or externally) need to be
+          // saved so executeClose can find them.
+          if (hlPositionsFetched && dbPositions.length === 0 && hyperliquidPositions.length > 0) {
+            console.log(`[LOOP-${loopId}] Backfilling ${hyperliquidPositions.length} Hyperliquid position(s) into DB`);
+            for (const hlPos of hyperliquidPositions) {
+              const pos = hlPos.position || hlPos;
+              const coin = pos.coin;
+              const szi = parseFloat(pos.szi || "0");
+              if (szi === 0) continue;
+
+              const entryPx = parseFloat(pos.entryPx || "0");
+              const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
+              const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+              const positionValue = parseFloat(pos.positionValue || "0");
+              const liquidationPx = parseFloat(pos.liquidationPx || "0");
+              const currentPrice = detailedMarketData[coin]?.currentPrice || entryPx;
+
+              try {
+                await ctx.runMutation(api.mutations.savePosition, {
+                  userId: bot.userId,
+                  symbol: coin,
+                  side: szi > 0 ? "LONG" : "SHORT",
+                  size: positionValue,
+                  leverage,
+                  entryPrice: entryPx,
+                  currentPrice,
+                  unrealizedPnl,
+                  unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / positionValue) * 100 : 0,
+                  liquidationPrice: liquidationPx,
+                });
+                console.log(`[LOOP-${loopId}] Backfilled ${coin} ${szi > 0 ? "LONG" : "SHORT"} into DB`);
+              } catch (e) {
+                console.warn(`[LOOP-${loopId}] Failed to backfill ${coin}:`, e instanceof Error ? e.message : String(e));
+              }
+            }
+
+            // Re-fetch DB positions after backfill
+            dbPositions = await ctx.runQuery(api.queries.getPositions, {
+              userId: bot.userId,
+            });
+          }
 
           const positions = convertHyperliquidPositions(hyperliquidPositions, dbPositions, detailedMarketData);
 

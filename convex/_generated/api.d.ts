@@ -47,6 +47,7 @@ import type * as signals_riskAssessment from "../signals/riskAssessment.js";
 import type * as signals_signalProcessor from "../signals/signalProcessor.js";
 import type * as signals_trendAnalysis from "../signals/trendAnalysis.js";
 import type * as signals_types from "../signals/types.js";
+import type * as snapshots_snapshotCycle from "../snapshots/snapshotCycle.js";
 import type * as telegram_commandHandler from "../telegram/commandHandler.js";
 import type * as telegram_dailySummary from "../telegram/dailySummary.js";
 import type * as telegram_messageTemplates from "../telegram/messageTemplates.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   "signals/signalProcessor": typeof signals_signalProcessor;
   "signals/trendAnalysis": typeof signals_trendAnalysis;
   "signals/types": typeof signals_types;
+  "snapshots/snapshotCycle": typeof snapshots_snapshotCycle;
   "telegram/commandHandler": typeof telegram_commandHandler;
   "telegram/dailySummary": typeof telegram_dailySummary;
   "telegram/messageTemplates": typeof telegram_messageTemplates;
