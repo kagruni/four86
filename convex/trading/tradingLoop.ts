@@ -29,6 +29,11 @@ import { convertHyperliquidPositions, extractHyperliquidSymbols } from "./conver
 import { checkTrendGuard } from "./validators/trendGuard";
 import { validateOpenPosition } from "./validators/positionValidator";
 import { executeClose, executeOpen } from "./executors/tradeExecutor";
+import {
+  formatMarketDataAlphaArena,
+  formatPositionsAlphaArena,
+  formatSentimentContext,
+} from "../ai/prompts/alphaArenaPrompt";
 
 export const runTradingCycle = internalAction({
   handler: async (ctx) => {
@@ -378,11 +383,38 @@ export const runTradingCycle = internalAction({
             ...(parserWarnings.length > 0 ? { _parserWarnings: parserWarnings } : {}),
           };
 
+          // Build the actual prompt content that was sent to the model
+          let renderedUserPrompt: string;
+          if (tradingMode === "alpha_arena") {
+            const marketSection = formatMarketDataAlphaArena(
+              detailedMarketData,
+              bot.stopLossAtrMultiplier ?? 1.5,
+              bot.minRiskRewardRatio ?? 2.0
+            );
+            const positionsSection = formatPositionsAlphaArena(positions);
+            const sentimentSection = formatSentimentContext(marketResearch);
+            renderedUserPrompt = [
+              `###[MARKET DATA - ${new Date().toISOString()}]`,
+              marketSection,
+              `###[ACCOUNT STATUS]`,
+              `Account Value: ${accountState.accountValue.toFixed(2)} USD`,
+              `Available Cash: ${accountState.withdrawable.toFixed(2)} USD`,
+              `Open Positions: ${positions.length} / ${bot.maxTotalPositions ?? 3}`,
+              `###[CURRENT OPEN POSITIONS]`,
+              positionsSection,
+              sentimentSection,
+            ].join("\n\n");
+          } else if (tradingMode === "compact") {
+            renderedUserPrompt = "Pre-processed signals (compact mode)";
+          } else {
+            renderedUserPrompt = JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics });
+          }
+
           await ctx.runMutation(api.mutations.saveAILog, {
             userId: bot.userId,
             modelName: bot.modelName,
             systemPrompt: systemPromptName,
-            userPrompt: tradingMode === "compact" ? "Pre-processed signals" : tradingMode === "alpha_arena" ? "Alpha Arena raw data" : JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics }),
+            userPrompt: renderedUserPrompt,
             rawResponse: JSON.stringify(decision),
             parsedResponse: parsedResponseWithWarnings,
             decision: decision.decision,
@@ -449,6 +481,41 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
   console.log(`│ Size: $${decision.size_usd?.toFixed(2) || 'N/A'} | Leverage: ${decision.leverage || 'N/A'}x`);
   console.log(`│ Confidence: ${(decision.confidence * 100).toFixed(0)}%`);
   console.log(`└─────────────────────────────────────────────────────────────┘`);
+
+  // ── Breakeven Close Guard (CLOSE only) ───────────────────────
+  // Prevent AI from closing positions at ~$0 P&L. Only allow close if:
+  // 1. Position is meaningfully profitable (>= +0.5% P&L), OR
+  // 2. TP/SL orders are missing from the position
+  if (decision.decision === "CLOSE" && decision.symbol) {
+    const MIN_CLOSE_PNL_PCT = 0.5; // Must be at least +0.5% profitable to manually close
+
+    const dbPositions = await ctx.runQuery(api.queries.getPositions, {
+      userId: bot.userId,
+    });
+    const posToCheck = dbPositions.find((p: any) => p.symbol === decision.symbol);
+
+    if (posToCheck) {
+      const hasTpSl = posToCheck.stopLoss && posToCheck.takeProfit;
+      const pnlPct = posToCheck.unrealizedPnlPct ?? 0;
+
+      if (pnlPct < MIN_CLOSE_PNL_PCT && hasTpSl) {
+        console.log(`❌ CLOSE rejected: ${decision.symbol} P&L is ${pnlPct.toFixed(2)}% (need >= +${MIN_CLOSE_PNL_PCT}%). TP/SL are set — let exchange handle exit.`);
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "INFO",
+          message: `AI close blocked: ${decision.symbol} P&L ${pnlPct.toFixed(2)}% below +${MIN_CLOSE_PNL_PCT}% threshold`,
+          data: { symbol: decision.symbol, pnlPct, reasoning: decision.reasoning },
+        });
+        return;
+      }
+
+      if (!hasTpSl) {
+        console.log(`⚠️ ${decision.symbol} TP/SL missing — allowing close for safety (P&L: ${pnlPct.toFixed(2)}%)`);
+      } else {
+        console.log(`✅ ${decision.symbol} profitable at ${pnlPct.toFixed(2)}% — allowing AI close to lock gains`);
+      }
+    }
+  }
 
   // ── Trend Guard ───────────────────────────────────────────────
   const trendResult = await checkTrendGuard(ctx, api, decision, credentials, bot.userId);

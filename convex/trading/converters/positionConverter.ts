@@ -59,6 +59,7 @@ export function convertHyperliquidPositions(
         invalidationCondition: dbPos?.invalidationCondition,
         entryReasoning: dbPos?.entryReasoning,
         confidence: dbPos?.confidence,
+        openedAt: dbPos?.openedAt || dbPos?._creationTime,
       };
     })
     .filter((p: any): p is NonNullable<typeof p> => p !== null);

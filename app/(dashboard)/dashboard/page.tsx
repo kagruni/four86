@@ -36,6 +36,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import PositionChart from "./PositionChart";
+import LiveChart from "./LiveChart";
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -463,11 +464,25 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
+      {/* Live Chart */}
+      {positions.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
+        >
+          <LiveChart
+            positions={positions}
+            testnet={hyperliquidTestnet}
+          />
+        </motion.div>
+      )}
+
       {/* Positions Table */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.3 }}
+        transition={{ duration: 0.4, delay: 0.4 }}
       >
         <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
           <CardHeader>
