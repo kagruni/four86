@@ -35,6 +35,19 @@ import {
   formatSentimentContext,
 } from "../ai/prompts/alphaArenaPrompt";
 
+function normalizeMaxPositionSizePct(rawMaxPositionSize: number | undefined): number {
+  const fallbackPct = 10;
+  if (typeof rawMaxPositionSize !== "number" || !Number.isFinite(rawMaxPositionSize)) {
+    return fallbackPct;
+  }
+
+  // Backward compatibility:
+  // - legacy configs stored fractions (0.3 = 30%)
+  // - current configs store percent integers (10 = 10%)
+  const pct = rawMaxPositionSize <= 1 ? rawMaxPositionSize * 100 : rawMaxPositionSize;
+  return Math.max(1, Math.min(100, pct));
+}
+
 export const runTradingCycle = internalAction({
   handler: async (ctx) => {
     const loopId = Date.now();
@@ -106,6 +119,7 @@ export const runTradingCycle = internalAction({
 
         try {
           console.log(`[LOOP-${loopId}] Processing bot ${bot._id} for user ${bot.userId}`);
+          const maxPositionSizePct = normalizeMaxPositionSizePct(bot.maxPositionSize);
 
           // Read trading prompt mode from bot config
           const tradingMode: "alpha_arena" | "compact" | "detailed" =
@@ -185,7 +199,7 @@ export const runTradingCycle = internalAction({
               const entryPx = parseFloat(pos.entryPx || "0");
               const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
               const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
-              const positionValue = parseFloat(pos.positionValue || "0");
+              const positionValue = Math.abs(parseFloat(pos.positionValue || "0"));
               const liquidationPx = parseFloat(pos.liquidationPx || "0");
               const currentPrice = detailedMarketData[coin]?.currentPrice || entryPx;
 
@@ -199,7 +213,7 @@ export const runTradingCycle = internalAction({
                   entryPrice: entryPx,
                   currentPrice,
                   unrealizedPnl,
-                  unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / positionValue) * 100 : 0,
+                  unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / Math.abs(positionValue)) * 100 : 0,
                   liquidationPrice: liquidationPx,
                 });
                 console.log(`[LOOP-${loopId}] Backfilled ${coin} ${szi > 0 ? "LONG" : "SHORT"} into DB`);
@@ -254,7 +268,7 @@ export const runTradingCycle = internalAction({
                 marketResearch: marketResearch || undefined,
                 config: {
                   maxLeverage: bot.maxLeverage,
-                  maxPositionSize: bot.maxPositionSize,
+                  maxPositionSize: maxPositionSizePct,
                   perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
                   maxTotalPositions: bot.maxTotalPositions ?? 3,
                   maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
@@ -286,7 +300,7 @@ export const runTradingCycle = internalAction({
                 positions,
                 config: {
                   maxLeverage: bot.maxLeverage,
-                  maxPositionSize: bot.maxPositionSize,
+                  maxPositionSize: maxPositionSizePct,
                   perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
                   maxTotalPositions: bot.maxTotalPositions ?? 3,
                   maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
@@ -307,7 +321,7 @@ export const runTradingCycle = internalAction({
                 performanceMetrics,
                 config: {
                   maxLeverage: bot.maxLeverage,
-                  maxPositionSize: bot.maxPositionSize,
+                  maxPositionSize: maxPositionSizePct,
                   maxDailyLoss: bot.maxDailyLoss ?? 5,
                   minAccountValue: bot.minAccountValue ?? 100,
                   perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
@@ -495,8 +509,34 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
     const posToCheck = dbPositions.find((p: any) => p.symbol === decision.symbol);
 
     if (posToCheck) {
-      const hasTpSl = posToCheck.stopLoss && posToCheck.takeProfit;
-      const pnlPct = posToCheck.unrealizedPnlPct ?? 0;
+      const hasTpSl = Boolean(posToCheck.stopLoss && posToCheck.takeProfit);
+      let pnlPct = posToCheck.unrealizedPnlPct ?? 0;
+
+      // Prefer live exchange P&L over stale DB P&L for anti-churn close checks.
+      try {
+        const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+          address: credentials.hyperliquidAddress,
+          testnet: credentials.hyperliquidTestnet,
+        });
+        const livePos = hyperliquidPositions.find((p: any) => {
+          const pos = p.position || p;
+          return pos.coin === decision.symbol && parseFloat(pos.szi || "0") !== 0;
+        });
+        if (livePos) {
+          const pos = livePos.position || livePos;
+          const unrealized = parseFloat(pos.unrealizedPnl || "0");
+          const positionValue = Math.abs(parseFloat(pos.positionValue || "0"));
+          if (positionValue > 0) {
+            pnlPct = (unrealized / positionValue) * 100;
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `⚠️ Could not fetch live P&L for close guard on ${decision.symbol}, using DB value: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
 
       if (pnlPct < MIN_CLOSE_PNL_PCT && hasTpSl) {
         console.log(`❌ CLOSE rejected: ${decision.symbol} P&L is ${pnlPct.toFixed(2)}% (need >= +${MIN_CLOSE_PNL_PCT}%). TP/SL are set — let exchange handle exit.`);
@@ -527,7 +567,8 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
     if (!validation.allowed) return;
 
     // Legacy risk checks
-    const maxPositionSizeUsd = accountState.accountValue * bot.maxPositionSize;
+    const maxPositionSizePct = normalizeMaxPositionSizePct(bot.maxPositionSize);
+    const maxPositionSizeUsd = accountState.accountValue * (maxPositionSizePct / 100);
     if (decision.size_usd && decision.size_usd > maxPositionSizeUsd) {
       console.log(`❌ Trade rejected: position size ${decision.size_usd} exceeds max ${maxPositionSizeUsd}`);
       return;

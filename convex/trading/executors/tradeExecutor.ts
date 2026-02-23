@@ -53,6 +53,44 @@ export async function executeClose(
     if (!actualPosition) {
       log.warn(`No actual position on Hyperliquid for ${decision.symbol}, removing from database`);
       if (positionToClose) {
+        let exitPrice = positionToClose.currentPrice || positionToClose.entryPrice || 0;
+        try {
+          const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+            symbols: [decision.symbol],
+            testnet: credentials.hyperliquidTestnet,
+          });
+          exitPrice = currentMarket[decision.symbol]?.price || exitPrice;
+        } catch {
+          /* use DB fallback */
+        }
+
+        const entryPrice = positionToClose.entryPrice || exitPrice;
+        const estimatedCoinSize =
+          entryPrice > 0 ? Math.abs(positionToClose.size || 0) / entryPrice : 0;
+        const estimatedPnl =
+          positionToClose.side === "LONG"
+            ? (exitPrice - entryPrice) * estimatedCoinSize
+            : (entryPrice - exitPrice) * estimatedCoinSize;
+        const notionalEntry = entryPrice * estimatedCoinSize;
+        const estimatedPnlPct =
+          notionalEntry > 0 ? (estimatedPnl / notionalEntry) * 100 : 0;
+
+        await ctx.runMutation(api.mutations.saveTrade, {
+          userId: bot.userId,
+          symbol: decision.symbol,
+          action: "CLOSE",
+          side: positionToClose.side,
+          size: Math.abs(positionToClose.size || 0),
+          leverage: positionToClose.leverage || 1,
+          price: exitPrice,
+          pnl: Number.isFinite(estimatedPnl) ? estimatedPnl : 0,
+          pnlPct: Number.isFinite(estimatedPnlPct) ? estimatedPnlPct : 0,
+          aiReasoning: `${decision.reasoning} | reconciled_missing_on_exchange`,
+          aiModel: bot.modelName,
+          confidence: decision.confidence,
+          txHash: "reconciled_missing_on_exchange",
+        });
+
         await ctx.runMutation(api.mutations.closePosition, {
           userId: bot.userId,
           symbol: decision.symbol,
@@ -71,7 +109,7 @@ export async function executeClose(
       log.warn(`No DB position for ${decision.symbol} — building from Hyperliquid data`);
       const entryPx = parseFloat(pos.entryPx || "0");
       const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
-      const positionValue = parseFloat(pos.positionValue || "0");
+      const positionValue = Math.abs(parseFloat(pos.positionValue || "0"));
       const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
 
       positionToClose = {
@@ -82,7 +120,7 @@ export async function executeClose(
         entryPrice: entryPx,
         currentPrice: entryPx,
         unrealizedPnl,
-        unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / positionValue) * 100 : 0,
+        unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / Math.abs(positionValue)) * 100 : 0,
       };
     }
   } catch (error) {
@@ -100,7 +138,7 @@ export async function executeClose(
       log.error(`Cannot close ${decision.symbol} — no price data available and API is down`);
       return;
     }
-    actualSize = positionToClose.size / fallbackPrice;
+    actualSize = Math.abs(positionToClose.size || 0) / fallbackPrice;
   }
 
   log.info(`Closing ${decision.symbol} position`, {
@@ -135,7 +173,7 @@ export async function executeClose(
   });
 
   // Get current price for accurate exit pricing
-  let exitPrice = positionToClose.currentPrice || 0;
+  let exitPrice = result.price || positionToClose.currentPrice || 0;
   try {
     const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
       symbols: [decision.symbol],
@@ -146,9 +184,17 @@ export async function executeClose(
     /* Use DB price as fallback */
   }
 
-  // Calculate realized P&L
-  const realizedPnl = positionToClose.unrealizedPnl ?? 0;
-  const realizedPnlPct = positionToClose.unrealizedPnlPct ?? 0;
+  // Calculate realized P&L from entry/exit and actual closed size.
+  const entryPrice = positionToClose.entryPrice || exitPrice;
+  const realizedPnlRaw =
+    positionToClose.side === "LONG"
+      ? (exitPrice - entryPrice) * actualSize
+      : (entryPrice - exitPrice) * actualSize;
+  const notionalEntry = entryPrice * actualSize;
+  const realizedPnlPctRaw =
+    notionalEntry > 0 ? (realizedPnlRaw / notionalEntry) * 100 : 0;
+  const realizedPnl = Number.isFinite(realizedPnlRaw) ? realizedPnlRaw : 0;
+  const realizedPnlPct = Number.isFinite(realizedPnlPctRaw) ? realizedPnlPctRaw : 0;
 
   // Save trade record with actual P&L data
   await ctx.runMutation(api.mutations.saveTrade, {
@@ -156,7 +202,7 @@ export async function executeClose(
     symbol: decision.symbol,
     action: "CLOSE",
     side: positionToClose.side,
-    size: positionToClose.size,
+    size: Math.abs(positionToClose.size || 0),
     leverage: positionToClose.leverage || 1,
     price: exitPrice,
     pnl: realizedPnl,
@@ -175,15 +221,15 @@ export async function executeClose(
 
   // Telegram notification (fire-and-forget)
   try {
-    const pnl = positionToClose.unrealizedPnl ?? 0;
-    const pnlPct = positionToClose.unrealizedPnlPct ?? 0;
+    const pnl = realizedPnl;
+    const pnlPct = realizedPnlPct;
     const durationMs = Date.now() - (positionToClose.openedAt ?? Date.now());
     ctx.runAction(internal.telegram.notifier.notifyTradeClosed, {
       userId: bot.userId,
       symbol: decision.symbol,
       side: positionToClose.side,
       entryPrice: positionToClose.entryPrice,
-      exitPrice: positionToClose.currentPrice,
+      exitPrice,
       pnl,
       pnlPct,
       durationMs,
@@ -193,7 +239,7 @@ export async function executeClose(
   }
 
   // ✅ CIRCUIT BREAKER: Record trade outcome (win/loss)
-  const tradeWon = (positionToClose.unrealizedPnl ?? 0) >= 0;
+  const tradeWon = realizedPnl >= 0;
   const tradeOutcomeState = recordTradeOutcome(
     {
       circuitBreakerState: bot.circuitBreakerState,

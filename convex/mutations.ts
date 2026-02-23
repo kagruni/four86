@@ -141,7 +141,7 @@ export const toggleBot = mutation({
         currentCapital: 860,
         symbols: ["BTC", "ETH", "SOL", "BNB", "DOGE"],
         maxLeverage: 10, // Alpha Arena style
-        maxPositionSize: 0.3, // 30% max per position
+        maxPositionSize: 30, // 30% max per position
         maxDailyLoss: 10,
         minAccountValue: 100,
         perTradeRiskPct: 2.0,
@@ -319,6 +319,27 @@ export const syncPositions = mutation({
     // Remove stale positions
     for (const position of positionsToRemove) {
       console.log(`[syncPositions] Removing stale position: ${position.symbol}`);
+
+      // Preserve lifecycle integrity: when sync removes a DB position that no longer
+      // exists on exchange, record a system CLOSE event instead of silently deleting.
+      await ctx.db.insert("trades", {
+        userId: args.userId,
+        symbol: position.symbol,
+        action: "CLOSE",
+        side: position.side,
+        size: Math.abs(position.size || 0),
+        leverage: position.leverage || 1,
+        price: position.currentPrice || position.entryPrice || 0,
+        // Uses last known DB unrealized values as best-effort estimate.
+        pnl: position.unrealizedPnl,
+        pnlPct: position.unrealizedPnlPct,
+        aiReasoning: "SYNC_CLOSE: Position not found on exchange during reconciliation",
+        aiModel: "system_sync",
+        confidence: 1.0,
+        txHash: "sync_reconcile_close",
+        executedAt: now,
+      });
+
       await ctx.db.delete(position._id);
     }
 

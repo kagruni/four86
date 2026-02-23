@@ -31,14 +31,14 @@ export function convertHyperliquidPositions(
       const entryPx = parseFloat(pos.entryPx || "0");
       const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
       const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
-      const positionValue = parseFloat(pos.positionValue || "0");
+      const positionValue = Math.abs(parseFloat(pos.positionValue || "0"));
       const liquidationPx = parseFloat(pos.liquidationPx || "0");
 
       // Get current price from market data
       const currentPrice = detailedMarketData[coin]?.currentPrice || entryPx;
 
       // Calculate P&L percentage
-      const unrealizedPnlPct = positionValue > 0 ? (unrealizedPnl / positionValue) * 100 : 0;
+      const unrealizedPnlPct = positionValue > 0 ? (unrealizedPnl / Math.abs(positionValue)) * 100 : 0;
 
       // Look up additional data from database (stop loss, take profit, etc.)
       const dbPos = dbPositions.find((p: any) => p.symbol === coin);

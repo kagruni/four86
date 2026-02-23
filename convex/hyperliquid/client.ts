@@ -401,6 +401,7 @@ export const closePosition = action({
       return {
         success: result.success,
         txHash: result.txHash,
+        price: closePrice,
       };
     } catch (error) {
       console.error("Error closing position:", error);
