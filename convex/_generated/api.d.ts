@@ -52,6 +52,7 @@ import type * as telegram_commandHandler from "../telegram/commandHandler.js";
 import type * as telegram_dailySummary from "../telegram/dailySummary.js";
 import type * as telegram_messageTemplates from "../telegram/messageTemplates.js";
 import type * as telegram_notifier from "../telegram/notifier.js";
+import type * as telegram_positionUpdates from "../telegram/positionUpdates.js";
 import type * as telegram_telegramApi from "../telegram/telegramApi.js";
 import type * as telegram_telegramMutations from "../telegram/telegramMutations.js";
 import type * as telegram_telegramQueries from "../telegram/telegramQueries.js";
@@ -129,6 +130,7 @@ declare const fullApi: ApiFromModules<{
   "telegram/dailySummary": typeof telegram_dailySummary;
   "telegram/messageTemplates": typeof telegram_messageTemplates;
   "telegram/notifier": typeof telegram_notifier;
+  "telegram/positionUpdates": typeof telegram_positionUpdates;
   "telegram/telegramApi": typeof telegram_telegramApi;
   "telegram/telegramMutations": typeof telegram_telegramMutations;
   "telegram/telegramQueries": typeof telegram_telegramQueries;

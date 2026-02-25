@@ -6,6 +6,7 @@ import {
   formatPnl,
   formatBalance,
   formatOrders,
+  formatUsd,
 } from "./messageTemplates";
 
 // ---------------------------------------------------------------------------
@@ -24,12 +25,18 @@ function generateToken(): string {
 async function reply(
   ctx: any,
   chatId: string,
-  text: string
+  text: string,
+  replyMarkup?: string
 ): Promise<void> {
   await ctx.runAction(internal.telegram.telegramApi.sendMessage, {
     chatId,
     text,
+    ...(replyMarkup ? { replyMarkup } : {}),
   });
+}
+
+function inlineKeyboard(rows: { text: string; callback_data: string }[][]): string {
+  return JSON.stringify({ inline_keyboard: rows });
 }
 
 // ---------------------------------------------------------------------------
@@ -233,17 +240,8 @@ async function handleOrders(
 async function handleCancel(
   ctx: any,
   chatId: string,
-  userId: string,
-  text: string
+  userId: string
 ): Promise<void> {
-  const parts = text.split(/\s+/);
-  const orderNum = parseInt(parts[1], 10);
-
-  if (!orderNum || isNaN(orderNum)) {
-    await reply(ctx, chatId, "Usage: `/cancel <number>`\nGet order numbers from `/orders`.");
-    return;
-  }
-
   const credentials = await ctx.runQuery(
     internal.queries.getFullUserCredentials,
     { userId }
@@ -261,31 +259,27 @@ async function handleCancel(
     { address: credentials.hyperliquidAddress, testnet }
   );
 
-  if (!orders || orderNum < 1 || orderNum > orders.length) {
-    await reply(ctx, chatId, `Invalid order number. Run \`/orders\` to see current orders.`);
+  if (!orders || orders.length === 0) {
+    await reply(ctx, chatId, "No open orders to cancel.");
     return;
   }
 
-  const order = orders[orderNum - 1];
-  const token = generateToken();
-
-  await ctx.runMutation(
-    internal.telegram.telegramMutations.storePendingConfirmation,
-    {
-      userId,
-      action: `cancelorder_${order.coin}_${order.oid}`,
-      token,
-      expiresAt: Date.now() + 60000,
-    }
-  );
-
-  const sideLabel = order.side === "B" ? "BUY" : "SELL";
-  const typeLabel = order.isTrigger ? (order.orderType || "Trigger") : "Limit";
+  // Build a button per order
+  const buttons = orders.map((o: any) => {
+    const sideLabel = o.side === "B" ? "BUY" : "SELL";
+    const typeLabel = o.isTrigger ? (o.orderType || "Trigger") : "Limit";
+    const price = o.limitPx || o.px || "?";
+    return [{
+      text: `${o.coin} ${sideLabel} ${typeLabel} $${price}`,
+      callback_data: `cxl_${o.oid}_${o.coin}`,
+    }];
+  });
 
   await reply(
     ctx,
     chatId,
-    `Cancel *${order.coin}* ${sideLabel} ${typeLabel} order?\nSend \`/confirm ${token}\` within 60 seconds.`
+    `\u{1F4CB} *Cancel Order*\n\nSelect an order to cancel:`,
+    inlineKeyboard(buttons)
   );
 }
 
@@ -318,22 +312,32 @@ async function handleCloseAll(
   chatId: string,
   userId: string
 ): Promise<void> {
-  const token = generateToken();
+  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    userId,
+  });
 
-  await ctx.runMutation(
-    internal.telegram.telegramMutations.storePendingConfirmation,
-    {
-      userId,
-      action: "closeall",
-      token,
-      expiresAt: Date.now() + 60000,
-    }
-  );
+  if (!positions || positions.length === 0) {
+    await reply(ctx, chatId, "No open positions to close.");
+    return;
+  }
+
+  const positionList = positions
+    .map((p: any) => {
+      const dir = p.side?.toUpperCase() === "LONG" ? "\u{2197}\u{FE0F}" : "\u{2198}\u{FE0F}";
+      return `${dir} *${p.symbol}* ${p.side?.toUpperCase()}`;
+    })
+    .join("\n");
 
   await reply(
     ctx,
     chatId,
-    `Are you sure you want to close *all* positions?\nSend \`/confirm ${token}\` within 60 seconds to proceed.`
+    `\u{26A0}\u{FE0F} *Close ALL positions?*\n\n${positionList}\n\nThis cannot be undone.`,
+    inlineKeyboard([
+      [
+        { text: "\u{2705} Yes, close all", callback_data: "claY" },
+        { text: "\u{274C} Cancel", callback_data: "claN" },
+      ],
+    ])
   );
 }
 
@@ -343,30 +347,58 @@ async function handleClose(
   userId: string,
   text: string
 ): Promise<void> {
-  const parts = text.split(/\s+/);
-  const symbol = parts[1]?.toUpperCase();
+  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    userId,
+  });
 
-  if (!symbol) {
-    await reply(ctx, chatId, "Usage: `/close <SYMBOL>`\nExample: `/close BTC`");
+  if (!positions || positions.length === 0) {
+    await reply(ctx, chatId, "No open positions to close.");
     return;
   }
 
-  const token = generateToken();
+  const parts = text.split(/\s+/);
+  const symbol = parts[1]?.toUpperCase();
 
-  await ctx.runMutation(
-    internal.telegram.telegramMutations.storePendingConfirmation,
-    {
-      userId,
-      action: `close_${symbol}`,
-      token,
-      expiresAt: Date.now() + 60000,
+  if (symbol) {
+    // Direct symbol given — show confirmation buttons
+    const pos = positions.find((p: any) => p.symbol === symbol);
+    if (!pos) {
+      await reply(ctx, chatId, `No open position for *${symbol}*.`);
+      return;
     }
-  );
+
+    const dir = pos.side?.toUpperCase() === "LONG" ? "\u{2197}\u{FE0F}" : "\u{2198}\u{FE0F}";
+    const pnl = formatUsd(pos.unrealizedPnl ?? 0);
+
+    await reply(
+      ctx,
+      chatId,
+      `${dir} Close *${symbol}* ${pos.side?.toUpperCase()} position?\n\nCurrent P&L: \`${pnl}\``,
+      inlineKeyboard([
+        [
+          { text: `\u{2705} Yes, close ${symbol}`, callback_data: `clsY_${symbol}` },
+          { text: "\u{274C} Cancel", callback_data: "clsN" },
+        ],
+      ])
+    );
+    return;
+  }
+
+  // No symbol given — show buttons for each open position
+  const buttons = positions.map((p: any) => {
+    const dir = p.side?.toUpperCase() === "LONG" ? "\u{2197}\u{FE0F}" : "\u{2198}\u{FE0F}";
+    const pnl = formatUsd(p.unrealizedPnl ?? 0);
+    return [{
+      text: `${dir} ${p.symbol} ${p.side?.toUpperCase()} (${pnl})`,
+      callback_data: `cls_${p.symbol}`,
+    }];
+  });
 
   await reply(
     ctx,
     chatId,
-    `Close *${symbol}* position?\nSend \`/confirm ${token}\` within 60 seconds to proceed.`
+    `\u{1F4CA} *Close Position*\n\nSelect a position to close:`,
+    inlineKeyboard(buttons)
   );
 }
 
@@ -525,6 +557,334 @@ async function handleConfirm(
   }
 }
 
+const VALID_INTERVALS = [5, 10, 20, 30, 45, 60];
+
+async function handleNotifications(
+  ctx: any,
+  chatId: string,
+  userId: string
+): Promise<void> {
+  const settings = await ctx.runQuery(
+    internal.telegram.telegramQueries.getSettingsByChatId,
+    { chatId }
+  );
+
+  const current = settings?.positionUpdateInterval ?? 0;
+  const label = current > 0 ? `every ${current} minutes` : "off";
+
+  // Build inline keyboard with interval options
+  const buttons = [
+    [
+      { text: current === 5 ? "\u{2705} 5 min" : "5 min", callback_data: "notif_5" },
+      { text: current === 10 ? "\u{2705} 10 min" : "10 min", callback_data: "notif_10" },
+      { text: current === 20 ? "\u{2705} 20 min" : "20 min", callback_data: "notif_20" },
+    ],
+    [
+      { text: current === 30 ? "\u{2705} 30 min" : "30 min", callback_data: "notif_30" },
+      { text: current === 45 ? "\u{2705} 45 min" : "45 min", callback_data: "notif_45" },
+      { text: current === 60 ? "\u{2705} 60 min" : "60 min", callback_data: "notif_60" },
+    ],
+    [
+      { text: current === 0 ? "\u{2705} Off" : "\u{274C} Off", callback_data: "notif_0" },
+    ],
+  ];
+
+  const replyMarkup = JSON.stringify({
+    inline_keyboard: buttons,
+  });
+
+  await ctx.runAction(internal.telegram.telegramApi.sendMessage, {
+    chatId,
+    text: `\u{1F514} *Position Update Notifications*\n\nCurrent: \`${label}\`\n\nSelect how often you want position updates:`,
+    replyMarkup,
+  });
+}
+
+/**
+ * Handle inline keyboard button presses for notification interval selection.
+ */
+async function handleNotificationCallback(
+  ctx: any,
+  callbackQueryId: string,
+  chatId: string,
+  userId: string,
+  data: string
+): Promise<void> {
+  const intervalStr = data.replace("notif_", "");
+  const interval = parseInt(intervalStr, 10);
+
+  if (isNaN(interval) || (interval !== 0 && !VALID_INTERVALS.includes(interval))) {
+    await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+      callbackQueryId,
+      text: "Invalid option.",
+    });
+    return;
+  }
+
+  await ctx.runMutation(
+    internal.telegram.telegramMutations.updatePositionInterval,
+    { userId, interval }
+  );
+
+  const label = interval === 0 ? "disabled" : `every ${interval} minutes`;
+
+  // Acknowledge the button press with a toast notification
+  await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+    callbackQueryId,
+    text: `Position updates ${label}`,
+  });
+
+  // Send a confirmation message
+  await reply(
+    ctx,
+    chatId,
+    interval === 0
+      ? "\u{1F515} Position updates *disabled*."
+      : `\u{1F514} Position updates set to *${label}*.\nYou'll receive updates when you have open positions.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Close position callback handlers
+// ---------------------------------------------------------------------------
+
+/** User tapped a position from the list — show confirmation */
+async function handleCloseSelectCallback(
+  ctx: any,
+  callbackQueryId: string,
+  chatId: string,
+  userId: string,
+  data: string
+): Promise<void> {
+  const symbol = data.replace("cls_", "");
+
+  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    userId,
+  });
+
+  const pos = (positions || []).find((p: any) => p.symbol === symbol);
+
+  if (!pos) {
+    await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+      callbackQueryId,
+      text: `No position found for ${symbol}`,
+    });
+    return;
+  }
+
+  await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+    callbackQueryId,
+  });
+
+  const dir = pos.side?.toUpperCase() === "LONG" ? "\u{2197}\u{FE0F}" : "\u{2198}\u{FE0F}";
+  const pnl = formatUsd(pos.unrealizedPnl ?? 0);
+
+  await reply(
+    ctx,
+    chatId,
+    `${dir} Close *${symbol}* ${pos.side?.toUpperCase()} position?\n\nCurrent P&L: \`${pnl}\``,
+    inlineKeyboard([
+      [
+        { text: `\u{2705} Yes, close ${symbol}`, callback_data: `clsY_${symbol}` },
+        { text: "\u{274C} Cancel", callback_data: "clsN" },
+      ],
+    ])
+  );
+}
+
+/** User confirmed closing a position */
+async function handleCloseConfirmCallback(
+  ctx: any,
+  callbackQueryId: string,
+  chatId: string,
+  userId: string,
+  data: string
+): Promise<void> {
+  const symbol = data.replace("clsY_", "");
+
+  await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+    callbackQueryId,
+    text: `Closing ${symbol}...`,
+  });
+
+  const credentials = await ctx.runQuery(
+    internal.queries.getFullUserCredentials,
+    { userId }
+  );
+
+  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
+    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
+    return;
+  }
+
+  const testnet = credentials.hyperliquidTestnet ?? true;
+
+  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    userId,
+  });
+
+  const position = (positions || []).find((p: any) => p.symbol === symbol);
+
+  if (!position) {
+    await reply(ctx, chatId, `No open position for *${symbol}*.`);
+    return;
+  }
+
+  await ctx.runAction(api.hyperliquid.client.closePosition, {
+    privateKey: credentials.hyperliquidPrivateKey,
+    address: credentials.hyperliquidAddress,
+    symbol: position.symbol,
+    size: position.size / position.entryPrice,
+    isBuy: position.side === "SHORT",
+    testnet,
+  });
+
+  await ctx.runMutation(api.mutations.closePosition, {
+    userId,
+    symbol,
+  });
+
+  await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.`);
+}
+
+// ---------------------------------------------------------------------------
+// Close all callback handlers
+// ---------------------------------------------------------------------------
+
+async function handleCloseAllConfirmCallback(
+  ctx: any,
+  callbackQueryId: string,
+  chatId: string,
+  userId: string
+): Promise<void> {
+  await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+    callbackQueryId,
+    text: "Closing all positions...",
+  });
+
+  const credentials = await ctx.runQuery(
+    internal.queries.getFullUserCredentials,
+    { userId }
+  );
+
+  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
+    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
+    return;
+  }
+
+  const testnet = credentials.hyperliquidTestnet ?? true;
+
+  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    userId,
+  });
+
+  if (!positions || positions.length === 0) {
+    await reply(ctx, chatId, "No open positions to close.");
+    return;
+  }
+
+  const results: string[] = [];
+
+  for (const pos of positions) {
+    try {
+      await ctx.runAction(api.hyperliquid.client.closePosition, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: pos.symbol,
+        size: pos.size / pos.entryPrice,
+        isBuy: pos.side === "SHORT",
+        testnet,
+      });
+
+      await ctx.runMutation(api.mutations.closePosition, {
+        userId,
+        symbol: pos.symbol,
+      });
+
+      results.push(`\u{2705} ${pos.symbol}: closed`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      results.push(`\u{274C} ${pos.symbol}: ${msg}`);
+    }
+  }
+
+  await reply(ctx, chatId, `*Close All Results:*\n\n${results.join("\n")}`);
+}
+
+// ---------------------------------------------------------------------------
+// Cancel order callback handlers
+// ---------------------------------------------------------------------------
+
+/** User tapped an order — show confirmation */
+async function handleCancelSelectCallback(
+  ctx: any,
+  callbackQueryId: string,
+  chatId: string,
+  data: string
+): Promise<void> {
+  // data = "cxl_<oid>_<coin>"
+  const parts = data.split("_");
+  const oid = parts[1];
+  const coin = parts[2];
+
+  await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+    callbackQueryId,
+  });
+
+  await reply(
+    ctx,
+    chatId,
+    `Cancel *${coin}* order \`${oid}\`?`,
+    inlineKeyboard([
+      [
+        { text: `\u{2705} Yes, cancel`, callback_data: `cxlY_${oid}_${coin}` },
+        { text: "\u{274C} No", callback_data: "cxlN" },
+      ],
+    ])
+  );
+}
+
+/** User confirmed cancelling an order */
+async function handleCancelConfirmCallback(
+  ctx: any,
+  callbackQueryId: string,
+  chatId: string,
+  userId: string,
+  data: string
+): Promise<void> {
+  // data = "cxlY_<oid>_<coin>"
+  const parts = data.split("_");
+  const oid = parseInt(parts[1], 10);
+  const coin = parts[2];
+
+  await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+    callbackQueryId,
+    text: `Cancelling ${coin} order...`,
+  });
+
+  const credentials = await ctx.runQuery(
+    internal.queries.getFullUserCredentials,
+    { userId }
+  );
+
+  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
+    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
+    return;
+  }
+
+  const testnet = credentials.hyperliquidTestnet ?? true;
+
+  await ctx.runAction(api.hyperliquid.client.cancelOrder, {
+    privateKey: credentials.hyperliquidPrivateKey,
+    address: credentials.hyperliquidAddress,
+    symbol: coin,
+    orderId: oid,
+    testnet,
+  });
+
+  await reply(ctx, chatId, `\u{2705} Order \`${oid}\` for *${coin}* cancelled.`);
+}
+
 function getHelpText(): string {
   return [
     "*Available Commands:*",
@@ -537,9 +897,10 @@ function getHelpText(): string {
     "`/start` - Start the trading bot",
     "`/stop` - Stop the trading bot",
     "`/orders` - View all open orders (limit + TP/SL)",
-    "`/cancel <N>` - Cancel order by number (from /orders)",
-    "`/close <SYMBOL>` - Close a specific position",
+    "`/cancel` - Cancel an order",
+    "`/close` - Close a position",
     "`/closeall` - Close all positions",
+    "`/notifications` - Position update interval",
     "`/help` - Show this message",
   ].join("\n");
 }
@@ -559,6 +920,99 @@ export const handleTelegramWebhook = httpAction(async (ctx, request) => {
     }
 
     const update = await request.json();
+
+    // -----------------------------------------------------------------------
+    // Handle callback queries (inline keyboard button presses)
+    // -----------------------------------------------------------------------
+    if (update.callback_query) {
+      const cbQuery = update.callback_query;
+      const cbChatId = String(cbQuery.message?.chat?.id ?? "");
+      const cbData = cbQuery.data ?? "";
+      const cbQueryId = cbQuery.id;
+
+      if (!cbChatId) return new Response(null, { status: 200 });
+
+      const settings = await ctx.runQuery(
+        internal.telegram.telegramQueries.getSettingsByChatId,
+        { chatId: cbChatId }
+      );
+
+      if (!settings?.isLinked) {
+        await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+          callbackQueryId: cbQueryId,
+          text: "Account not linked.",
+        });
+        return new Response(null, { status: 200 });
+      }
+
+      const cbUserId = settings.userId;
+
+      try {
+        // Notification interval buttons
+        if (cbData.startsWith("notif_")) {
+          await handleNotificationCallback(ctx, cbQueryId, cbChatId, cbUserId, cbData);
+        }
+        // Close position — select from list
+        else if (cbData.startsWith("cls_")) {
+          await handleCloseSelectCallback(ctx, cbQueryId, cbChatId, cbUserId, cbData);
+        }
+        // Close position — confirmed
+        else if (cbData.startsWith("clsY_")) {
+          await handleCloseConfirmCallback(ctx, cbQueryId, cbChatId, cbUserId, cbData);
+        }
+        // Close position — cancelled
+        else if (cbData === "clsN") {
+          await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+            callbackQueryId: cbQueryId,
+            text: "Cancelled.",
+          });
+        }
+        // Close all — confirmed
+        else if (cbData === "claY") {
+          await handleCloseAllConfirmCallback(ctx, cbQueryId, cbChatId, cbUserId);
+        }
+        // Close all — cancelled
+        else if (cbData === "claN") {
+          await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+            callbackQueryId: cbQueryId,
+            text: "Cancelled.",
+          });
+        }
+        // Cancel order — select from list
+        else if (cbData.startsWith("cxl_")) {
+          await handleCancelSelectCallback(ctx, cbQueryId, cbChatId, cbData);
+        }
+        // Cancel order — confirmed
+        else if (cbData.startsWith("cxlY_")) {
+          await handleCancelConfirmCallback(ctx, cbQueryId, cbChatId, cbUserId, cbData);
+        }
+        // Cancel order — cancelled
+        else if (cbData === "cxlN") {
+          await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+            callbackQueryId: cbQueryId,
+            text: "Cancelled.",
+          });
+        }
+        else {
+          await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+            callbackQueryId: cbQueryId,
+            text: "Unknown action.",
+          });
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        await ctx.runAction(internal.telegram.telegramApi.answerCallbackQuery, {
+          callbackQueryId: cbQueryId,
+          text: `Error: ${msg}`,
+        });
+      }
+
+      return new Response(null, { status: 200 });
+    }
+
+    // -----------------------------------------------------------------------
+    // Handle regular messages / commands
+    // -----------------------------------------------------------------------
     const chatId = String(update.message?.chat?.id ?? "");
     const text = (update.message?.text ?? "").trim();
 
@@ -621,7 +1075,7 @@ export const handleTelegramWebhook = httpAction(async (ctx, request) => {
           await handleOrders(ctx, chatId, userId);
           break;
         case "/cancel":
-          await handleCancel(ctx, chatId, userId, text);
+          await handleCancel(ctx, chatId, userId);
           break;
         case "/closeall":
           await handleCloseAll(ctx, chatId, userId);
@@ -631,6 +1085,9 @@ export const handleTelegramWebhook = httpAction(async (ctx, request) => {
           break;
         case "/confirm":
           await handleConfirm(ctx, chatId, userId, text);
+          break;
+        case "/notifications":
+          await handleNotifications(ctx, chatId, userId);
           break;
         case "/help":
           await reply(ctx, chatId, getHelpText());

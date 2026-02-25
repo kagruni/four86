@@ -47,7 +47,7 @@ export default function DashboardPage() {
   const userCredentials = useQuery(api.queries.getUserCredentials, { userId });
   const recentTrades = useQuery(api.queries.getRecentTrades, {
     userId,
-    limit: 10
+    limit: 50
   });
   const aiLogs = useQuery(api.queries.getRecentAILogs, {
     userId,
@@ -78,6 +78,10 @@ export default function DashboardPage() {
   const manualClosePosition = useAction(api.testing.manualTrigger.manualClosePosition);
   const [sellingPosition, setSellingPosition] = useState<string | null>(null);
 
+  // Manual cancel order action
+  const manualCancelOrder = useAction(api.testing.manualTrigger.manualCancelOrder);
+  const [cancellingOrder, setCancellingOrder] = useState<number | null>(null);
+
   // Expanded position chart state
   const [expandedPosition, setExpandedPosition] = useState<string | null>(null);
 
@@ -85,7 +89,10 @@ export default function DashboardPage() {
   const hyperliquidAddress = userCredentials?.hyperliquidAddress;
   const hyperliquidTestnet = userCredentials?.hyperliquidTestnet ?? true;
 
-  // Fetch live positions, open orders, and account state on mount and every 10 seconds
+  // Fetch live positions, open orders, and account state on mount and every 15 seconds
+  // Uses a ref guard to prevent overlapping calls from stacking up
+  const isFetchingRef = React.useRef(false);
+
   useEffect(() => {
     if (!userId || !hyperliquidAddress) {
       console.log("[Dashboard] Skipping data fetch:", { userId: !!userId, hyperliquidAddress: !!hyperliquidAddress });
@@ -95,6 +102,13 @@ export default function DashboardPage() {
     console.log("[Dashboard] Fetching live data for address:", hyperliquidAddress);
 
     const fetchLiveData = async () => {
+      // Skip if a previous fetch is still in progress
+      if (isFetchingRef.current) {
+        console.log("[Dashboard] Skipping fetch — previous call still in progress");
+        return;
+      }
+      isFetchingRef.current = true;
+
       setIsLoadingPositions(true);
       setIsLoadingOrders(true);
       setIsLoadingAccount(true);
@@ -122,11 +136,9 @@ export default function DashboardPage() {
       } catch (error) {
         // Silently handle errors - use console.log to avoid triggering error overlay
         console.log("[Dashboard] Could not fetch live data, using defaults:", error instanceof Error ? error.message : String(error));
-        // Set safe defaults on error
-        setPositions([]);
-        setOpenOrders([]);
-        setAccountState(null);
+        // Keep existing data on error instead of wiping to empty
       } finally {
+        isFetchingRef.current = false;
         setIsLoadingPositions(false);
         setIsLoadingOrders(false);
         setIsLoadingAccount(false);
@@ -136,8 +148,8 @@ export default function DashboardPage() {
     // Initial fetch
     fetchLiveData();
 
-    // Auto-refresh every 10 seconds
-    const interval = setInterval(fetchLiveData, 10000);
+    // Auto-refresh every 15 seconds (increased from 10s to reduce overlapping calls)
+    const interval = setInterval(fetchLiveData, 15000);
 
     return () => clearInterval(interval);
   }, [userId, hyperliquidAddress, hyperliquidTestnet, getLivePositions, getUserOpenOrders, getAccountState]);
@@ -289,6 +301,49 @@ export default function DashboardPage() {
       });
     } finally {
       setSellingPosition(null);
+    }
+  };
+
+  const handleCancelOrder = async (coin: string, orderId: number) => {
+    if (!userId || cancellingOrder !== null) return;
+
+    setCancellingOrder(orderId);
+    try {
+      const result = await manualCancelOrder({
+        userId,
+        symbol: coin,
+        orderId,
+      });
+
+      if (result.success) {
+        toast({
+          title: "Order Cancelled",
+          description: `Cancelled ${coin} order #${orderId}`,
+        });
+        // Refresh orders after cancelling
+        if (hyperliquidAddress) {
+          const orders = await getUserOpenOrders({
+            address: hyperliquidAddress,
+            testnet: hyperliquidTestnet,
+          });
+          setOpenOrders(Array.isArray(orders) ? orders : []);
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to cancel order",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.log("Error cancelling order:", error instanceof Error ? error.message : String(error));
+      toast({
+        title: "Error",
+        description: "Failed to cancel order. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingOrder(null);
     }
   };
 
@@ -464,19 +519,18 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Live Chart */}
-      {positions.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.3 }}
-        >
-          <LiveChart
-            positions={positions}
-            testnet={hyperliquidTestnet}
-          />
-        </motion.div>
-      )}
+      {/* Live Chart — always visible */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+      >
+        <LiveChart
+          positions={positions}
+          trades={recentTrades ?? []}
+          testnet={hyperliquidTestnet}
+        />
+      </motion.div>
 
       {/* Positions Table */}
       <motion.div
@@ -694,6 +748,7 @@ export default function DashboardPage() {
                       <TableHead className="text-black font-semibold">Trigger Price</TableHead>
                       <TableHead className="text-black font-semibold">Status</TableHead>
                       <TableHead className="text-black font-semibold">Order ID</TableHead>
+                      <TableHead className="text-black font-semibold">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -784,6 +839,24 @@ export default function DashboardPage() {
                           </TableCell>
                           <TableCell className="text-gray-500 text-xs font-mono tabular-nums">
                             {oid ? oid.toString().substring(0, 10) + "..." : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                              onClick={() => handleCancelOrder(coin, oid)}
+                              disabled={!oid || cancellingOrder === oid}
+                            >
+                              {cancellingOrder === oid ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <X className="mr-1 h-3 w-3" />
+                                  Cancel
+                                </>
+                              )}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );

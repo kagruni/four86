@@ -307,6 +307,9 @@ export default defineSchema({
     // Linking flow
     verificationCode: v.optional(v.string()),
     verificationExpiresAt: v.optional(v.number()),
+    // Position status updates
+    positionUpdateInterval: v.optional(v.number()), // 0=off, 5/10/20/30 minutes
+    lastPositionUpdateSentAt: v.optional(v.number()),
     // Confirmation flow for dangerous commands
     pendingAction: v.optional(v.string()),       // "closeall" | "close_BTC" etc.
     pendingActionToken: v.optional(v.string()),

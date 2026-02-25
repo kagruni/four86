@@ -38,6 +38,13 @@ crons.interval(
   internal.telegram.dailySummary.sendDailySummaries
 );
 
+// Telegram position updates - runs every 5 minutes, checks per-user interval settings
+crons.interval(
+  "telegram-position-updates",
+  { minutes: 5 },
+  internal.telegram.positionUpdates.sendPositionUpdates
+);
+
 // Account snapshots - captures equity curve data every 15 minutes
 crons.interval(
   "account-snapshot",

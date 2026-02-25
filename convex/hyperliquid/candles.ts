@@ -64,6 +64,10 @@ async function fetchCandlesFromAPI(
     : "https://api.hyperliquid.xyz";
 
   try {
+    // Abort after 15 seconds to prevent hanging
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
     const response = await fetch(`${baseUrl}/info`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -76,7 +80,9 @@ async function fetchCandlesFromAPI(
           endTime: endTime,
         },
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

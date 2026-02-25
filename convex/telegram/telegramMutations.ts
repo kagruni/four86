@@ -124,6 +124,7 @@ export const updateNotificationPrefs = mutation({
     notifyTradeClosed: v.optional(v.boolean()),
     notifyRiskAlerts: v.optional(v.boolean()),
     notifyDailySummary: v.optional(v.boolean()),
+    positionUpdateInterval: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const settings = await ctx.db
@@ -150,6 +151,9 @@ export const updateNotificationPrefs = mutation({
     }
     if (args.notifyDailySummary !== undefined) {
       patch.notifyDailySummary = args.notifyDailySummary;
+    }
+    if (args.positionUpdateInterval !== undefined) {
+      patch.positionUpdateInterval = args.positionUpdateInterval;
     }
 
     await ctx.db.patch(settings._id, patch);
@@ -182,6 +186,55 @@ export const storePendingConfirmation = internalMutation({
       pendingActionToken: args.token,
       pendingActionExpiresAt: args.expiresAt,
       updatedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Update the position update interval for a user.
+ * Called internally by the Telegram command handler.
+ */
+export const updatePositionInterval = internalMutation({
+  args: {
+    userId: v.string(),
+    interval: v.number(), // 0=off, 5/10/20/30
+  },
+  handler: async (ctx, args) => {
+    const settings = await ctx.db
+      .query("telegramSettings")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .unique();
+
+    if (!settings) {
+      throw new Error("Telegram settings not found for user");
+    }
+
+    await ctx.db.patch(settings._id, {
+      positionUpdateInterval: args.interval,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Update the last position update sent timestamp.
+ * Called internally by the position update cron job.
+ */
+export const updateLastPositionUpdateSent = internalMutation({
+  args: {
+    userId: v.string(),
+    sentAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const settings = await ctx.db
+      .query("telegramSettings")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .unique();
+
+    if (!settings) return;
+
+    await ctx.db.patch(settings._id, {
+      lastPositionUpdateSentAt: args.sentAt,
     });
   },
 });

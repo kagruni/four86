@@ -59,3 +59,28 @@ export const getUsersForDailySummary = internalQuery({
     );
   },
 });
+
+/**
+ * Internal query: get all users who should receive position updates now.
+ * Checks interval, link status, and whether enough time has elapsed.
+ */
+export const getUsersForPositionUpdates = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const allSettings = await ctx.db
+      .query("telegramSettings")
+      .collect();
+
+    const now = Date.now();
+
+    return allSettings.filter((s) => {
+      if (!s.isLinked || !s.isEnabled) return false;
+      if (!s.positionUpdateInterval || s.positionUpdateInterval === 0) return false;
+
+      const intervalMs = s.positionUpdateInterval * 60 * 1000;
+      const lastSent = s.lastPositionUpdateSentAt ?? 0;
+
+      return now - lastSent >= intervalMs;
+    });
+  },
+});

@@ -58,150 +58,176 @@ function buildPositionsFromHyperliquid(
   return positions;
 }
 
+/**
+ * Helper: wrap a promise with a timeout. Rejects if the promise doesn't
+ * settle within `ms` milliseconds.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`[${label}] timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 // Get live positions with real-time prices from Hyperliquid
+// Overall timeout: 30s — prevents the 600s runaway issue
 export const getLivePositions = action({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    // Get user credentials first - needed for all paths
-    const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
-      userId: args.userId,
-    });
-
-    if (!credentials || !credentials.hyperliquidAddress) {
-      // No credentials — can only return DB positions
-      const positions = await ctx.runQuery(api.queries.getPositions, {
-        userId: args.userId,
-      });
-      return positions || [];
-    }
-
-    const testnet = credentials.hyperliquidTestnet ?? true;
-
-    // Get stored positions from database
-    const dbPositions = await ctx.runQuery(api.queries.getPositions, {
-      userId: args.userId,
-    });
-
-    // Always fetch actual positions from Hyperliquid (source of truth)
-    let hyperliquidPositions: any[] = [];
-    try {
-      hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
-        address: credentials.hyperliquidAddress,
-        testnet,
-      });
-    } catch (error) {
-      console.log("[getLivePositions] Could not fetch Hyperliquid positions:", error instanceof Error ? error.message : String(error));
-      // Fall back to DB positions if Hyperliquid is unreachable
-      return dbPositions || [];
-    }
-
-    // Filter to only positions with non-zero size
-    const activeHlPositions = (hyperliquidPositions || []).filter((hlPos: any) => {
-      const pos = hlPos.position || hlPos;
-      const szi = parseFloat(pos.szi || "0");
-      return szi !== 0;
-    });
-
-    // If DB is empty but Hyperliquid has positions, build from exchange data directly
-    if (!dbPositions || dbPositions.length === 0) {
-      if (activeHlPositions.length === 0) {
-        return [];
-      }
-
-      // Fetch market data for the symbols on Hyperliquid
-      const hlSymbols = activeHlPositions.map((p: any) => {
-        const pos = p.position || p;
-        return pos.coin;
-      }).filter(Boolean);
-
-      let marketData: Record<string, any> = {};
-      try {
-        marketData = await ctx.runAction(api.hyperliquid.client.getMarketData, {
-          symbols: [...new Set(hlSymbols)],
-          testnet,
+    // Wrap the entire handler in a 30s timeout
+    return withTimeout(
+      (async () => {
+        // Get user credentials first - needed for all paths
+        const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+          userId: args.userId,
         });
-      } catch (error) {
-        console.log("[getLivePositions] Could not fetch market data:", error instanceof Error ? error.message : String(error));
-      }
 
-      console.log(`[getLivePositions] DB empty, built ${activeHlPositions.length} position(s) from Hyperliquid`);
-      return buildPositionsFromHyperliquid(activeHlPositions, marketData);
-    }
+        if (!credentials || !credentials.hyperliquidAddress) {
+          // No credentials — can only return DB positions
+          const positions = await ctx.runQuery(api.queries.getPositions, {
+            userId: args.userId,
+          });
+          return positions || [];
+        }
 
-    // DB has positions — merge with live Hyperliquid data
-    const symbols = [...new Set(dbPositions.map((p: any) => p.symbol))];
+        const testnet = credentials.hyperliquidTestnet ?? true;
 
-    // Also include symbols from Hyperliquid that might not be in DB
-    for (const hlPos of activeHlPositions) {
-      const coin = (hlPos.position || hlPos).coin;
-      if (coin && !symbols.includes(coin)) {
-        symbols.push(coin);
-      }
-    }
+        // Fetch DB positions and Hyperliquid positions in parallel
+        const dbPositionsPromise = ctx.runQuery(api.queries.getPositions, {
+          userId: args.userId,
+        });
+        const hlPositionsPromise = ctx.runAction(api.hyperliquid.client.getUserPositions, {
+          address: credentials.hyperliquidAddress,
+          testnet,
+        }).catch((error: any) => {
+          console.log("[getLivePositions] Could not fetch Hyperliquid positions:", error instanceof Error ? error.message : String(error));
+          return null; // null = API failed
+        });
 
-    // Fetch live prices
-    let marketData: Record<string, any> = {};
-    try {
-      marketData = await ctx.runAction(api.hyperliquid.client.getMarketData, {
-        symbols,
-        testnet,
-      });
-    } catch (error) {
-      console.log("[getLivePositions] Could not fetch market data:", error instanceof Error ? error.message : String(error));
-    }
+        const [dbPositions, hyperliquidPositionsRaw] = await Promise.all([
+          dbPositionsPromise,
+          hlPositionsPromise,
+        ]);
 
-    // Create a map of Hyperliquid positions by symbol
-    const hlPositionMap = new Map();
-    activeHlPositions.forEach((hlPos: any) => {
-      const coin = (hlPos.position || hlPos)?.coin;
-      if (coin) {
-        hlPositionMap.set(coin, hlPos.position || hlPos);
-      }
-    });
+        // If Hyperliquid API failed, fall back to DB positions
+        if (hyperliquidPositionsRaw === null) {
+          return dbPositions || [];
+        }
 
-    // Update DB positions with live prices and real P&L
-    const livePositions = dbPositions.map((position: any) => {
-      const livePrice = marketData[position.symbol]?.price || position.currentPrice;
-      const hlPosition = hlPositionMap.get(position.symbol);
+        // Filter to only positions with non-zero size
+        const activeHlPositions = (hyperliquidPositionsRaw || []).filter((hlPos: any) => {
+          const pos = hlPos.position || hlPos;
+          const szi = parseFloat(pos.szi || "0");
+          return szi !== 0;
+        });
 
-      // Get actual leverage from Hyperliquid if available
-      const actualLeverage = hlPosition?.leverage?.value || position.leverage;
+        // If DB is empty but Hyperliquid has positions, build from exchange data directly
+        if (!dbPositions || dbPositions.length === 0) {
+          if (activeHlPositions.length === 0) {
+            return [];
+          }
 
-      // Convert USD size to coin size
-      const coinSize = position.size / position.entryPrice;
+          // Fetch market data for the symbols on Hyperliquid
+          const hlSymbols = activeHlPositions.map((p: any) => {
+            const pos = p.position || p;
+            return pos.coin;
+          }).filter(Boolean);
 
-      // Calculate real-time P&L
-      let unrealizedPnl = 0;
-      if (position.side === "LONG") {
-        unrealizedPnl = (livePrice - position.entryPrice) * coinSize;
-      } else {
-        unrealizedPnl = (position.entryPrice - livePrice) * coinSize;
-      }
+          let marketData: Record<string, any> = {};
+          try {
+            marketData = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+              symbols: [...new Set(hlSymbols)] as string[],
+              testnet,
+            });
+          } catch (error) {
+            console.log("[getLivePositions] Could not fetch market data:", error instanceof Error ? error.message : String(error));
+          }
 
-      const unrealizedPnlPct = (unrealizedPnl / position.size) * 100;
+          console.log(`[getLivePositions] DB empty, built ${activeHlPositions.length} position(s) from Hyperliquid`);
+          return buildPositionsFromHyperliquid(activeHlPositions, marketData);
+        }
 
-      return {
-        ...position,
-        leverage: actualLeverage,
-        currentPrice: livePrice,
-        unrealizedPnl,
-        unrealizedPnlPct,
-      };
-    });
+        // DB has positions — merge with live Hyperliquid data
+        const symbols = [...new Set(dbPositions.map((p: any) => p.symbol))];
 
-    // Add any Hyperliquid positions NOT in the database
-    const dbSymbols = new Set(dbPositions.map((p: any) => p.symbol));
-    const missingFromDb = activeHlPositions.filter((hlPos: any) => {
-      const coin = (hlPos.position || hlPos).coin;
-      return coin && !dbSymbols.has(coin);
-    });
+        // Also include symbols from Hyperliquid that might not be in DB
+        for (const hlPos of activeHlPositions) {
+          const coin = (hlPos.position || hlPos).coin;
+          if (coin && !symbols.includes(coin)) {
+            symbols.push(coin);
+          }
+        }
 
-    if (missingFromDb.length > 0) {
-      console.log(`[getLivePositions] Found ${missingFromDb.length} position(s) on Hyperliquid not in DB`);
-      const extraPositions = buildPositionsFromHyperliquid(missingFromDb, marketData);
-      livePositions.push(...extraPositions);
-    }
+        // Fetch live prices
+        let marketData: Record<string, any> = {};
+        try {
+          marketData = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+            symbols,
+            testnet,
+          });
+        } catch (error) {
+          console.log("[getLivePositions] Could not fetch market data:", error instanceof Error ? error.message : String(error));
+        }
 
-    return livePositions;
+        // Create a map of Hyperliquid positions by symbol
+        const hlPositionMap = new Map();
+        activeHlPositions.forEach((hlPos: any) => {
+          const coin = (hlPos.position || hlPos)?.coin;
+          if (coin) {
+            hlPositionMap.set(coin, hlPos.position || hlPos);
+          }
+        });
+
+        // Update DB positions with live prices and real P&L
+        const livePositions = dbPositions.map((position: any) => {
+          const livePrice = marketData[position.symbol]?.price || position.currentPrice;
+          const hlPosition = hlPositionMap.get(position.symbol);
+
+          // Get actual leverage from Hyperliquid if available
+          const actualLeverage = hlPosition?.leverage?.value || position.leverage;
+
+          // Convert USD size to coin size
+          const coinSize = position.size / position.entryPrice;
+
+          // Calculate real-time P&L
+          let unrealizedPnl = 0;
+          if (position.side === "LONG") {
+            unrealizedPnl = (livePrice - position.entryPrice) * coinSize;
+          } else {
+            unrealizedPnl = (position.entryPrice - livePrice) * coinSize;
+          }
+
+          const unrealizedPnlPct = (unrealizedPnl / position.size) * 100;
+
+          return {
+            ...position,
+            leverage: actualLeverage,
+            currentPrice: livePrice,
+            unrealizedPnl,
+            unrealizedPnlPct,
+          };
+        });
+
+        // Add any Hyperliquid positions NOT in the database
+        const dbSymbols = new Set(dbPositions.map((p: any) => p.symbol));
+        const missingFromDb = activeHlPositions.filter((hlPos: any) => {
+          const coin = (hlPos.position || hlPos).coin;
+          return coin && !dbSymbols.has(coin);
+        });
+
+        if (missingFromDb.length > 0) {
+          console.log(`[getLivePositions] Found ${missingFromDb.length} position(s) on Hyperliquid not in DB`);
+          const extraPositions = buildPositionsFromHyperliquid(missingFromDb, marketData);
+          livePositions.push(...extraPositions);
+        }
+
+        return livePositions;
+      })(),
+      30_000,
+      "getLivePositions"
+    );
   },
 });

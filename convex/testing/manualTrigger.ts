@@ -565,3 +565,45 @@ export const manualClosePosition = action({
     }
   },
 });
+
+/**
+ * Cancel a single open order on Hyperliquid from the dashboard.
+ * Resolves credentials server-side so the frontend never sees the private key.
+ */
+export const manualCancelOrder = action({
+  args: {
+    userId: v.string(),
+    symbol: v.string(),
+    orderId: v.number(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      console.log(`[Manual Cancel] Cancelling order ${args.orderId} for ${args.symbol}`);
+
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
+        return { success: false, error: "Missing Hyperliquid credentials" };
+      }
+
+      const result = await ctx.runAction(api.hyperliquid.client.cancelOrder, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: args.symbol,
+        orderId: args.orderId,
+        testnet: credentials.hyperliquidTestnet ?? true,
+      });
+
+      console.log(`[Manual Cancel] Result:`, result);
+      return { success: true, message: `Cancelled order ${args.orderId} for ${args.symbol}` };
+    } catch (error) {
+      console.error("[Manual Cancel] Error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});

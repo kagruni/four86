@@ -16,15 +16,18 @@ import {
   HistogramSeries,
   LineStyle,
   CrosshairMode,
+  createSeriesMarkers,
 } from "lightweight-charts";
 import type {
   IChartApi,
   ISeriesApi,
+  ISeriesMarkersPluginApi,
   IPriceLine,
   UTCTimestamp,
   CandlestickData,
   LineData,
   HistogramData,
+  SeriesMarker,
 } from "lightweight-charts";
 import {
   Loader2,
@@ -34,6 +37,7 @@ import {
   BarChart3,
   ArrowUpRight,
   ArrowDownRight,
+  ChevronDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -60,8 +64,19 @@ interface Position {
   unrealizedPnlPct: number;
 }
 
+interface Trade {
+  _id: string;
+  symbol: string;
+  action: string; // "OPEN" or "CLOSE"
+  side: string;   // "LONG" or "SHORT"
+  price: number;
+  pnl?: number;
+  executedAt: number; // ms timestamp
+}
+
 interface LiveChartProps {
   positions: Position[];
+  trades: Trade[];
   testnet: boolean;
 }
 
@@ -89,6 +104,8 @@ const CANDLE_LIMITS: Record<Interval, number> = {
   "1h": 100,
   "4h": 80,
 };
+
+const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,15 +135,69 @@ function toTimestamp(ms: number): UTCTimestamp {
   return Math.floor(ms / 1000) as UTCTimestamp;
 }
 
+/** Snap a ms timestamp down to the nearest candle boundary for a given interval */
+function snapToCandle(ms: number, tf: Interval): UTCTimestamp {
+  const s = Math.floor(ms / 1000);
+  const INTERVAL_SECONDS: Record<Interval, number> = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "1h": 3600,
+    "4h": 14400,
+  };
+  const bucket = INTERVAL_SECONDS[tf];
+  return (s - (s % bucket)) as UTCTimestamp;
+}
+
+/** Build chart markers from trades for a given symbol + interval */
+function buildTradeMarkers(
+  trades: Trade[],
+  symbol: string,
+  tf: Interval
+): SeriesMarker<UTCTimestamp>[] {
+  return trades
+    .filter((t) => t.symbol === symbol)
+    .sort((a, b) => a.executedAt - b.executedAt)
+    .map((t) => {
+      const isOpen = t.action === "OPEN";
+      const isLong = t.side === "LONG";
+
+      // Entry: arrow pointing into the trade direction
+      // Exit: arrow pointing out + show P&L
+      if (isOpen) {
+        return {
+          time: snapToCandle(t.executedAt, tf),
+          position: isLong ? ("belowBar" as const) : ("aboveBar" as const),
+          color: "#171717",
+          shape: isLong ? ("arrowUp" as const) : ("arrowDown" as const),
+          text: `${isLong ? "LONG" : "SHORT"} @ ${fmtPrice(t.price)}`,
+        };
+      } else {
+        const pnlText =
+          t.pnl !== undefined ? ` ${t.pnl >= 0 ? "+" : ""}$${t.pnl.toFixed(2)}` : "";
+        return {
+          time: snapToCandle(t.executedAt, tf),
+          position: isLong ? ("aboveBar" as const) : ("belowBar" as const),
+          color: "#737373",
+          shape: isLong ? ("arrowDown" as const) : ("arrowUp" as const),
+          text: `CLOSE${pnlText}`,
+        };
+      }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
-export default function LiveChart({ positions, testnet }: LiveChartProps) {
+export default function LiveChart({ positions, trades, testnet }: LiveChartProps) {
+  const hasPositions = positions.length > 0;
+
   // State
   const [selectedSymbol, setSelectedSymbol] = useState<string>(
-    positions[0]?.symbol || ""
+    positions[0]?.symbol || "BTC"
   );
+  const [symbolDropdownOpen, setSymbolDropdownOpen] = useState(false);
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [interval, setActiveInterval] = useState<Interval>("5m");
   const [chartSize, setChartSize] = useState<ChartSize>("M");
@@ -140,6 +211,7 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const markersRef = useRef<ISeriesMarkersPluginApi<UTCTimestamp> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -151,6 +223,7 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
   const showVolumeRef = useRef(showVolume);
   const testnetRef = useRef(testnet);
   const positionsRef = useRef(positions);
+  const tradesRef = useRef(trades);
 
   const fetchCandlesAction = useAction(api.hyperliquid.candles.fetchCandles);
 
@@ -161,6 +234,7 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
   useEffect(() => { showVolumeRef.current = showVolume; }, [showVolume]);
   useEffect(() => { testnetRef.current = testnet; }, [testnet]);
   useEffect(() => { positionsRef.current = positions; }, [positions]);
+  useEffect(() => { tradesRef.current = trades; }, [trades]);
 
   // Derived — uses ref for positions to avoid recalc on every 10s poll
   const selectedPosition = useMemo(
@@ -168,7 +242,8 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
     [positions, selectedSymbol]
   );
 
-  // Auto-select first position if current becomes invalid
+  // Auto-select first position's symbol if current selection doesn't match any position
+  // (only when positions exist — when empty, keep the manually selected symbol)
   useEffect(() => {
     if (positions.length > 0 && !positions.find((p) => p.symbol === selectedSymbol)) {
       setSelectedSymbol(positions[0].symbol);
@@ -257,6 +332,7 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
       seriesRef.current = null;
       volumeSeriesRef.current = null;
       priceLinesRef.current = [];
+      markersRef.current = null;
     }
 
     const chart = createChart(containerRef.current, {
@@ -393,6 +469,22 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
   }, [fetchCandlesAction]);
 
   // -----------------------------------------------------------------------
+  // Apply trade markers on the chart
+  // -----------------------------------------------------------------------
+
+  const applyMarkers = useCallback((symbol: string, tf: Interval) => {
+    if (!seriesRef.current) return;
+
+    const markers = buildTradeMarkers(tradesRef.current, symbol, tf);
+
+    if (markersRef.current) {
+      markersRef.current.setMarkers(markers);
+    } else {
+      markersRef.current = createSeriesMarkers(seriesRef.current, markers);
+    }
+  }, []);
+
+  // -----------------------------------------------------------------------
   // WebSocket — stable, reads from refs
   // -----------------------------------------------------------------------
 
@@ -498,6 +590,7 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
     buildChart(chartType, showVolume);
 
     fetchAndSetData(selectedSymbol, interval, chartType, true).then(() => {
+      applyMarkers(selectedSymbol, interval);
       setInitialLoading(false);
     });
 
@@ -524,6 +617,7 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
         seriesRef.current = null;
         volumeSeriesRef.current = null;
         priceLinesRef.current = [];
+        markersRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -559,7 +653,11 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
       }
     }
 
+    // Reset markers for new symbol/interval (new series will be created on chart type change)
+    markersRef.current = null;
+
     fetchAndSetData(selectedSymbol, interval, chartTypeRef.current, true).then(() => {
+      applyMarkers(selectedSymbol, interval);
       setInitialLoading(false);
       // After price lines effect has run, force auto-scale again
       requestAnimationFrame(() => {
@@ -585,12 +683,14 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
     if (prevChartTypeRef.current === chartType) return;
     prevChartTypeRef.current = chartType;
 
-    // Rebuild chart with new series type
+    // Rebuild chart with new series type (also clears markersRef)
     buildChart(chartType, showVolumeRef.current);
 
-    // Reload data into the new series
-    fetchAndSetData(symbolRef.current, intervalRef.current, chartType, true);
-  }, [chartType, buildChart, fetchAndSetData]);
+    // Reload data into the new series, then re-apply markers
+    fetchAndSetData(symbolRef.current, intervalRef.current, chartType, true).then(() => {
+      applyMarkers(symbolRef.current, intervalRef.current);
+    });
+  }, [chartType, buildChart, fetchAndSetData, applyMarkers]);
 
   // -----------------------------------------------------------------------
   // EFFECT: Chart size change — just resize, no data reload
@@ -601,6 +701,14 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
       chartRef.current.resize(containerRef.current.clientWidth, SIZE_MAP[chartSize]);
     }
   }, [chartSize]);
+
+  // -----------------------------------------------------------------------
+  // EFFECT: Trades change — refresh markers when trade data updates
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    applyMarkers(symbolRef.current, intervalRef.current);
+  }, [trades, applyMarkers]);
 
   // -----------------------------------------------------------------------
   // EFFECT: Volume toggle — just toggle visibility + adjust margins
@@ -625,18 +733,51 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
     chartRef.current?.timeScale().fitContent();
   }, []);
 
-  // No positions — nothing to render
-  if (positions.length === 0) return null;
-
   return (
     <div className="border border-gray-200 rounded-lg shadow-[0_1px_3px_rgba(0,0,0,0.08)] bg-white overflow-hidden">
       {/* ── Toolbar ── */}
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
-        {/* Left */}
+        {/* Left — symbol selector or label */}
         <div className="flex items-center gap-3">
-          <span className="text-sm font-mono font-bold text-gray-900 tracking-tight">
-            {selectedSymbol}
-          </span>
+          {/* Symbol selector dropdown (always available) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSymbolDropdownOpen((v) => !v)}
+              className="flex items-center gap-1 text-sm font-mono font-bold text-gray-900 tracking-tight hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors"
+            >
+              {selectedSymbol}
+              <ChevronDown className={`h-3 w-3 text-gray-400 transition-transform ${symbolDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+            {symbolDropdownOpen && (
+              <>
+                {/* Backdrop to close dropdown */}
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setSymbolDropdownOpen(false)}
+                />
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[100px]">
+                  {TRADING_SYMBOLS.map((sym) => (
+                    <button
+                      key={sym}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSymbol(sym);
+                        setSymbolDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-xs font-mono transition-colors ${
+                        selectedSymbol === sym
+                          ? "bg-gray-900 text-white font-bold"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      {sym}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <span className="text-xs font-mono text-gray-400">
             {interval.toUpperCase()}
           </span>
@@ -765,90 +906,92 @@ export default function LiveChart({ positions, testnet }: LiveChartProps) {
           />
         </div>
 
-        {/* Position selector */}
-        <div
-          className="w-48 border-l border-gray-100 bg-gray-50/50 flex flex-col"
-          style={{ height: SIZE_MAP[chartSize] }}
-        >
-          <div className="px-3 py-2 border-b border-gray-100">
-            <span className="text-[10px] font-mono font-semibold text-gray-400 uppercase tracking-wider">
-              Positions
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {positions.map((pos) => {
-              const isSelected = pos.symbol === selectedSymbol;
-              const isProfit = pos.unrealizedPnl >= 0;
+        {/* Position selector — only visible when positions exist */}
+        {hasPositions && (
+          <div
+            className="w-48 border-l border-gray-100 bg-gray-50/50 flex flex-col"
+            style={{ height: SIZE_MAP[chartSize] }}
+          >
+            <div className="px-3 py-2 border-b border-gray-100">
+              <span className="text-[10px] font-mono font-semibold text-gray-400 uppercase tracking-wider">
+                Positions
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {positions.map((pos) => {
+                const isSelected = pos.symbol === selectedSymbol;
+                const isProfit = pos.unrealizedPnl >= 0;
 
-              return (
-                <button
-                  key={pos._id}
-                  type="button"
-                  onClick={() => setSelectedSymbol(pos.symbol)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-gray-100 transition-all ${
-                    isSelected
-                      ? "bg-white shadow-[inset_3px_0_0_#171717]"
-                      : "hover:bg-white/70"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`text-xs font-mono font-bold ${
-                        isSelected ? "text-gray-900" : "text-gray-600"
-                      }`}
-                    >
-                      {pos.symbol}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={`text-[9px] px-1 py-0 h-4 ${
-                        pos.side === "LONG"
-                          ? "border-gray-900 text-gray-900"
-                          : "border-gray-400 text-gray-500"
-                      }`}
-                    >
-                      {pos.side === "LONG" ? (
-                        <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
-                      ) : (
-                        <ArrowDownRight className="h-2.5 w-2.5 mr-0.5" />
-                      )}
-                      {pos.leverage}x
-                    </Badge>
-                  </div>
-                  <div className="mt-1 text-[11px] font-mono tabular-nums text-gray-500">
-                    {fmtPrice(pos.currentPrice)}
-                  </div>
-                  <div className="mt-0.5 flex items-center justify-between">
-                    <span
-                      className={`text-[11px] font-mono tabular-nums font-semibold ${
-                        isProfit ? "text-gray-900" : "text-gray-500"
-                      }`}
-                    >
-                      {fmtPnl(pos.unrealizedPnl)}
-                    </span>
-                    <span
-                      className={`text-[10px] font-mono tabular-nums ${
-                        isProfit ? "text-gray-700" : "text-gray-400"
-                      }`}
-                    >
-                      {fmtPct(pos.unrealizedPnlPct)}
-                    </span>
-                  </div>
-                  {(pos.stopLoss || pos.takeProfit) && (
-                    <div className="mt-1 flex items-center gap-2 text-[9px] font-mono tabular-nums">
-                      {pos.stopLoss && (
-                        <span className="text-red-500">SL {fmtPrice(pos.stopLoss)}</span>
-                      )}
-                      {pos.takeProfit && (
-                        <span className="text-green-600">TP {fmtPrice(pos.takeProfit)}</span>
-                      )}
+                return (
+                  <button
+                    key={pos._id}
+                    type="button"
+                    onClick={() => setSelectedSymbol(pos.symbol)}
+                    className={`w-full text-left px-3 py-2.5 border-b border-gray-100 transition-all ${
+                      isSelected
+                        ? "bg-white shadow-[inset_3px_0_0_#171717]"
+                        : "hover:bg-white/70"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={`text-xs font-mono font-bold ${
+                          isSelected ? "text-gray-900" : "text-gray-600"
+                        }`}
+                      >
+                        {pos.symbol}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[9px] px-1 py-0 h-4 ${
+                          pos.side === "LONG"
+                            ? "border-gray-900 text-gray-900"
+                            : "border-gray-400 text-gray-500"
+                        }`}
+                      >
+                        {pos.side === "LONG" ? (
+                          <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
+                        ) : (
+                          <ArrowDownRight className="h-2.5 w-2.5 mr-0.5" />
+                        )}
+                        {pos.leverage}x
+                      </Badge>
                     </div>
-                  )}
-                </button>
-              );
-            })}
+                    <div className="mt-1 text-[11px] font-mono tabular-nums text-gray-500">
+                      {fmtPrice(pos.currentPrice)}
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-between">
+                      <span
+                        className={`text-[11px] font-mono tabular-nums font-semibold ${
+                          isProfit ? "text-gray-900" : "text-gray-500"
+                        }`}
+                      >
+                        {fmtPnl(pos.unrealizedPnl)}
+                      </span>
+                      <span
+                        className={`text-[10px] font-mono tabular-nums ${
+                          isProfit ? "text-gray-700" : "text-gray-400"
+                        }`}
+                      >
+                        {fmtPct(pos.unrealizedPnlPct)}
+                      </span>
+                    </div>
+                    {(pos.stopLoss || pos.takeProfit) && (
+                      <div className="mt-1 flex items-center gap-2 text-[9px] font-mono tabular-nums">
+                        {pos.stopLoss && (
+                          <span className="text-red-500">SL {fmtPrice(pos.stopLoss)}</span>
+                        )}
+                        {pos.takeProfit && (
+                          <span className="text-green-600">TP {fmtPrice(pos.takeProfit)}</span>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -12,22 +12,42 @@ import {
 
 /**
  * Fetch with retry for transient Hyperliquid API errors (502, 503, etc.)
+ * Includes a per-request timeout (default 15s) via AbortController.
  */
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  maxRetries = 3
+  maxRetries = 3,
+  timeoutMs = 15_000
 ): Promise<Response> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const response = await fetch(url, options);
-    if (response.ok || attempt >= maxRetries) return response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok || attempt >= maxRetries) return response;
 
-    const isTransient = [502, 503, 504, 429].includes(response.status);
-    if (!isTransient) return response;
+      const isTransient = [502, 503, 504, 429].includes(response.status);
+      if (!isTransient) return response;
 
-    const delayMs = 1000 * Math.pow(2, attempt - 1);
-    console.log(`[fetchWithRetry] ${response.status} on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms`);
-    await new Promise((r) => setTimeout(r, delayMs));
+      const delayMs = 1000 * Math.pow(2, attempt - 1);
+      console.log(`[fetchWithRetry] ${response.status} on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    } catch (err: any) {
+      clearTimeout(timeout);
+      if (err?.name === "AbortError") {
+        console.log(`[fetchWithRetry] Timeout (${timeoutMs}ms) on attempt ${attempt}/${maxRetries}`);
+        if (attempt >= maxRetries) throw new Error(`Request timed out after ${maxRetries} attempts`);
+        const delayMs = 1000 * Math.pow(2, attempt - 1);
+        await new Promise((r) => setTimeout(r, delayMs));
+      } else {
+        throw err;
+      }
+    }
   }
   throw new Error("[fetchWithRetry] Unreachable");
 }
@@ -74,88 +94,86 @@ export const getMarketData = action({
 
       const prices = await priceResponse.json();
 
-      // Fetch candle data and calculate indicators for each symbol
-      for (const symbol of args.symbols) {
-        const price = parseFloat(prices[symbol] || "0");
+      // Fetch candle data and calculate indicators for ALL symbols in parallel
+      await Promise.all(
+        args.symbols.map(async (symbol) => {
+          const price = parseFloat(prices[symbol] || "0");
 
-        try {
-          // Fetch 1-hour candles (need at least 50 for all indicators)
-          const candles = await fetchCandlesInternal(
-            symbol,
-            "1h",
-            100, // Fetch extra for better accuracy
-            args.testnet
-          );
+          try {
+            // Fetch 1-hour candles (need at least 50 for all indicators)
+            const candles = await fetchCandlesInternal(
+              symbol,
+              "1h",
+              100, // Fetch extra for better accuracy
+              args.testnet
+            );
 
-          // Extract closing prices for indicator calculations
-          const closePrices = extractClosePrices(candles);
+            // Extract closing prices for indicator calculations
+            const closePrices = extractClosePrices(candles);
 
-          // Calculate real technical indicators
-          let rsi = -1;
-          let macd = -1;
-          let macd_signal = -1;
-          let price_change_short = 0;
-          let price_change_medium = 0;
+            // Calculate real technical indicators
+            let rsi = -1;
+            let macd = -1;
+            let macd_signal = -1;
+            let price_change_short = 0;
+            let price_change_medium = 0;
 
-          if (closePrices.length >= 15) {
-            // Calculate RSI (14-period)
-            rsi = calculateRSI(closePrices, 14);
+            if (closePrices.length >= 15) {
+              rsi = calculateRSI(closePrices, 14);
+            }
+
+            if (closePrices.length >= 35) {
+              const macdData = calculateMACD(closePrices);
+              macd = macdData.macd;
+              macd_signal = macdData.signal;
+            }
+
+            if (closePrices.length >= 5) {
+              price_change_short = calculatePriceChange(closePrices, 4);
+            }
+
+            if (closePrices.length >= 25) {
+              price_change_medium = calculatePriceChange(closePrices, 24);
+            }
+
+            marketData[symbol] = {
+              symbol,
+              price,
+              indicators: {
+                rsi,
+                macd,
+                macd_signal,
+                price_change_short,
+                price_change_medium,
+              },
+            };
+
+            console.log(`Calculated indicators for ${symbol}:`, {
+              rsi: rsi === -1 ? "insufficient data" : rsi.toFixed(2),
+              macd: macd === -1 ? "insufficient data" : macd.toFixed(2),
+              macd_signal: macd_signal === -1 ? "insufficient data" : macd_signal.toFixed(2),
+              price_change_short: price_change_short.toFixed(2) + "%",
+              price_change_medium: price_change_medium.toFixed(2) + "%",
+              candles: closePrices.length,
+            });
+          } catch (error) {
+            console.log(`Error calculating indicators for ${symbol}:`, error instanceof Error ? error.message : String(error));
+
+            // Fallback to default values if indicator calculation fails
+            marketData[symbol] = {
+              symbol,
+              price,
+              indicators: {
+                rsi: -1,
+                macd: -1,
+                macd_signal: -1,
+                price_change_short: 0,
+                price_change_medium: 0,
+              },
+            };
           }
-
-          if (closePrices.length >= 35) {
-            // Calculate MACD (12, 26, 9)
-            const macdData = calculateMACD(closePrices);
-            macd = macdData.macd;
-            macd_signal = macdData.signal;
-          }
-
-          if (closePrices.length >= 5) {
-            // Short-term price change (last 4 periods = 4 hours)
-            price_change_short = calculatePriceChange(closePrices, 4);
-          }
-
-          if (closePrices.length >= 25) {
-            // Medium-term price change (last 24 periods = 24 hours/1 day)
-            price_change_medium = calculatePriceChange(closePrices, 24);
-          }
-
-          marketData[symbol] = {
-            symbol,
-            price,
-            indicators: {
-              rsi,
-              macd,
-              macd_signal,
-              price_change_short,
-              price_change_medium,
-            },
-          };
-
-          console.log(`Calculated indicators for ${symbol}:`, {
-            rsi: rsi === -1 ? "insufficient data" : rsi.toFixed(2),
-            macd: macd === -1 ? "insufficient data" : macd.toFixed(2),
-            macd_signal: macd_signal === -1 ? "insufficient data" : macd_signal.toFixed(2),
-            price_change_short: price_change_short.toFixed(2) + "%",
-            price_change_medium: price_change_medium.toFixed(2) + "%",
-            candles: closePrices.length,
-          });
-        } catch (error) {
-          console.log(`Error calculating indicators for ${symbol}:`, error instanceof Error ? error.message : String(error));
-
-          // Fallback to default values if indicator calculation fails
-          marketData[symbol] = {
-            symbol,
-            price,
-            indicators: {
-              rsi: -1,
-              macd: -1,
-              macd_signal: -1,
-              price_change_short: 0,
-              price_change_medium: 0,
-            },
-          };
-        }
-      }
+        })
+      );
 
       return marketData;
     } catch (error) {
@@ -192,7 +210,7 @@ export const getAccountState = action({
 
       const data = await response.json();
 
-      console.log("[getAccountState] Raw response:", JSON.stringify(data, null, 2));
+      console.log("[getAccountState] Got response for:", args.address);
 
       // Extract account value - try multiple fields as the structure varies
       let accountValue = 0;

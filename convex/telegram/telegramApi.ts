@@ -11,16 +11,60 @@ export const sendMessage = internalAction({
     chatId: v.string(),
     text: v.string(),
     parseMode: v.optional(v.string()),
+    replyMarkup: v.optional(v.string()), // JSON-encoded InlineKeyboardMarkup
   },
   handler: async (_ctx, args): Promise<{ success: boolean; error?: string }> => {
     try {
+      const body: Record<string, unknown> = {
+        chat_id: args.chatId,
+        text: args.text,
+        parse_mode: args.parseMode ?? "Markdown",
+      };
+
+      if (args.replyMarkup) {
+        body.reply_markup = JSON.parse(args.replyMarkup);
+      }
+
       const response = await fetch(getTelegramUrl("sendMessage"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+
+      if (!data.ok) {
+        return {
+          success: false,
+          error: data.description ?? "Unknown Telegram API error",
+        };
+      }
+
+      return { success: true };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return { success: false, error: message };
+    }
+  },
+});
+
+/**
+ * Acknowledge a callback query (inline keyboard button press).
+ * Required by Telegram to remove the loading indicator on the button.
+ */
+export const answerCallbackQuery = internalAction({
+  args: {
+    callbackQueryId: v.string(),
+    text: v.optional(v.string()),
+  },
+  handler: async (_ctx, args): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch(getTelegramUrl("answerCallbackQuery"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: args.chatId,
+          callback_query_id: args.callbackQueryId,
           text: args.text,
-          parse_mode: args.parseMode ?? "Markdown",
         }),
       });
 
@@ -54,7 +98,7 @@ export const setWebhook = internalAction({
         body: JSON.stringify({
           url: args.url,
           secret_token: args.secretToken,
-          allowed_updates: ["message"],
+          allowed_updates: ["message", "callback_query"],
         }),
       });
 
@@ -91,9 +135,10 @@ export const setMyCommands = internalAction({
         { command: "start", description: "Start the trading bot" },
         { command: "stop", description: "Stop the trading bot" },
         { command: "orders", description: "View all open orders" },
-        { command: "cancel", description: "Cancel a specific order" },
-        { command: "close", description: "Close a specific position" },
+        { command: "cancel", description: "Cancel an order" },
+        { command: "close", description: "Close a position" },
         { command: "closeall", description: "Close all positions" },
+        { command: "notifications", description: "Position update interval" },
         { command: "help", description: "Show available commands" },
       ];
 

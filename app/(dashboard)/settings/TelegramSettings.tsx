@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MessageSquare, Copy, Check, Unlink, Send } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, MessageSquare, Copy, Check, Unlink, Send, Bell } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -97,6 +98,18 @@ export default function TelegramSettings() {
       toast({
         title: "Error",
         description: "Failed to update notification preference.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleIntervalChange = async (value: string) => {
+    try {
+      await updatePrefs({ userId, positionUpdateInterval: parseInt(value, 10) });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update position update interval.",
         variant: "destructive",
       });
     }
@@ -286,6 +299,37 @@ export default function TelegramSettings() {
                 checked={settings?.notifyDailySummary ?? true}
                 onCheckedChange={(checked) => handleToggle("notifyDailySummary", checked)}
               />
+            </div>
+
+            <Separator className="bg-gray-200" />
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-gray-900 flex items-center gap-1.5">
+                  <Bell className="h-4 w-4" />
+                  Position Updates
+                </Label>
+                <p className="text-sm text-gray-500">
+                  Periodic status updates for open positions
+                </p>
+              </div>
+              <Select
+                value={String(settings?.positionUpdateInterval ?? 0)}
+                onValueChange={handleIntervalChange}
+              >
+                <SelectTrigger className="w-[140px] border-gray-200 text-gray-900">
+                  <SelectValue placeholder="Off" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">Off</SelectItem>
+                  <SelectItem value="5">Every 5 min</SelectItem>
+                  <SelectItem value="10">Every 10 min</SelectItem>
+                  <SelectItem value="20">Every 20 min</SelectItem>
+                  <SelectItem value="30">Every 30 min</SelectItem>
+                  <SelectItem value="45">Every 45 min</SelectItem>
+                  <SelectItem value="60">Every 60 min</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
