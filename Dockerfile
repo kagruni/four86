@@ -15,6 +15,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Build-time env vars (NEXT_PUBLIC_* are baked into the JS bundle)
+ARG NEXT_PUBLIC_CONVEX_URL
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_APP_URL
+
 # Build Next.js app
 RUN bun run build
 
