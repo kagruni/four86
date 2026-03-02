@@ -44,7 +44,7 @@ yarn-error.log*
 next-env.d.ts
 
 # version management (generated at build time)
-src/lib/version.json
+lib/version.json
 
 # clerk configuration (can include secrets)
 /.clerk/
