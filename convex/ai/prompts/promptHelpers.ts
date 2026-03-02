@@ -27,7 +27,7 @@ export interface BotConfig {
  */
 export function generatePromptVariables(config: BotConfig) {
   // Calculate reduced risk percentage for after consecutive losses
-  const perTradeRiskPctReduced = Math.max(config.perTradeRiskPct * 0.5, 1.0);
+  const perTradeRiskPctReduced = Math.max(config.perTradeRiskPct * 0.75, 1.5);
 
   // Determine trading mode description
   let tradingModeDescription = "";

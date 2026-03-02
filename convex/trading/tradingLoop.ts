@@ -277,8 +277,10 @@ export const runTradingCycle = internalAction({
                   minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
                   require4hAlignment: bot.require4hAlignment ?? false,
                   tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
-                  volatilitySizeReduction: bot.volatilitySizeReduction ?? 50,
+                  volatilitySizeReduction: bot.volatilitySizeReduction ?? 30,
                   tradingMode: bot.tradingMode ?? "balanced",
+                  consecutiveLosses: bot.consecutiveLosses ?? 0,
+                  consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
                 },
               });
               systemPromptName = "Alpha Arena trading system (leverage + TP/SL discipline)";
@@ -335,7 +337,7 @@ export const runTradingCycle = internalAction({
                   minEntrySignals: bot.minEntrySignals ?? 2,
                   require4hAlignment: bot.require4hAlignment ?? false,
                   tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
-                  volatilitySizeReduction: bot.volatilitySizeReduction ?? 50,
+                  volatilitySizeReduction: bot.volatilitySizeReduction ?? 30,
                   stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
                 },
               });
@@ -561,20 +563,45 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
   const trendResult = await checkTrendGuard(ctx, api, decision, credentials, bot.userId);
   if (!trendResult.allowed) return;
 
+  // ── Size Normalization (safety net) ──────────────────────────
+  if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
+    const maxPositionSizePct = normalizeMaxPositionSizePct(bot.maxPositionSize);
+    const maxPositionSizeUsd = accountState.accountValue * (maxPositionSizePct / 100);
+    const minPositionSizeUsd = Math.max(50, accountState.accountValue * 0.05);
+
+    // Bump undersized positions to floor
+    if (decision.size_usd && decision.size_usd < minPositionSizeUsd) {
+      console.log(`📐 Size normalized: $${decision.size_usd.toFixed(2)} → $${minPositionSizeUsd.toFixed(2)} (floor)`);
+      decision.size_usd = minPositionSizeUsd;
+    }
+
+    // Cap oversized positions to max
+    if (decision.size_usd && decision.size_usd > maxPositionSizeUsd) {
+      console.log(`📐 Size normalized: $${decision.size_usd.toFixed(2)} → $${maxPositionSizeUsd.toFixed(2)} (cap)`);
+      decision.size_usd = maxPositionSizeUsd;
+    }
+
+    // Cap leverage to max
+    if (decision.leverage && decision.leverage > bot.maxLeverage) {
+      console.log(`📐 Leverage normalized: ${decision.leverage}x → ${bot.maxLeverage}x (cap)`);
+      decision.leverage = bot.maxLeverage;
+    }
+  }
+
   // ── Position Validation ───────────────────────────────────────
   if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
     const validation = await validateOpenPosition(ctx, api, bot, credentials, decision, accountState);
     if (!validation.allowed) return;
 
-    // Legacy risk checks
-    const maxPositionSizePct = normalizeMaxPositionSizePct(bot.maxPositionSize);
-    const maxPositionSizeUsd = accountState.accountValue * (maxPositionSizePct / 100);
-    if (decision.size_usd && decision.size_usd > maxPositionSizeUsd) {
-      console.log(`❌ Trade rejected: position size ${decision.size_usd} exceeds max ${maxPositionSizeUsd}`);
+    // Legacy risk checks (normalization above already handled sizing, these are now redundant safety nets)
+    const maxPositionSizePct_check = normalizeMaxPositionSizePct(bot.maxPositionSize);
+    const maxPositionSizeUsd_check = accountState.accountValue * (maxPositionSizePct_check / 100);
+    if (decision.size_usd && decision.size_usd > maxPositionSizeUsd_check * 1.01) {
+      console.log(`❌ Trade rejected: position size ${decision.size_usd} still exceeds max ${maxPositionSizeUsd_check} after normalization`);
       return;
     }
     if (decision.leverage && decision.leverage > bot.maxLeverage) {
-      console.log(`❌ Trade rejected: leverage ${decision.leverage} exceeds max ${bot.maxLeverage}`);
+      console.log(`❌ Trade rejected: leverage ${decision.leverage} still exceeds max ${bot.maxLeverage} after normalization`);
       return;
     }
   }

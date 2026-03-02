@@ -270,6 +270,8 @@ export interface CompactBotConfig {
   tradeVolatileMarkets?: boolean;
   volatilitySizeReduction?: number;
   tradingMode?: string;
+  consecutiveLosses?: number;
+  consecutiveLossLimit?: number;
 }
 
 /**
@@ -315,6 +317,8 @@ function generateCompactPromptVariables(config: CompactBotConfig) {
     tradingModeDescription,
     volatileTradeRule,
     trend4hRule,
+    consecutiveLosses: config.consecutiveLosses ?? 0,
+    consecutiveLossLimit: config.consecutiveLossLimit ?? 3,
   };
 }
 
@@ -747,6 +751,41 @@ export function createAlphaArenaTradingChain(
 
       // Spread all generated prompt variables
       ...Object.fromEntries(Object.entries(promptVars).map(([key, value]) => [key, () => value])),
+
+      // Position sizing computed variables
+      minimumPositionSize: (input: AlphaArenaInput) => {
+        const av = input.accountState.accountValue;
+        return Math.max(50, av * 0.05).toFixed(0);
+      },
+      typicalPositionSize: (input: AlphaArenaInput) => {
+        const av = input.accountState.accountValue;
+        return Math.max(50, av * 0.05).toFixed(0);
+      },
+      maxPositionSizeUsd: (input: AlphaArenaInput) => {
+        const av = input.accountState.accountValue;
+        const maxPct = (config.maxPositionSize || 30) / 100;
+        return (av * maxPct).toFixed(0);
+      },
+      riskAmountExample: (input: AlphaArenaInput) => {
+        const cash = input.accountState.withdrawable;
+        const riskPct = (config.perTradeRiskPct ?? 2.0) / 100;
+        return (cash * riskPct).toFixed(2);
+      },
+      sizingExample: (input: AlphaArenaInput) => {
+        const cash = input.accountState.withdrawable;
+        const riskPct = (config.perTradeRiskPct ?? 2.0) / 100;
+        const riskAmt = cash * riskPct;
+        return (riskAmt / 0.015).toFixed(0);  // 1.5% stop example
+      },
+      consecutiveLosses: () => config.consecutiveLosses ?? 0,
+      consecutiveLossLimit: () => config.consecutiveLossLimit ?? 3,
+      lossStreakStatus: () => {
+        const losses = config.consecutiveLosses ?? 0;
+        const limit = config.consecutiveLossLimit ?? 3;
+        if (losses === 0) return "No active loss streak — trade normal size";
+        if (losses < limit) return `${losses} losses in a row — trade cautiously but normal size`;
+        return `⚠️ ${losses} losses hit limit — REDUCE risk by 25% until 1 win`;
+      },
     },
     alphaArenaTradingPrompt,
     model,

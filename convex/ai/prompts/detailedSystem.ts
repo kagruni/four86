@@ -204,7 +204,7 @@ RISK MANAGEMENT
 
 Per-Trade Risk:
 - Standard: {perTradeRiskPct}% of account value
-- After {consecutiveLossLimit}+ losses: {perTradeRiskPctReduced}% until 2 wins
+- After {consecutiveLossLimit}+ losses: {perTradeRiskPctReduced}% until 1 win
 
 Portfolio Limits:
 - Max {maxTotalPositions} total positions

@@ -95,6 +95,20 @@ TP/SL REQUIREMENTS (ATR-BASED — MANDATORY):
 - Each coin's [SUGGESTED ZONES] shows pre-calculated $ levels — USE THEM
 - invalidation_condition: Clear technical level that invalidates the thesis
 
+POSITION SIZING (MANDATORY FORMULA):
+- size_usd = (Available Cash × {perTradeRiskPct}%) / stopDistancePct
+- Stop Distance % = |entry - stop_loss| / entry
+- Minimum size: {minimumPositionSize} USD (floor — NEVER go below this)
+- Typical range: {typicalPositionSize} – {maxPositionSizeUsd} USD
+- Example: Cash risk {riskAmountExample} USD at 1.5% stop → size_usd = {sizingExample} USD
+- If formula gives < minimum, USE the minimum
+- If formula gives > max, CAP at max
+
+LOSS CONTEXT:
+- Consecutive losses: {consecutiveLosses} / {consecutiveLossLimit}
+- {lossStreakStatus}
+- After hitting loss limit: reduce risk to {perTradeRiskPct}% × 0.75 until 1 win
+
 VOLATILITY-ADAPTIVE LEVERAGE:
 - ATR% < 1.0%  → 5-{maxLeverage}x (low volatility, tighter moves)
 - ATR% 1.0-2.5% → 3-5x (normal volatility)
@@ -220,6 +234,15 @@ export const ALPHA_ARENA_MARKET_PROMPT = HumanMessagePromptTemplate.fromTemplate
 Account Value: {accountValue} USD
 Available Cash: {availableCash} USD
 Open Positions: {positionCount} / {maxPositions}
+
+###[POSITION SIZING GUIDE]
+Minimum Position Size: {minimumPositionSize} USD
+Typical Position Range: {typicalPositionSize} – {maxPositionSizeUsd} USD
+Risk Amount ({perTradeRiskPct}% of cash): {riskAmountExample} USD
+Example: At 1.5% stop distance → size_usd = {sizingExample} USD
+Consecutive Losses: {consecutiveLosses} / {consecutiveLossLimit}
+Loss Streak Status: {lossStreakStatus}
+⚠️ NEVER set size_usd below {minimumPositionSize}. Use the formula above.
 
 ###[CURRENT OPEN POSITIONS - FROM EXCHANGE]
 ⚠️ IMPORTANT: These are REAL positions currently open on Hyperliquid. Do NOT open new positions on symbols you already have!

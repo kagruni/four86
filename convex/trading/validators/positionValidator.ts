@@ -224,7 +224,7 @@ export async function validateOpenPosition(
   }
 
   // ✅ CHECK #4: Minimum position size
-  const MINIMUM_POSITION_SIZE = Math.min(200, accountState.accountValue * 0.10);
+  const MINIMUM_POSITION_SIZE = Math.max(50, accountState.accountValue * 0.05);
   if (decision.size_usd && decision.size_usd < MINIMUM_POSITION_SIZE) {
     console.log(`❌ Trade rejected: Position size $${decision.size_usd.toFixed(2)} below minimum $${MINIMUM_POSITION_SIZE.toFixed(2)}`);
     await ctx.runMutation(api.mutations.saveSystemLog, {

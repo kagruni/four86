@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -29,6 +29,7 @@ import {
   Brain,
   Clock,
   Minus,
+  X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -43,6 +44,7 @@ import {
   ResponsiveContainer,
   Cell,
   ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -392,6 +394,50 @@ export default function AnalyticsPage() {
   // ── Local state ───────────────────────────────────────────────────────────
   const [timeframe, setTimeframe] = useState<TimeframeKey>("30D");
 
+  // ── Range measurement state ─────────────────────────────────────────────
+  const [rangeStart, setRangeStart] = useState<number | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Clear selection on timeframe change
+  useEffect(() => {
+    setRangeStart(null);
+    setRangeEnd(null);
+    setIsDragging(false);
+  }, [timeframe]);
+
+  const handleChartMouseDown = useCallback(
+    (e: any) => {
+      if (e?.activeTooltipIndex != null) {
+        setRangeStart(e.activeTooltipIndex);
+        setRangeEnd(e.activeTooltipIndex);
+        setIsDragging(true);
+      }
+    },
+    []
+  );
+
+  const handleChartMouseMove = useCallback(
+    (e: any) => {
+      if (isDragging && e?.activeTooltipIndex != null) {
+        setRangeEnd(e.activeTooltipIndex);
+      }
+    },
+    [isDragging]
+  );
+
+  const handleChartMouseUp = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+    }
+  }, [isDragging]);
+
+  const clearSelection = useCallback(() => {
+    setRangeStart(null);
+    setRangeEnd(null);
+    setIsDragging(false);
+  }, []);
+
   // ── Loading guard ─────────────────────────────────────────────────────────
   const isLoading =
     botConfig === undefined ||
@@ -473,6 +519,36 @@ export default function AnalyticsPage() {
       accountValue: s.accountValue,
     }));
   }, [rawSnapshots, timeframe]);
+
+  // ── Range measurement computed data ─────────────────────────────────────
+  const rangeMeasurement = useMemo(() => {
+    if (rangeStart === null || rangeEnd === null) return null;
+    if (rangeStart === rangeEnd) return null;
+    if (equityCurveData.length === 0) return null;
+
+    const lo = Math.min(rangeStart, rangeEnd);
+    const hi = Math.max(rangeStart, rangeEnd);
+    if (lo < 0 || hi >= equityCurveData.length) return null;
+
+    const startPt = equityCurveData[lo];
+    const endPt = equityCurveData[hi];
+    const startVal = startPt.accountValue;
+    const endVal = endPt.accountValue;
+
+    if (startVal === 0) return null;
+
+    const pnlPct = ((endVal - startVal) / startVal) * 100;
+    const pnlUsd = endVal - startVal;
+
+    return {
+      startTimestamp: startPt.timestamp,
+      endTimestamp: endPt.timestamp,
+      pnlPct,
+      pnlUsd,
+      startDate: formatShortDate(startPt.timestamp),
+      endDate: formatShortDate(endPt.timestamp),
+    };
+  }, [rangeStart, rangeEnd, equityCurveData]);
 
   // ── Section 3: Trade performance bars ─────────────────────────────────────
   const tradeBarData = useMemo(() => {
@@ -671,81 +747,148 @@ export default function AnalyticsPage() {
                 <p className="font-mono text-sm text-gray-400">No data yet</p>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart
-                  data={equityCurveData}
-                  margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
-                >
-                  <defs>
-                    <linearGradient
-                      id="equityFill"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
+              <div className="relative">
+                {/* Floating P&L measurement label */}
+                {rangeMeasurement && !isDragging && (
+                  <div className="absolute top-2 right-14 z-10 flex items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 shadow-md">
+                    <div className="text-right">
+                      <p
+                        className={`font-mono text-sm font-bold tabular-nums ${
+                          rangeMeasurement.pnlPct >= 0
+                            ? "text-gray-900"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        {rangeMeasurement.pnlPct >= 0 ? "+" : ""}
+                        {rangeMeasurement.pnlPct.toFixed(2)}%{" "}
+                        <span className="font-normal">
+                          ({rangeMeasurement.pnlUsd >= 0 ? "$" : "-$"}
+                          {Math.abs(rangeMeasurement.pnlUsd).toFixed(2)})
+                        </span>
+                      </p>
+                      <p className="font-mono text-xs text-gray-400">
+                        {rangeMeasurement.startDate} &rarr;{" "}
+                        {rangeMeasurement.endDate}
+                      </p>
+                    </div>
+                    <button
+                      onClick={clearSelection}
+                      className="mt-0.5 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
                     >
-                      <stop
-                        offset="0%"
-                        stopColor="#000000"
-                        stopOpacity={0.08}
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor="#000000"
-                        stopOpacity={0.01}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    stroke="#e5e5e5"
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={formatShortDate}
-                    tick={{
-                      fontSize: 11,
-                      fontFamily: "monospace",
-                      fill: "#737373",
-                    }}
-                    axisLine={{ stroke: "#e5e5e5" }}
-                    tickLine={false}
-                    minTickGap={40}
-                  />
-                  <YAxis
-                    tickFormatter={(v: number) =>
-                      v >= 10000
-                        ? `$${(v / 1000).toFixed(1)}k`
-                        : `$${v.toFixed(0)}`
-                    }
-                    tick={{
-                      fontSize: 11,
-                      fontFamily: "monospace",
-                      fill: "#737373",
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={55}
-                    domain={["dataMin - 5", "dataMax + 5"]}
-                  />
-                  <Tooltip content={<EquityCurveTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey="accountValue"
-                    stroke="#000000"
-                    strokeWidth={1.5}
-                    fill="url(#equityFill)"
-                    dot={false}
-                    activeDot={{
-                      r: 4,
-                      fill: "#000000",
-                      stroke: "#ffffff",
-                      strokeWidth: 2,
-                    }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart
+                    data={equityCurveData}
+                    margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
+                    onMouseDown={handleChartMouseDown}
+                    onMouseMove={handleChartMouseMove}
+                    onMouseUp={handleChartMouseUp}
+                    onMouseLeave={handleChartMouseUp}
+                    style={{ cursor: isDragging ? "crosshair" : "crosshair" }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="equityFill"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="#000000"
+                          stopOpacity={0.08}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#000000"
+                          stopOpacity={0.01}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      stroke="#e5e5e5"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="timestamp"
+                      tickFormatter={formatShortDate}
+                      tick={{
+                        fontSize: 11,
+                        fontFamily: "monospace",
+                        fill: "#737373",
+                      }}
+                      axisLine={{ stroke: "#e5e5e5" }}
+                      tickLine={false}
+                      minTickGap={40}
+                    />
+                    <YAxis
+                      tickFormatter={(v: number) =>
+                        v >= 10000
+                          ? `$${(v / 1000).toFixed(1)}k`
+                          : `$${v.toFixed(0)}`
+                      }
+                      tick={{
+                        fontSize: 11,
+                        fontFamily: "monospace",
+                        fill: "#737373",
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={55}
+                      domain={["dataMin - 5", "dataMax + 5"]}
+                    />
+                    {!isDragging && (
+                      <Tooltip content={<EquityCurveTooltip />} />
+                    )}
+                    {/* ReferenceArea for range highlight */}
+                    {rangeStart !== null &&
+                      rangeEnd !== null &&
+                      rangeStart !== rangeEnd && (
+                        <ReferenceArea
+                          x1={
+                            equityCurveData[
+                              Math.min(rangeStart, rangeEnd)
+                            ]?.timestamp
+                          }
+                          x2={
+                            equityCurveData[
+                              Math.max(rangeStart, rangeEnd)
+                            ]?.timestamp
+                          }
+                          fill="rgba(0,0,0,0.06)"
+                          strokeOpacity={0}
+                        />
+                      )}
+                    <Area
+                      type="monotone"
+                      dataKey="accountValue"
+                      stroke="#000000"
+                      strokeWidth={1.5}
+                      fill="url(#equityFill)"
+                      dot={false}
+                      activeDot={{
+                        r: 4,
+                        fill: "#000000",
+                        stroke: "#ffffff",
+                        strokeWidth: 2,
+                      }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+
+                {/* Hint text */}
+                {!rangeMeasurement && (
+                  <p className="mt-1 text-center font-mono text-xs text-gray-400">
+                    Drag to measure
+                  </p>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

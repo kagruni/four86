@@ -498,6 +498,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    reconnectAttemptsRef.current = 0; // fresh start for new symbol/interval
 
     const wsUrl = testnetRef.current
       ? "wss://api.hyperliquid-testnet.xyz/ws"
@@ -518,6 +519,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
         };
 
         ws.onmessage = (event) => {
+          // Ignore messages from a stale WS (symbol was switched)
+          if (wsRef.current !== ws) return;
           try {
             const msg = JSON.parse(event.data);
             if (msg.channel !== "candle" || !msg.data) return;
@@ -554,6 +557,9 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
         };
 
         ws.onclose = () => {
+          // If a newer WS has already replaced us, don't reconnect
+          // (this happens when symbol/interval changes trigger stopWebSocket → startWebSocket)
+          if (wsRef.current !== ws) return;
           setWsConnected(false);
           wsRef.current = null;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);

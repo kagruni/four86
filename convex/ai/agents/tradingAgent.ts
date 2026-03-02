@@ -308,6 +308,8 @@ export const makeAlphaArenaTradingDecision = action({
       tradeVolatileMarkets: v.optional(v.boolean()),
       volatilitySizeReduction: v.optional(v.number()),
       tradingMode: v.optional(v.string()),
+      consecutiveLosses: v.optional(v.number()),
+      consecutiveLossLimit: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {
