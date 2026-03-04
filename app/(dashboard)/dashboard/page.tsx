@@ -30,6 +30,9 @@ import {
   Loader2,
   RefreshCw,
   X,
+  ShieldAlert,
+  ShieldCheck,
+  RotateCcw,
 } from "lucide-react";
 import { useMutation } from "convex/react";
 import { useState, useEffect } from "react";
@@ -73,6 +76,10 @@ export default function DashboardPage() {
   const toggleBot = useMutation(api.mutations.toggleBot);
   const [isToggling, setIsToggling] = useState(false);
   const { toast } = useToast();
+
+  // Circuit breaker reset
+  const resetCircuitBreaker = useMutation(api.mutations.resetCircuitBreaker);
+  const [isResettingCB, setIsResettingCB] = useState(false);
 
   // Manual close position action
   const manualClosePosition = useAction(api.testing.manualTrigger.manualClosePosition);
@@ -192,6 +199,37 @@ export default function DashboardPage() {
       setIsToggling(false);
     }
   };
+
+  const handleResetCircuitBreaker = async () => {
+    if (!userId) return;
+    setIsResettingCB(true);
+    try {
+      await resetCircuitBreaker({ userId });
+      toast({
+        title: "Circuit Breaker Reset",
+        description: "Trading has been re-enabled. The bot will resume on the next cycle.",
+      });
+    } catch (error) {
+      console.log("Error resetting circuit breaker:", error instanceof Error ? error.message : String(error));
+      toast({
+        title: "Error",
+        description: "Failed to reset circuit breaker.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsResettingCB(false);
+    }
+  };
+
+  // Circuit breaker derived state
+  const cbState = botConfig?.circuitBreakerState ?? "active";
+  const cbIsTripped = cbState === "tripped";
+  const cbIsCooldown = cbState === "cooldown";
+  const cbTrippedAt = botConfig?.circuitBreakerTrippedAt;
+  const cbCooldownMinutes = botConfig?.circuitBreakerCooldownMinutes ?? 30;
+  const cbRemainingMinutes = cbTrippedAt
+    ? Math.max(0, Math.ceil((cbCooldownMinutes * 60 * 1000 - (Date.now() - cbTrippedAt)) / 60000))
+    : 0;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -420,6 +458,84 @@ export default function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* Circuit Breaker Status */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.05 }}
+      >
+        <Card className={`border overflow-hidden transition-all duration-300 ${
+          cbIsTripped
+            ? "border-gray-900 bg-gray-950 text-white"
+            : cbIsCooldown
+              ? "border-gray-300 bg-gray-100 text-black"
+              : "border-gray-200 bg-white text-black"
+        }`}>
+          <CardContent className="flex items-center justify-between py-3 px-5">
+            <div className="flex items-center gap-3">
+              {cbIsTripped ? (
+                <ShieldAlert className="h-5 w-5 text-white shrink-0" />
+              ) : cbIsCooldown ? (
+                <ShieldAlert className="h-5 w-5 text-gray-500 shrink-0" />
+              ) : (
+                <ShieldCheck className="h-5 w-5 text-gray-400 shrink-0" />
+              )}
+              <div>
+                <p className="text-sm font-semibold">
+                  {cbIsTripped
+                    ? "Circuit Breaker Tripped — Trading Paused"
+                    : cbIsCooldown
+                      ? "Circuit Breaker Cooldown — Monitoring"
+                      : "Circuit Breaker — OK"}
+                </p>
+                <p className={`text-xs mt-0.5 ${
+                  cbIsTripped ? "text-gray-400" : "text-gray-500"
+                }`}>
+                  {cbIsTripped ? (
+                    <>
+                      {(botConfig?.consecutiveAiFailures ?? 0) > 0 &&
+                        `${botConfig?.consecutiveAiFailures} consecutive AI failures. `}
+                      {(botConfig?.consecutiveLosses ?? 0) > 0 &&
+                        `${botConfig?.consecutiveLosses} consecutive losses. `}
+                      {cbRemainingMinutes > 0
+                        ? `Auto-resumes in ~${cbRemainingMinutes} min.`
+                        : "Cooldown elapsed — will resume next cycle."}
+                    </>
+                  ) : cbIsCooldown ? (
+                    "First trade after cooldown. Will reset to active on success."
+                  ) : (
+                    <>
+                      AI failures: {botConfig?.consecutiveAiFailures ?? 0}/{botConfig?.maxConsecutiveAiFailures ?? 3}
+                      {" · "}
+                      Losses: {botConfig?.consecutiveLosses ?? 0}/{botConfig?.maxConsecutiveLosses ?? 5}
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            {(cbIsTripped || cbIsCooldown) && (
+              <Button
+                variant={cbIsTripped ? "secondary" : "outline"}
+                size="sm"
+                className={cbIsTripped
+                  ? "bg-white text-black hover:bg-gray-200 shrink-0"
+                  : "border-gray-400 text-black hover:bg-gray-200 shrink-0"
+                }
+                onClick={handleResetCircuitBreaker}
+                disabled={isResettingCB}
+              >
+                {isResettingCB ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {isResettingCB ? "Resetting..." : "Reset"}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Account Overview */}
       <div className="grid gap-4 md:grid-cols-3">

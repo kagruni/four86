@@ -71,6 +71,18 @@
   }
 }
 
+/* Remove blue focus outline from Recharts chart elements (Chrome) */
+.recharts-wrapper,
+.recharts-wrapper *,
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
 @layer utilities {
   .gradient-separator {
     @apply h-px bg-gradient-to-r from-transparent via-black/20 to-transparent;

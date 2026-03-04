@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Activity, Settings, BarChart3, FlaskConical } from "lucide-react";
+import { useState, useEffect } from "react";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Activity },
@@ -20,6 +21,8 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   return (
     <div className="min-h-screen bg-white">
@@ -61,7 +64,7 @@ export default function DashboardLayout({
               })}
             </nav>
             <div className="flex items-center">
-              <UserButton afterSignOutUrl="/" />
+              {mounted && <UserButton afterSignOutUrl="/" />}
             </div>
           </div>
         </div>

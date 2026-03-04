@@ -111,9 +111,22 @@ export const getAccountSnapshots = query({
   args: {
     userId: v.string(),
     limit: v.optional(v.number()),
+    since: v.optional(v.number()), // timestamp cutoff – return only snapshots >= this
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 100;
+
+    if (args.since) {
+      // Use the compound index to filter server-side by timestamp range
+      return await ctx.db
+        .query("accountSnapshots")
+        .withIndex("by_userId_time", (q) =>
+          q.eq("userId", args.userId).gte("timestamp", args.since!)
+        )
+        .order("asc")
+        .collect();
+    }
+
     return await ctx.db
       .query("accountSnapshots")
       .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))

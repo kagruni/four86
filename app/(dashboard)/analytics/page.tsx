@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -376,23 +376,27 @@ export default function AnalyticsPage() {
   const { user } = useUser();
   const userId = user?.id || "";
 
+  // ── Local state ───────────────────────────────────────────────────────────
+  const [timeframe, setTimeframe] = useState<TimeframeKey>("30D");
+
   // ── Data fetching ─────────────────────────────────────────────────────────
   const botConfig = useQuery(api.queries.getBotConfig, { userId });
   const rawTrades = useQuery(api.queries.getRecentTrades, {
     userId,
     limit: 200,
   }) as Trade[] | undefined;
+  const snapshotSince = useMemo(() => {
+    const ms = TIMEFRAME_MS[timeframe];
+    return ms === Infinity ? undefined : Date.now() - ms;
+  }, [timeframe]);
   const rawSnapshots = useQuery(api.queries.getAccountSnapshots, {
     userId,
-    limit: 200,
+    ...(snapshotSince ? { since: snapshotSince } : { limit: 10000 }),
   });
   const rawAiLogs = useQuery(api.queries.getRecentAILogs, {
     userId,
     limit: 100,
   }) as AILog[] | undefined;
-
-  // ── Local state ───────────────────────────────────────────────────────────
-  const [timeframe, setTimeframe] = useState<TimeframeKey>("30D");
 
   // ── Range measurement state ─────────────────────────────────────────────
   const [rangeStart, setRangeStart] = useState<number | null>(null);
@@ -437,6 +441,16 @@ export default function AnalyticsPage() {
     setRangeEnd(null);
     setIsDragging(false);
   }, []);
+
+  // Remove tabindex from all Recharts elements to prevent Chrome focus ring
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    el.querySelectorAll("[tabindex]").forEach((node) => {
+      node.removeAttribute("tabindex");
+    });
+  });
 
   // ── Loading guard ─────────────────────────────────────────────────────────
   const isLoading =
@@ -508,17 +522,13 @@ export default function AnalyticsPage() {
   const equityCurveData = useMemo(() => {
     if (!rawSnapshots || rawSnapshots.length === 0) return [];
 
-    const now = Date.now();
-    const cutoff = TIMEFRAME_MS[timeframe];
-    const sorted = [...rawSnapshots]
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .filter((s) => cutoff === Infinity || now - s.timestamp <= cutoff);
+    const sorted = [...rawSnapshots].sort((a, b) => a.timestamp - b.timestamp);
 
     return sorted.map((s) => ({
       timestamp: s.timestamp,
       accountValue: s.accountValue,
     }));
-  }, [rawSnapshots, timeframe]);
+  }, [rawSnapshots]);
 
   // ── Range measurement computed data ─────────────────────────────────────
   const rangeMeasurement = useMemo(() => {
@@ -747,7 +757,7 @@ export default function AnalyticsPage() {
                 <p className="font-mono text-sm text-gray-400">No data yet</p>
               </div>
             ) : (
-              <div className="relative">
+              <div className="relative" ref={chartContainerRef}>
                 {/* Floating P&L measurement label */}
                 {rangeMeasurement && !isDragging && (
                   <div className="absolute top-2 right-14 z-10 flex items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 shadow-md">
@@ -788,7 +798,7 @@ export default function AnalyticsPage() {
                     onMouseMove={handleChartMouseMove}
                     onMouseUp={handleChartMouseUp}
                     onMouseLeave={handleChartMouseUp}
-                    style={{ cursor: isDragging ? "crosshair" : "crosshair" }}
+                    style={{ cursor: "crosshair", outline: "none" }}
                   >
                     <defs>
                       <linearGradient
@@ -843,9 +853,7 @@ export default function AnalyticsPage() {
                       width={55}
                       domain={["dataMin - 5", "dataMax + 5"]}
                     />
-                    {!isDragging && (
-                      <Tooltip content={<EquityCurveTooltip />} />
-                    )}
+                    <Tooltip content={<EquityCurveTooltip />} isAnimationActive={false} />
                     {/* ReferenceArea for range highlight */}
                     {rangeStart !== null &&
                       rangeEnd !== null &&
