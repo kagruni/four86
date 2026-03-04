@@ -757,7 +757,7 @@ export default function AnalyticsPage() {
                 <p className="font-mono text-sm text-gray-400">No data yet</p>
               </div>
             ) : (
-              <div className="relative" ref={chartContainerRef}>
+              <div className="relative select-none" ref={chartContainerRef}>
                 {/* Floating P&L measurement label */}
                 {rangeMeasurement && !isDragging && (
                   <div className="absolute top-2 right-14 z-10 flex items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 shadow-md">
