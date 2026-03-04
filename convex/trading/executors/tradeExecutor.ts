@@ -172,16 +172,20 @@ export async function executeClose(
     testnet: credentials.hyperliquidTestnet,
   });
 
-  // Get current price for accurate exit pricing
-  let exitPrice = result.price || positionToClose.currentPrice || 0;
-  try {
-    const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
-      symbols: [decision.symbol],
-      testnet: credentials.hyperliquidTestnet,
-    });
-    exitPrice = currentMarket[decision.symbol]?.price || exitPrice;
-  } catch {
-    /* Use DB price as fallback */
+  // Prefer actual fill price from exchange over estimated market price
+  let exitPrice = result.avgPx || result.price || positionToClose.currentPrice || 0;
+
+  // Only fall back to market data if no fill price from exchange
+  if (!result.avgPx) {
+    try {
+      const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
+        symbols: [decision.symbol],
+        testnet: credentials.hyperliquidTestnet,
+      });
+      exitPrice = currentMarket[decision.symbol]?.price || exitPrice;
+    } catch {
+      /* Use existing price as fallback */
+    }
   }
 
   // Calculate realized P&L from entry/exit and actual closed size.

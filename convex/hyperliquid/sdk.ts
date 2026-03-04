@@ -252,7 +252,7 @@ export async function setLeverage(
  */
 export async function placeOrder(
   params: PlaceOrderParams
-): Promise<{ success: boolean; txHash: string; price: number }> {
+): Promise<{ success: boolean; txHash: string; price: number; avgPx?: number; totalSz?: number }> {
   const { privateKey, symbol, isBuy, size, price, testnet, reduceOnly = false, timeInForce = "Gtc" } = params;
 
   try {
@@ -316,6 +316,9 @@ export async function placeOrder(
 
     console.log(`[placeOrder] Raw response:`, JSON.stringify(result?.response?.data, null, 2)?.slice(0, 500));
 
+    let avgPx: number | undefined;
+    let totalSz: number | undefined;
+
     if (status) {
       if ("error" in status) {
         console.error(`[placeOrder] Order rejected by Hyperliquid:`, status.error);
@@ -323,7 +326,9 @@ export async function placeOrder(
       }
       if ("filled" in status) {
         txHash = `filled_${status.filled.oid}`;
-        console.log(`[placeOrder] Order FILLED: oid=${status.filled.oid}, totalSz=${status.filled.totalSz}, avgPx=${status.filled.avgPx}`);
+        avgPx = parseFloat(status.filled.avgPx);
+        totalSz = parseFloat(status.filled.totalSz);
+        console.log(`[placeOrder] Order FILLED: oid=${status.filled.oid}, totalSz=${totalSz}, avgPx=${avgPx}`);
       } else if ("resting" in status) {
         txHash = `resting_${status.resting.oid}`;
         console.log(`[placeOrder] Order RESTING: oid=${status.resting.oid}`);
@@ -336,6 +341,8 @@ export async function placeOrder(
       success: true,
       txHash,
       price,
+      avgPx,
+      totalSz,
     };
   } catch (error) {
     console.error("Error placing order on Hyperliquid:", error);
@@ -539,7 +546,7 @@ export async function placeTakeProfit(
  */
 export async function closePosition(
   params: ClosePositionParams
-): Promise<{ success: boolean; txHash: string }> {
+): Promise<{ success: boolean; txHash: string; avgPx?: number; totalSz?: number }> {
   const { privateKey, symbol, size, price, isBuy, testnet } = params;
 
   try {
@@ -575,6 +582,8 @@ export async function closePosition(
     return {
       success: result.success,
       txHash: result.txHash,
+      avgPx: result.avgPx,
+      totalSz: result.totalSz,
     };
   } catch (error) {
     console.error("Error closing position on Hyperliquid:", error);
@@ -778,7 +787,7 @@ export async function nuclearClosePosition(
   address: string,
   symbol: string,
   testnet: boolean
-): Promise<{ success: boolean; txHash: string; cancelledOrders: number }> {
+): Promise<{ success: boolean; txHash: string; cancelledOrders: number; avgPx?: number; totalSz?: number }> {
   try {
     console.log(`[nuclearClose] Starting nuclear close for ${symbol}`);
 
@@ -838,6 +847,8 @@ export async function nuclearClosePosition(
       success: closeResult.success,
       txHash: closeResult.txHash,
       cancelledOrders: cancelResult.cancelledCount,
+      avgPx: closeResult.avgPx,
+      totalSz: closeResult.totalSz,
     };
   } catch (error) {
     console.error("[nuclearClose] Error:", error);

@@ -1,6 +1,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../fnRefs";
+import { calculatePnl } from "../trading/pnlCalculator";
 
 /**
  * FORCE CLOSE any position directly on Hyperliquid
@@ -513,6 +514,12 @@ export const manualClosePosition = action({
         return { success: false, error: "Missing Hyperliquid credentials" };
       }
 
+      // Get position data BEFORE closing for PnL calculation
+      const positions = await ctx.runQuery(api.queries.getPositions, { userId: args.userId });
+      const dbPosition = (positions || []).find((p: any) => p.symbol === args.symbol);
+      const entryPrice = dbPosition?.entryPrice || 0;
+      const leverage = dbPosition?.leverage || 1;
+
       // Close the position on Hyperliquid
       // To close a LONG position, we SELL (isBuy=false)
       // To close a SHORT position, we BUY (isBuy=true)
@@ -527,15 +534,27 @@ export const manualClosePosition = action({
 
       console.log(`[Manual Close] Position closed on Hyperliquid:`, result);
 
-      // Save trade record
+      // Calculate PnL from actual fill data
+      const exitPrice = result.avgPx || result.price || 0;
+      const sizeInCoins = result.totalSz || args.size;
+      const { pnl, pnlPct } = calculatePnl({
+        side: args.side,
+        entryPrice,
+        exitPrice,
+        sizeInCoins,
+      });
+
+      // Save trade record with actual PnL data
       await ctx.runMutation(api.mutations.saveTrade, {
         userId: args.userId,
         symbol: args.symbol,
         action: "CLOSE",
-        side: "CLOSE",
-        size: 0,
-        leverage: 1,
-        price: 0,
+        side: args.side,
+        size: sizeInCoins * exitPrice,
+        leverage,
+        price: exitPrice,
+        pnl,
+        pnlPct,
         aiReasoning: "Manual close from dashboard",
         aiModel: "manual",
         confidence: 1,

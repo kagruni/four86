@@ -151,7 +151,7 @@ async function handlePnl(
 
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const recentTrades = (trades || []).filter(
-    (t: any) => (t.executedAt || t.createdAt || 0) >= oneDayAgo
+    (t: any) => t.action === "CLOSE" && (t.executedAt || t.createdAt || 0) >= oneDayAgo
   );
 
   const formatted = formatPnl(
@@ -730,7 +730,7 @@ async function handleCloseConfirmCallback(
     return;
   }
 
-  await ctx.runAction(api.hyperliquid.client.closePosition, {
+  const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
     privateKey: credentials.hyperliquidPrivateKey,
     address: credentials.hyperliquidAddress,
     symbol: position.symbol,
@@ -739,12 +739,41 @@ async function handleCloseConfirmCallback(
     testnet,
   });
 
+  // Calculate PnL from actual fill data
+  const exitPrice = result.avgPx || result.price || 0;
+  const sizeInCoins = result.totalSz || (position.size / position.entryPrice);
+  const pnlRaw = position.side === "LONG"
+    ? (exitPrice - position.entryPrice) * sizeInCoins
+    : (position.entryPrice - exitPrice) * sizeInCoins;
+  const notionalEntry = position.entryPrice * sizeInCoins;
+  const pnlPctRaw = notionalEntry > 0 ? (pnlRaw / notionalEntry) * 100 : 0;
+  const pnl = Number.isFinite(pnlRaw) ? pnlRaw : 0;
+  const pnlPct = Number.isFinite(pnlPctRaw) ? pnlPctRaw : 0;
+
+  // Save trade record with PnL BEFORE deleting position
+  await ctx.runMutation(api.mutations.saveTrade, {
+    userId,
+    symbol: position.symbol,
+    action: "CLOSE",
+    side: position.side || "LONG",
+    size: sizeInCoins * exitPrice,
+    leverage: position.leverage || 1,
+    price: exitPrice,
+    pnl,
+    pnlPct,
+    aiReasoning: "Manual close via Telegram",
+    aiModel: "manual",
+    confidence: 1,
+    txHash: result.txHash || "telegram-close",
+  });
+
   await ctx.runMutation(api.mutations.closePosition, {
     userId,
     symbol,
   });
 
-  await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.`);
+  const pnlSign = pnl >= 0 ? "+" : "";
+  await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.\nP&L: \`${pnlSign}$${pnl.toFixed(2)}\` (${pnlPct.toFixed(2)}%)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -787,7 +816,7 @@ async function handleCloseAllConfirmCallback(
 
   for (const pos of positions) {
     try {
-      await ctx.runAction(api.hyperliquid.client.closePosition, {
+      const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
         symbol: pos.symbol,
@@ -796,12 +825,41 @@ async function handleCloseAllConfirmCallback(
         testnet,
       });
 
+      // Calculate PnL from actual fill data
+      const exitPrice = result.avgPx || result.price || 0;
+      const sizeInCoins = result.totalSz || (pos.size / pos.entryPrice);
+      const pnlRaw = pos.side === "LONG"
+        ? (exitPrice - pos.entryPrice) * sizeInCoins
+        : (pos.entryPrice - exitPrice) * sizeInCoins;
+      const notionalEntry = pos.entryPrice * sizeInCoins;
+      const pnlPctRaw = notionalEntry > 0 ? (pnlRaw / notionalEntry) * 100 : 0;
+      const pnl = Number.isFinite(pnlRaw) ? pnlRaw : 0;
+      const pnlPct = Number.isFinite(pnlPctRaw) ? pnlPctRaw : 0;
+
+      // Save trade record BEFORE deleting position
+      await ctx.runMutation(api.mutations.saveTrade, {
+        userId,
+        symbol: pos.symbol,
+        action: "CLOSE",
+        side: pos.side || "LONG",
+        size: sizeInCoins * exitPrice,
+        leverage: pos.leverage || 1,
+        price: exitPrice,
+        pnl,
+        pnlPct,
+        aiReasoning: "Manual close all via Telegram",
+        aiModel: "manual",
+        confidence: 1,
+        txHash: result.txHash || "telegram-closeall",
+      });
+
       await ctx.runMutation(api.mutations.closePosition, {
         userId,
         symbol: pos.symbol,
       });
 
-      results.push(`\u{2705} ${pos.symbol}: closed`);
+      const pnlSign = pnl >= 0 ? "+" : "";
+      results.push(`\u{2705} ${pos.symbol}: closed (${pnlSign}$${pnl.toFixed(2)})`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       results.push(`\u{274C} ${pos.symbol}: ${msg}`);

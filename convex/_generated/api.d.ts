@@ -66,6 +66,7 @@ import type * as trading_converters_positionConverter from "../trading/converter
 import type * as trading_executors_tradeExecutor from "../trading/executors/tradeExecutor.js";
 import type * as trading_logger from "../trading/logger.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
+import type * as trading_pnlCalculator from "../trading/pnlCalculator.js";
 import type * as trading_positionSync from "../trading/positionSync.js";
 import type * as trading_tradingLoop from "../trading/tradingLoop.js";
 import type * as trading_validators_positionValidator from "../trading/validators/positionValidator.js";
@@ -144,6 +145,7 @@ declare const fullApi: ApiFromModules<{
   "trading/executors/tradeExecutor": typeof trading_executors_tradeExecutor;
   "trading/logger": typeof trading_logger;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
+  "trading/pnlCalculator": typeof trading_pnlCalculator;
   "trading/positionSync": typeof trading_positionSync;
   "trading/tradingLoop": typeof trading_tradingLoop;
   "trading/validators/positionValidator": typeof trading_validators_positionValidator;

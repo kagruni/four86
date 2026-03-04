@@ -420,6 +420,8 @@ export const closePosition = action({
         success: result.success,
         txHash: result.txHash,
         price: closePrice,
+        avgPx: result.avgPx,
+        totalSz: result.totalSz,
       };
     } catch (error) {
       console.error("Error closing position:", error);
@@ -566,7 +568,13 @@ export const nuclearClosePosition = action({
         args.symbol,
         args.testnet
       );
-      return result;
+      return {
+        success: result.success,
+        txHash: result.txHash,
+        cancelledOrders: result.cancelledOrders,
+        avgPx: result.avgPx,
+        totalSz: result.totalSz,
+      };
     } catch (error) {
       console.log("Error in nuclear close:", error instanceof Error ? error.message : String(error));
       throw new Error(`Nuclear close failed: ${error instanceof Error ? error.message : String(error)}`);
