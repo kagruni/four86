@@ -399,14 +399,14 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-black">Dashboard</h1>
-          <p className="mt-2 text-sm text-gray-500">
+          <h1 className="text-2xl sm:text-3xl font-bold text-black">Dashboard</h1>
+          <p className="mt-1 sm:mt-2 text-sm text-gray-500">
             Monitor your AI trading bot performance
           </p>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2 sm:space-x-4">
           <Badge
             variant={isBotActive ? "default" : "outline"}
             className={
@@ -419,6 +419,7 @@ export default function DashboardPage() {
           </Badge>
           <Button
             variant="outline"
+            size="sm"
             className="border-black text-black hover:bg-black hover:text-white"
             onClick={handleRefreshPositions}
             disabled={isLoadingPositions}
@@ -431,6 +432,7 @@ export default function DashboardPage() {
           </Button>
           <Button
             variant={isBotActive ? "outline" : "default"}
+            size="sm"
             className={
               isBotActive
                 ? "border-black text-black hover:bg-black hover:text-white"
@@ -442,17 +444,20 @@ export default function DashboardPage() {
             {isToggling ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {isBotActive ? "Stopping..." : "Starting..."}
+                <span className="hidden sm:inline">{isBotActive ? "Stopping..." : "Starting..."}</span>
+                <span className="sm:hidden">...</span>
               </>
             ) : isBotActive ? (
               <>
                 <PauseCircle className="mr-2 h-4 w-4" />
-                Stop Bot
+                <span className="hidden sm:inline">Stop Bot</span>
+                <span className="sm:hidden">Stop</span>
               </>
             ) : (
               <>
                 <PlayCircle className="mr-2 h-4 w-4" />
-                Start Bot
+                <span className="hidden sm:inline">Start Bot</span>
+                <span className="sm:hidden">Start</span>
               </>
             )}
           </Button>
@@ -674,153 +679,295 @@ export default function DashboardPage() {
                 No open positions
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-black hover:bg-gray-50">
-                      <TableHead className="text-black font-semibold">Symbol</TableHead>
-                      <TableHead className="text-black font-semibold">Side</TableHead>
-                      <TableHead className="text-black font-semibold">Leverage</TableHead>
-                      <TableHead className="text-black font-semibold">Size (USD)</TableHead>
-                      <TableHead className="text-black font-semibold">Entry</TableHead>
-                      <TableHead className="text-black font-semibold">Current</TableHead>
-                      <TableHead className="text-black font-semibold">Stop Loss</TableHead>
-                      <TableHead className="text-black font-semibold">Take Profit</TableHead>
-                      <TableHead className="text-black font-semibold">Liq. Price</TableHead>
-                      <TableHead className="text-black font-semibold">P&L</TableHead>
-                      <TableHead className="text-black font-semibold">P&L %</TableHead>
-                      <TableHead className="text-black font-semibold">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {positions.map((position) => {
-                      const isExpanded = expandedPosition === position.symbol;
-                      return (
-                        <React.Fragment key={position._id}>
-                          <TableRow
-                            className={`border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150 cursor-pointer ${isExpanded ? "bg-gray-50" : ""}`}
-                            onClick={() =>
-                              setExpandedPosition(
-                                isExpanded ? null : position.symbol
-                              )
-                            }
-                          >
-                            <TableCell className="font-mono font-semibold text-black">
-                              <span className="flex items-center gap-1.5">
-                                <span
-                                  className={`inline-block text-xs text-gray-400 transition-transform duration-200 ${
-                                    isExpanded ? "rotate-90" : ""
-                                  }`}
-                                >
-                                  ▶
-                                </span>
+              <>
+                {/* Mobile: Card-based layout */}
+                <div className="md:hidden space-y-3">
+                  {positions.map((position) => {
+                    const isExpanded = expandedPosition === position.symbol;
+                    return (
+                      <div key={position._id} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          className={`w-full text-left p-3 transition-colors ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50/50"}`}
+                          onClick={() => setExpandedPosition(isExpanded ? null : position.symbol)}
+                        >
+                          {/* Row 1: Symbol, Side badge, P&L */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`inline-block text-xs text-gray-400 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
+                              >
+                                ▶
+                              </span>
+                              <span className="font-mono font-bold text-black text-sm">
                                 {position.symbol}
                               </span>
-                            </TableCell>
-                            <TableCell>
                               <Badge
                                 variant="outline"
-                                className={
+                                className={`text-[10px] px-1.5 py-0 h-5 ${
                                   position.side === "LONG"
-                                    ? "border-black text-black bg-white"
-                                    : "border-gray-600 text-gray-600 bg-white"
-                                }
+                                    ? "border-black text-black"
+                                    : "border-gray-500 text-gray-600"
+                                }`}
                               >
                                 {position.side === "LONG" ? (
-                                  <ArrowUpRight className="mr-1 h-3 w-3" />
+                                  <ArrowUpRight className="mr-0.5 h-2.5 w-2.5" />
                                 ) : (
-                                  <ArrowDownRight className="mr-1 h-3 w-3" />
+                                  <ArrowDownRight className="mr-0.5 h-2.5 w-2.5" />
                                 )}
-                                {position.side}
+                                {position.side} {position.leverage}x
                               </Badge>
-                            </TableCell>
-                            <TableCell className="text-black font-mono font-medium tabular-nums">
-                              {position.leverage}x
-                            </TableCell>
-                            <TableCell className="text-black font-mono tabular-nums">
-                              {formatCurrency(position.size)}
-                            </TableCell>
-                            <TableCell className="text-black font-mono tabular-nums">
-                              {formatPrice(position.entryPrice)}
-                            </TableCell>
-                            <TableCell className="text-black font-mono tabular-nums">
-                              {formatPrice(position.currentPrice)}
-                            </TableCell>
-                            <TableCell className="text-red-600 font-mono font-medium text-xs tabular-nums">
-                              {position.stopLoss ? formatPrice(position.stopLoss) : '-'}
-                            </TableCell>
-                            <TableCell className="text-green-600 font-mono font-medium text-xs tabular-nums">
-                              {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
-                            </TableCell>
-                            <TableCell className="text-gray-500 font-mono text-xs tabular-nums">
-                              {position.liquidationPrice ? formatPrice(position.liquidationPrice) : '-'}
-                            </TableCell>
-                            <TableCell className={`font-mono tabular-nums ${position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
-                              {formatCurrency(position.unrealizedPnl)}
-                            </TableCell>
-                            <TableCell className={`font-mono tabular-nums ${position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
-                              {formatPercent(position.unrealizedPnlPct)}
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSellPosition(position);
-                                }}
-                                disabled={sellingPosition === position.symbol}
-                              >
-                                {sellingPosition === position.symbol ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <X className="mr-1 h-3 w-3" />
-                                    Sell
-                                  </>
-                                )}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                          {/* Expanded Chart Row */}
-                          <AnimatePresence>
-                            {isExpanded && (
-                              <tr>
-                                <td colSpan={12} className="p-0">
-                                  <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{
-                                      height: { duration: 0.3, ease: "easeOut" as const },
-                                      opacity: { duration: 0.2, ease: "easeOut" as const },
-                                    }}
-                                    className="overflow-hidden border-t border-gray-100 bg-gray-50/50"
-                                  >
-                                    <div className="px-6 py-3">
-                                      <PositionChart
-                                        symbol={position.symbol}
-                                        entryPrice={position.entryPrice}
-                                        currentPrice={position.currentPrice}
-                                        stopLoss={position.stopLoss}
-                                        takeProfit={position.takeProfit}
-                                        liquidationPrice={position.liquidationPrice}
-                                        side={position.side}
-                                        testnet={hyperliquidTestnet}
-                                      />
-                                    </div>
-                                  </motion.div>
-                                </td>
-                              </tr>
+                            </div>
+                            <div className="text-right">
+                              <span className={`font-mono font-semibold tabular-nums text-sm ${position.unrealizedPnl >= 0 ? "text-black" : "text-gray-600"}`}>
+                                {formatCurrency(position.unrealizedPnl)}
+                              </span>
+                              <span className={`ml-1.5 font-mono tabular-nums text-xs ${position.unrealizedPnlPct >= 0 ? "text-black" : "text-gray-500"}`}>
+                                {formatPercent(position.unrealizedPnlPct)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Row 2: Key prices in a compact grid */}
+                          <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums">
+                            <div>
+                              <span className="text-gray-400">Entry</span>
+                              <div className="text-black">{formatPrice(position.entryPrice)}</div>
+                            </div>
+                            <div>
+                              <span className="text-gray-400">Current</span>
+                              <div className="text-black">{formatPrice(position.currentPrice)}</div>
+                            </div>
+                            <div>
+                              <span className="text-gray-400">Size</span>
+                              <div className="text-black">{formatCurrency(position.size)}</div>
+                            </div>
+                            {position.stopLoss && (
+                              <div>
+                                <span className="text-gray-400">SL</span>
+                                <div className="text-red-600">{formatPrice(position.stopLoss)}</div>
+                              </div>
                             )}
-                          </AnimatePresence>
-                        </React.Fragment>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                            {position.takeProfit && (
+                              <div>
+                                <span className="text-gray-400">TP</span>
+                                <div className="text-green-600">{formatPrice(position.takeProfit)}</div>
+                              </div>
+                            )}
+                            {position.liquidationPrice && (
+                              <div>
+                                <span className="text-gray-400">Liq</span>
+                                <div className="text-gray-500">{formatPrice(position.liquidationPrice)}</div>
+                              </div>
+                            )}
+                          </div>
+                        </button>
+
+                        {/* Sell button — always visible on mobile */}
+                        <div className="flex items-center justify-end border-t border-gray-100 px-3 py-2 bg-gray-50/30">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white h-7 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSellPosition(position);
+                            }}
+                            disabled={sellingPosition === position.symbol}
+                          >
+                            {sellingPosition === position.symbol ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <>
+                                <X className="mr-1 h-3 w-3" />
+                                Close Position
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        {/* Expanded Chart */}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{
+                                height: { duration: 0.3, ease: "easeOut" as const },
+                                opacity: { duration: 0.2, ease: "easeOut" as const },
+                              }}
+                              className="overflow-hidden border-t border-gray-100 bg-gray-50/50"
+                            >
+                              <div className="px-2 py-3">
+                                <PositionChart
+                                  symbol={position.symbol}
+                                  entryPrice={position.entryPrice}
+                                  currentPrice={position.currentPrice}
+                                  stopLoss={position.stopLoss}
+                                  takeProfit={position.takeProfit}
+                                  liquidationPrice={position.liquidationPrice}
+                                  side={position.side}
+                                  testnet={hyperliquidTestnet}
+                                />
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop: Full table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-black hover:bg-gray-50">
+                        <TableHead className="text-black font-semibold">Symbol</TableHead>
+                        <TableHead className="text-black font-semibold">Side</TableHead>
+                        <TableHead className="text-black font-semibold">Leverage</TableHead>
+                        <TableHead className="text-black font-semibold">Size (USD)</TableHead>
+                        <TableHead className="text-black font-semibold">Entry</TableHead>
+                        <TableHead className="text-black font-semibold">Current</TableHead>
+                        <TableHead className="text-black font-semibold">Stop Loss</TableHead>
+                        <TableHead className="text-black font-semibold">Take Profit</TableHead>
+                        <TableHead className="text-black font-semibold">Liq. Price</TableHead>
+                        <TableHead className="text-black font-semibold">P&L</TableHead>
+                        <TableHead className="text-black font-semibold">P&L %</TableHead>
+                        <TableHead className="text-black font-semibold">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {positions.map((position) => {
+                        const isExpanded = expandedPosition === position.symbol;
+                        return (
+                          <React.Fragment key={position._id}>
+                            <TableRow
+                              className={`border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150 cursor-pointer ${isExpanded ? "bg-gray-50" : ""}`}
+                              onClick={() =>
+                                setExpandedPosition(
+                                  isExpanded ? null : position.symbol
+                                )
+                              }
+                            >
+                              <TableCell className="font-mono font-semibold text-black">
+                                <span className="flex items-center gap-1.5">
+                                  <span
+                                    className={`inline-block text-xs text-gray-400 transition-transform duration-200 ${
+                                      isExpanded ? "rotate-90" : ""
+                                    }`}
+                                  >
+                                    ▶
+                                  </span>
+                                  {position.symbol}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    position.side === "LONG"
+                                      ? "border-black text-black bg-white"
+                                      : "border-gray-600 text-gray-600 bg-white"
+                                  }
+                                >
+                                  {position.side === "LONG" ? (
+                                    <ArrowUpRight className="mr-1 h-3 w-3" />
+                                  ) : (
+                                    <ArrowDownRight className="mr-1 h-3 w-3" />
+                                  )}
+                                  {position.side}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-black font-mono font-medium tabular-nums">
+                                {position.leverage}x
+                              </TableCell>
+                              <TableCell className="text-black font-mono tabular-nums">
+                                {formatCurrency(position.size)}
+                              </TableCell>
+                              <TableCell className="text-black font-mono tabular-nums">
+                                {formatPrice(position.entryPrice)}
+                              </TableCell>
+                              <TableCell className="text-black font-mono tabular-nums">
+                                {formatPrice(position.currentPrice)}
+                              </TableCell>
+                              <TableCell className="text-red-600 font-mono font-medium text-xs tabular-nums">
+                                {position.stopLoss ? formatPrice(position.stopLoss) : '-'}
+                              </TableCell>
+                              <TableCell className="text-green-600 font-mono font-medium text-xs tabular-nums">
+                                {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
+                              </TableCell>
+                              <TableCell className="text-gray-500 font-mono text-xs tabular-nums">
+                                {position.liquidationPrice ? formatPrice(position.liquidationPrice) : '-'}
+                              </TableCell>
+                              <TableCell className={`font-mono tabular-nums ${position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
+                                {formatCurrency(position.unrealizedPnl)}
+                              </TableCell>
+                              <TableCell className={`font-mono tabular-nums ${position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
+                                {formatPercent(position.unrealizedPnlPct)}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSellPosition(position);
+                                  }}
+                                  disabled={sellingPosition === position.symbol}
+                                >
+                                  {sellingPosition === position.symbol ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <X className="mr-1 h-3 w-3" />
+                                      Sell
+                                    </>
+                                  )}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                            {/* Expanded Chart Row */}
+                            <AnimatePresence>
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={12} className="p-0">
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{
+                                        height: { duration: 0.3, ease: "easeOut" as const },
+                                        opacity: { duration: 0.2, ease: "easeOut" as const },
+                                      }}
+                                      className="overflow-hidden border-t border-gray-100 bg-gray-50/50"
+                                    >
+                                      <div className="px-6 py-3">
+                                        <PositionChart
+                                          symbol={position.symbol}
+                                          entryPrice={position.entryPrice}
+                                          currentPrice={position.currentPrice}
+                                          stopLoss={position.stopLoss}
+                                          takeProfit={position.takeProfit}
+                                          liquidationPrice={position.liquidationPrice}
+                                          side={position.side}
+                                          testnet={hyperliquidTestnet}
+                                        />
+                                      </div>
+                                    </motion.div>
+                                  </td>
+                                </tr>
+                              )}
+                            </AnimatePresence>
+                          </React.Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
