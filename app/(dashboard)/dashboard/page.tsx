@@ -85,6 +85,10 @@ export default function DashboardPage() {
   const manualClosePosition = useAction(api.testing.manualTrigger.manualClosePosition);
   const [sellingPosition, setSellingPosition] = useState<string | null>(null);
 
+  // Close all positions state
+  const [closingAll, setClosingAll] = useState(false);
+  const [closeAllConfirm, setCloseAllConfirm] = useState(false);
+
   // Manual cancel order action
   const manualCancelOrder = useAction(api.testing.manualTrigger.manualCancelOrder);
   const [cancellingOrder, setCancellingOrder] = useState<number | null>(null);
@@ -340,6 +344,50 @@ export default function DashboardPage() {
     } finally {
       setSellingPosition(null);
     }
+  };
+
+  const handleCloseAll = async () => {
+    if (!userId || !positions || positions.length === 0 || closingAll) return;
+
+    setClosingAll(true);
+    setCloseAllConfirm(false);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const position of positions) {
+      try {
+        const result = await manualClosePosition({
+          userId,
+          symbol: position.symbol,
+          size: position.sizeInCoins || position.size / position.entryPrice,
+          side: position.side,
+        });
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    if (failCount === 0) {
+      toast({
+        title: "All Positions Closed",
+        description: `Successfully closed ${successCount} position${successCount !== 1 ? "s" : ""}`,
+      });
+    } else {
+      toast({
+        title: "Close All Completed",
+        description: `Closed ${successCount}, failed ${failCount}`,
+        variant: failCount > 0 ? "destructive" : "default",
+      });
+    }
+
+    await handleRefreshPositions();
+    setClosingAll(false);
   };
 
   const handleCancelOrder = async (coin: string, orderId: number) => {
@@ -668,9 +716,50 @@ export default function DashboardPage() {
                   Live prices from Hyperliquid • Auto-refreshes every 10s
                 </p>
               </div>
-              {isLoadingPositions && (
-                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-              )}
+              <div className="flex items-center gap-2">
+                {isLoadingPositions && (
+                  <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                )}
+                {positions && positions.length > 0 && (
+                  closeAllConfirm ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-500 hidden sm:inline">Close all {positions.length}?</span>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-red-600 text-white hover:bg-red-700 h-7 text-xs"
+                        onClick={handleCloseAll}
+                        disabled={closingAll}
+                      >
+                        {closingAll ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          "Confirm"
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setCloseAllConfirm(false)}
+                        disabled={closingAll}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white h-7 text-xs"
+                      onClick={() => setCloseAllConfirm(true)}
+                    >
+                      <X className="mr-1 h-3 w-3" />
+                      Close All
+                    </Button>
+                  )
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
