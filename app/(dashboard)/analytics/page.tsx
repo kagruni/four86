@@ -9,6 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Table,
   TableBody,
   TableCell,
@@ -378,6 +384,7 @@ export default function AnalyticsPage() {
 
   // ── Local state ───────────────────────────────────────────────────────────
   const [timeframe, setTimeframe] = useState<TimeframeKey>("30D");
+  const [decisionLimit, setDecisionLimit] = useState(20);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const botConfig = useQuery(api.queries.getBotConfig, { userId });
@@ -600,9 +607,10 @@ export default function AnalyticsPage() {
     () =>
       [...allAiLogs]
         .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 20),
-    [allAiLogs]
+        .slice(0, decisionLimit),
+    [allAiLogs, decisionLimit]
   );
+  const hasMoreDecisions = allAiLogs.length > decisionLimit;
 
   // ── Loading state ─────────────────────────────────────────────────────────
   if (isLoading) {
@@ -1268,7 +1276,7 @@ export default function AnalyticsPage() {
               <div>
                 <CardTitle className="text-black">Decision Activity</CardTitle>
                 <p className="text-xs text-gray-500 mt-1">
-                  Recent AI trading decisions (last 20)
+                  Recent AI trading decisions ({recentDecisions.length} of {allAiLogs.length})
                 </p>
               </div>
               <Clock className="h-4 w-4 text-gray-500" />
@@ -1333,10 +1341,23 @@ export default function AnalyticsPage() {
                                 </div>
                               )}
 
-                            {/* Reasoning */}
-                            <p className="text-xs text-gray-600 leading-relaxed">
-                              {truncateText(log.reasoning, 200)}
-                            </p>
+                            {/* Reasoning (expandable) */}
+                            <Accordion type="single" collapsible className="w-full">
+                              <AccordionItem value="reasoning" className="border-0">
+                                <AccordionTrigger className="hover:no-underline py-0 [&[data-state=open]>div]:hidden [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-gray-400">
+                                  <div className="text-left">
+                                    <p className="text-xs text-gray-600 leading-relaxed">
+                                      {truncateText(log.reasoning, 200)}
+                                    </p>
+                                  </div>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                  <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">
+                                    {log.reasoning}
+                                  </p>
+                                </AccordionContent>
+                              </AccordionItem>
+                            </Accordion>
 
                             {/* Footer: model name + account value */}
                             <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
@@ -1352,6 +1373,20 @@ export default function AnalyticsPage() {
                       );
                     })}
                   </div>
+
+                  {/* Load More button */}
+                  {hasMoreDecisions && (
+                    <div className="flex justify-center pt-4 pb-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs border-gray-200 text-gray-600 hover:text-black"
+                        onClick={() => setDecisionLimit((prev) => prev + 20)}
+                      >
+                        Load More
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </ScrollArea>
             )}
