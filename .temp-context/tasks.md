@@ -1,419 +1,205 @@
-# AI Decision System Refactor - Task List
+# Pre-Flight Check Panel -- Task List
 
-## Overview
-
-This task list implements the signal processing layer and prompt simplification for the Four86 trading bot. Tasks are ordered by dependency and grouped by module.
+Reference: `.temp-context/spec.md`
 
 ---
 
-## Phase 1: Signal Processing Core
+## Group 1: Convex Backend Action
 
-### 1.1 Type Definitions
+### Task 1.1: Create `convex/preflight/preflightCheck.ts`
 
-- [ ] **Create signal types module**
-  - File: `convex/signals/types.ts`
-  - Define interfaces: `TrendAnalysis`, `MarketRegime`, `EntrySignal`, `KeyLevels`, `Divergence`, `CoinSignalSummary`
-  - Export all types for use across signal modules
-  - Test: Type compilation only (no runtime tests)
+**File**: `convex/preflight/preflightCheck.ts` (NEW)
 
-### 1.2 Trend Analysis Module
+Create a single public Convex action `runPreFlightCheck` that aggregates all pre-flight metrics and returns a `PreFlightResult` object.
 
-- [ ] **Implement trend analysis**
-  - File: `convex/signals/trendAnalysis.ts`
-  - Functions:
-    - `analyzeTrend(data: DetailedCoinData): TrendAnalysis`
-    - `calculateTrendStrength(priceVsEma: number, emaAlignment: number, data: DetailedCoinData): number`
-    - `calculateSlope(values: number[]): number`
-    - `detectMomentum(rsiHistory: number[]): "ACCELERATING" | "STEADY" | "DECELERATING"`
-  - Test file: `tests/signals/trendAnalysis.test.ts`
-  - Test cases:
-    - Strong bullish trend (price > EMA20 > EMA50)
-    - Strong bearish trend (price < EMA20 < EMA50)
-    - Neutral/ranging market
-    - Momentum acceleration detection
-    - Momentum deceleration detection
+**Implementation details:**
 
-### 1.3 Support/Resistance Detection
+- Add `"use node"` directive at top of file
+- Import from existing modules:
+  - `fetchCandlesInternal`, `extractClosePrices`, `calculateAverageVolume` from `../hyperliquid/candles`
+  - `calculateRSI`, `calculateMACD` from `../indicators/technicalIndicators`
+  - `action` from `../_generated/server`
+  - `v` from `convex/values`
+- Define TypeScript interfaces at top of file: `PreFlightMetric`, `PreFlightResult`
+- Action args: `{ symbols: v.array(v.string()), testnet: v.boolean() }`
 
-- [ ] **Implement level detection**
-  - File: `convex/signals/levelDetection.ts`
-  - Functions:
-    - `detectKeyLevels(data: DetailedCoinData): KeyLevels`
-    - `findSwingHighs(prices: number[], lookback?: number): number[]`
-    - `findSwingLows(prices: number[], lookback?: number): number[]`
-    - `clusterLevels(levels: number[], currentPrice: number, direction: "above" | "below"): number[]`
-    - `calculatePivotPoint(high: number, low: number, close: number): number`
-  - Test file: `tests/signals/levelDetection.test.ts`
-  - Test cases:
-    - Detect swing highs in uptrend
-    - Detect swing lows in downtrend
-    - Cluster nearby levels (within 0.3%)
-    - Filter levels by proximity to current price
-    - Handle edge cases (no swings found)
+**Data fetching (all in parallel with `Promise.allSettled`):**
 
-### 1.4 Divergence Detection
+1. **Fear & Greed**: `fetch("https://api.alternative.me/fng/?limit=1")` -- parse `data.data[0].value` (integer 0-100), `data.data[0].value_classification` (string). On failure, return `{ value: 50, label: "Unknown" }`.
 
-- [ ] **Implement divergence detection**
-  - File: `convex/signals/divergenceDetection.ts`
-  - Functions:
-    - `detectDivergences(data: DetailedCoinData): Divergence[]`
-    - `isLowerLow(prices: number[], lookback?: number): boolean`
-    - `isHigherLow(values: number[], lookback?: number): boolean`
-    - `isHigherHigh(prices: number[], lookback?: number): boolean`
-    - `isLowerHigh(values: number[], lookback?: number): boolean`
-    - `calculateDivergenceStrength(prices: number[], indicator: number[]): "WEAK" | "MODERATE" | "STRONG"`
-  - Test file: `tests/signals/divergenceDetection.test.ts`
-  - Test cases:
-    - Bullish RSI divergence (price LL, RSI HL)
-    - Bearish RSI divergence (price HH, RSI LH)
-    - No divergence present
-    - Weak vs strong divergence classification
+2. **BTC 4h candles** (60 candles): `fetchCandlesInternal("BTC", "4h", 60, testnet)` -- for RSI14 and MACD calculations.
+
+3. **Volume candles** (for all symbols, 20 candles each): For each symbol in `symbols`, call `fetchCandlesInternal(symbol, "4h", 20, testnet)`. Then compute volume ratio per symbol as `currentCandle.v / avgVolume(candles, 20)`. Average all ratios.
+
+4. **Funding rates**: Direct POST to `${baseUrl}/info` with `{ "type": "metaAndAssetCtxs" }`. Parse response as `[meta, assetCtxs]`. Find BTC index via `meta.universe.findIndex(a => a.name === "BTC")`. Extract `parseFloat(assetCtxs[btcIndex].funding)`. This is the hourly rate. On failure, return `null`.
+
+**Metric computation:**
+
+- **Fear & Greed scoring**: value 25-75 -> score 100; 15-25 or 75-85 -> score 50; <15 or >85 -> score 0. Interpolate linearly within bands.
+- **Volume Ratio scoring**: avg ratio > 0.5 -> score 100; 0.2-0.5 -> linearly scale 0-100; < 0.2 -> score 0.
+- **BTC RSI scoring**: RSI 35-65 -> score 100; 25-35 or 65-75 -> score 50 (interpolate); < 25 or > 75 -> score 0.
+- **BTC MACD direction**: Compute MACD for BTC 4h data. Get last 3 histogram values (`macd - signal`). Compare: improving (h[-1] > h[-2]) = score 100; flat (abs diff < 10% of abs(h[-2])) = score 50; worsening = score 0.
+- **Funding Rate scoring**: Parse hourly funding rate. Multiply by 100 for percentage. abs < 0.01 -> score 100; 0.01-0.03 -> score 50; > 0.03 -> score 0.
+- **Trading Session scoring**: Use `Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Berlin', hour: 'numeric', minute: 'numeric', hour12: false })` to get current CET hour/minute. Classify per spec thresholds. Also compute `bestTimeHint` string.
+
+**Overall score**: Weighted sum: fearGreed * 0.20 + volume * 0.25 + rsi * 0.15 + macd * 0.15 + funding * 0.10 + session * 0.15. Status: >= 65 green, >= 35 yellow, < 35 red.
+
+**Error handling**: Each metric fetch is independent. If one fails, that metric gets status "yellow", score 50, value "Unavailable". The action never throws -- it always returns a result.
+
+**Console logging**: Log timing for each fetch and the final computed score.
+
+**Estimated lines**: ~350
+
+**Test notes**: Create `tests/preflight/preflightCheck.test.ts` with unit tests for the scoring functions (extract them as pure helper functions at module level). Test: green/yellow/red classification for each metric, overall score weighting, session detection for various CET hours, edge cases (API returning null/error).
 
 ---
 
-## Phase 2: Entry Signal Detection
+## Group 2: React Component
 
-### 2.1 Entry Signals Module
+### Task 2.1: Create `components/preflight/PreFlightPanel.tsx`
 
-- [ ] **Implement entry signal detection**
-  - File: `convex/signals/entrySignals.ts`
-  - Functions:
-    - `detectEntrySignals(data: DetailedCoinData): EntrySignal[]`
-    - `detectRSISignals(data: DetailedCoinData): EntrySignal[]`
-    - `detectMACDSignals(data: DetailedCoinData): EntrySignal[]`
-    - `detectEMASignals(data: DetailedCoinData): EntrySignal[]`
-    - `detectPriceActionSignals(data: DetailedCoinData): EntrySignal[]`
-    - `detectVolumeSignals(data: DetailedCoinData): EntrySignal[]`
-  - Signal types to detect:
-    - RSI oversold bounce (RSI < 30 and rising)
-    - RSI overbought rejection (RSI > 70 and falling)
-    - RSI momentum break (RSI crosses 50)
-    - MACD bullish crossover (histogram crosses above signal)
-    - MACD bearish crossover (histogram crosses below signal)
-    - EMA20 breakout (price crosses EMA20 with volume)
-    - Higher low formation (bullish price action)
-    - Lower high formation (bearish price action)
-    - Volume spike (>1.5x average)
-  - Test file: `tests/signals/entrySignals.test.ts`
-  - Test cases:
-    - Each signal type individually
-    - Multiple signals simultaneously
-    - No signals present
-    - Signal strength classification
+**File**: `components/preflight/PreFlightPanel.tsx` (NEW)
 
-### 2.2 Risk Assessment
+Create the pre-flight check panel component.
 
-- [ ] **Implement risk scoring**
-  - File: `convex/signals/riskAssessment.ts`
-  - Functions:
-    - `calculateRiskScore(data: DetailedCoinData, signals: EntrySignal[], regime: MarketRegime): number`
-    - `identifyRiskFactors(data: DetailedCoinData, regime: MarketRegime): string[]`
-  - Risk factors to consider:
-    - High volatility (ATR ratio > 1.5)
-    - Overbought/oversold extremes
-    - Divergence present (conflicting signals)
-    - Approaching major resistance/support
-    - Low volume (< 0.7x average)
-    - Counter-trend setup
-  - Test file: `tests/signals/riskAssessment.test.ts`
-  - Test cases:
-    - Low risk setup (trending, aligned signals)
-    - High risk setup (volatile, divergence)
-    - Risk factor identification
+**Props:**
+```typescript
+interface PreFlightPanelProps {
+  symbols: string[];
+  testnet: boolean;
+}
+```
 
----
+**State management:**
+- `const runPreFlight = useAction(api.preflight.preflightCheck.runPreFlightCheck);`
+- `const [result, setResult] = useState<PreFlightResult | null>(null);`
+- `const [isLoading, setIsLoading] = useState(false);`
+- `const [error, setError] = useState<string | null>(null);`
+- Auto-fetch on mount via `useEffect` (run once when component mounts)
 
-## Phase 3: Signal Processor Integration
+**Layout (inside a `Card` from Shadcn):**
 
-### 3.1 Main Signal Processor
+1. **Header row** (`CardHeader`):
+   - Left: "Pre-Flight Check" title (h3, `text-gray-900 font-semibold`) + subtitle "Market conditions assessment"
+   - Right: Overall score as large bold number (`text-3xl font-mono font-bold tabular-nums`) with status text below ("Good" / "Fair" / "Poor")
+   - Far right: Refresh button (`Button variant="outline" size="sm"`) with `RefreshCw` icon, disabled while loading
 
-- [ ] **Create main signal processor**
-  - File: `convex/signals/signalProcessor.ts`
-  - Functions:
-    - `processSignals(data: DetailedCoinData): CoinSignalSummary`
-    - `formatSignalSummary(summary: CoinSignalSummary): string`
-    - `processAllCoins(marketData: Record<string, DetailedCoinData>): Record<string, CoinSignalSummary>`
-  - Integration points:
-    - Import from all signal modules
-    - Compose full `CoinSignalSummary` object
-    - Generate human-readable summary string
-  - Test file: `tests/signals/signalProcessor.test.ts`
-  - Test cases:
-    - Full signal processing pipeline
-    - Summary formatting
-    - Edge cases (missing data)
+2. **Metric rows** (`CardContent`):
+   - 6 rows, each in a flex container with:
+     - Icon (lucide-react, `h-4 w-4 text-gray-500`): `Gauge` for Fear & Greed, `BarChart3` for Volume, `TrendingUp` for RSI, `Activity` for MACD, `Percent` for Funding, `Clock` for Session
+     - Metric name (`text-sm font-medium text-gray-900`)
+     - Current value (`text-sm font-mono tabular-nums text-gray-700`)
+     - Status indicator: a small Badge from Shadcn
+       - Green: `className="bg-gray-900 text-white"` text "Good"
+       - Yellow: `className="bg-gray-200 text-gray-700 border border-gray-300"` text "Fair"
+       - Red: `className="bg-white text-gray-900 border-2 border-gray-900"` text "Poor"
+     - Brief explanation (`text-xs text-gray-500`, truncated if needed)
+   - Use `Separator` between rows
 
-### 3.2 Convex Action
+3. **Footer** (`CardContent` bottom section):
+   - "Best time to start" hint: `Clock` icon + `bestTimeHint` text (`text-sm text-gray-500`)
+   - Timestamp of last check (`text-xs text-gray-400`)
 
-- [ ] **Create Convex action for signal processing**
-  - File: `convex/signals/signalProcessor.ts` (add to existing)
-  - Add Convex action:
-    ```typescript
-    export const processMarketSignals = action({
-      args: {
-        detailedMarketData: v.any(),
-      },
-      handler: async (_ctx, args) => {
-        return processAllCoins(args.detailedMarketData);
-      },
-    });
-    ```
-  - Verify action works in Convex dashboard
+**Loading state**: Show `Skeleton` components for each row while loading. Show `Loader2 animate-spin` in the score area.
+
+**Error state**: Show error message with retry button inside an `Alert` component.
+
+**Animations**: Wrap in `motion.div` with `initial={{ opacity: 0, y: 20 }}` `animate={{ opacity: 1, y: 0 }}` matching the dashboard's existing animation pattern.
+
+**Imports to use:**
+- `Card, CardContent, CardHeader, CardTitle` from `@/components/ui/card`
+- `Button` from `@/components/ui/button`
+- `Badge` from `@/components/ui/badge`
+- `Separator` from `@/components/ui/separator`
+- `Skeleton` from `@/components/ui/skeleton`
+- `Alert, AlertDescription` from `@/components/ui/alert`
+- Icons from `lucide-react`: `RefreshCw, Loader2, Gauge, BarChart3, TrendingUp, Activity, Percent, Clock, AlertCircle`
+- `motion` from `framer-motion`
+- `useAction` from `convex/react`
+- `api` from `@/convex/_generated/api`
+
+**Estimated lines**: ~300
+
+**Test notes**: Tests in `tests/preflight/PreFlightPanel.test.tsx` -- test rendering with mock data, loading state, error state, correct badge classes for each status.
 
 ---
 
-## Phase 4: Compact Prompt System
+## Group 3: Dashboard Integration
 
-### 4.1 New Prompt Template
+### Task 3.1: Integrate PreFlightPanel into dashboard page
 
-- [ ] **Create compact system prompt**
-  - File: `convex/ai/prompts/compactSystem.ts`
-  - Create `COMPACT_SYSTEM_PROMPT` (~100 lines)
-  - Sections:
-    - Account configuration (5 lines)
-    - Decision rules priority list (15 lines)
-    - Signal interpretation guide (20 lines)
-    - Position management rules (15 lines)
-    - Risk limits (10 lines)
-    - Output format (10 lines)
-  - Create `COMPACT_MARKET_DATA_PROMPT` for pre-processed signals
-  - Create `formatPreProcessedSignals(signals: Record<string, CoinSignalSummary>): string`
-  - Export `compactTradingPrompt = ChatPromptTemplate.fromMessages([...])`
+**File**: `app/(dashboard)/dashboard/page.tsx` (MODIFY)
 
-### 4.2 Prompt Helpers Update
+**Changes:**
 
-- [ ] **Update prompt helpers**
-  - File: `convex/ai/prompts/promptHelpers.ts`
-  - Add function: `generateCompactPromptVariables(config: BotConfig): CompactPromptVars`
-  - Reduce variable count (only essential config)
-  - Keep backward compatibility with existing `generatePromptVariables`
+1. **Add import** at top of file (around line 41, after existing imports):
+   ```typescript
+   import PreFlightPanel from "@/components/preflight/PreFlightPanel";
+   ```
 
----
+2. **Add conditional rendering** after the Circuit Breaker section (approximately after line 600, after the closing `</motion.div>` of the circuit breaker card) and before the KPI cards grid. Insert:
+   ```tsx
+   {/* Pre-Flight Check - shown only when bot is inactive */}
+   {!isBotActive && botConfig && (
+     <PreFlightPanel
+       symbols={botConfig.symbols || ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]}
+       testnet={userCredentials?.hyperliquidTestnet ?? true}
+     />
+   )}
+   ```
 
-## Phase 5: Trading Chain Integration
+3. The panel renders only when `!isBotActive` and `botConfig` is loaded. It passes the user's configured symbols and testnet flag.
 
-### 5.1 New Trading Chain
+**No other changes to the dashboard file.**
 
-- [ ] **Create compact trading chain**
-  - File: `convex/ai/chains/tradingChain.ts`
-  - Add function: `createCompactTradingChain(...)`
-  - Use new `compactTradingPrompt`
-  - Accept pre-processed signals instead of raw market data
-  - Keep existing `createDetailedTradingChain` for backward compatibility
-
-### 5.2 Trading Agent Update
-
-- [ ] **Update trading agent**
-  - File: `convex/ai/agents/tradingAgent.ts`
-  - Add new action: `makeCompactTradingDecision`
-  - Accept `processedSignals: Record<string, CoinSignalSummary>`
-  - Use `createCompactTradingChain`
-  - Keep existing `makeDetailedTradingDecision` for backward compatibility
-
-### 5.3 Trading Loop Integration
-
-- [ ] **Integrate into trading loop**
-  - File: `convex/trading/tradingLoop.ts`
-  - Add signal processing step before AI call:
-    ```typescript
-    // After fetching detailed market data
-    const processedSignals = await ctx.runAction(
-      api.signals.signalProcessor.processMarketSignals,
-      { detailedMarketData }
-    );
-    ```
-  - Switch to `makeCompactTradingDecision`
-  - Add logging for signal processing time
-  - Keep feature flag for rollback:
-    ```typescript
-    const USE_COMPACT_PROMPT = true; // Toggle for A/B testing
-    ```
+**Test notes**: Verify in browser that:
+- Panel appears when bot is INACTIVE
+- Panel disappears when bot is ACTIVE
+- Refresh button works
+- All 6 metrics render with correct statuses
+- Loading skeleton shows on initial load
+- The panel sits between circuit breaker and KPI cards
 
 ---
 
-## Phase 6: Market Data Enhancements
+## Group 4: Verification
 
-### 6.1 Add 24h Range Data
+### Task 4.1: End-to-end manual verification
 
-- [ ] **Enhance market data fetcher**
-  - File: `convex/hyperliquid/detailedMarketData.ts`
-  - Add 24h high/low to `DetailedCoinData`:
-    ```typescript
-    high24h: number;
-    low24h: number;
-    ```
-  - Fetch from Hyperliquid API or calculate from 4h candles
-  - Update `getDetailedCoinData` function
-
-### 6.2 Add Volume Ratio
-
-- [ ] **Add volume analysis to market data**
-  - File: `convex/hyperliquid/detailedMarketData.ts`
-  - Add to `DetailedCoinData`:
-    ```typescript
-    volumeRatio: number; // currentVolume / avgVolume
-    ```
-  - Calculate from existing volume data
-
----
-
-## Phase 7: Testing
-
-### 7.1 Unit Tests
-
-- [ ] **Create test fixtures**
-  - File: `tests/fixtures/marketDataFixtures.ts`
-  - Create realistic market data samples:
-    - Bullish trending market
-    - Bearish trending market
-    - Ranging market
-    - Volatile market
-    - Market with divergence
-
-- [ ] **Run all signal tests**
-  - Command: `npm test tests/signals/`
-  - Verify all tests pass
-  - Target coverage: >80%
-
-### 7.2 Integration Tests
-
-- [ ] **Test full signal processing pipeline**
-  - File: `tests/integration/signalProcessor.test.ts`
-  - Test with real market data shapes
-  - Verify output format matches expected schema
-
-- [ ] **Test prompt generation**
-  - File: `tests/integration/compactPrompt.test.ts`
-  - Verify prompt length < 200 lines
-  - Verify all template variables are populated
-
-### 7.3 Manual Validation
-
-- [ ] **Manual testing with real data**
-  - Use `convex/testing/manualTrigger.ts`
-  - Compare signals generated vs expected
-  - Verify AI responses are valid JSON
-  - Check decision quality (subjective)
-
----
-
-## Phase 8: Cleanup and Documentation
-
-### 8.1 Code Cleanup
-
-- [ ] **Remove deprecated code**
-  - Keep `detailedSystem.ts` for reference (rename to `detailedSystem.legacy.ts`)
-  - Update imports in all files
-  - Remove unused formatting functions from `detailedSystem.ts`
-
-### 8.2 Observability
-
-- [ ] **Add logging and metrics**
-  - Log signal processing time per coin
-  - Log signal counts per invocation
-  - Log prompt token counts (before/after)
-  - Add to `systemLogs` table
-
----
-
-## MCP Actions Required
-
-- [ ] **Verify Convex schema** - Ensure no schema changes needed for signal storage
-- [ ] **Context7** - Reference Next.js patterns for TypeScript modules if needed
-
----
-
-## Rollback Plan
-
-If issues arise after deployment:
-
-1. Set `USE_COMPACT_PROMPT = false` in `tradingLoop.ts`
-2. System reverts to existing `makeDetailedTradingDecision`
-3. No database changes required
-4. Signal processor still runs (for logging) but decisions use old prompt
-
----
-
-## Acceptance Criteria Checklist
-
-- [ ] Prompt size reduced from 680+ lines to <150 lines
-- [ ] All signal types implemented:
-  - [ ] Trend analysis (direction, strength, momentum)
-  - [ ] Market regime (trending/ranging/volatile)
-  - [ ] Support/resistance levels
-  - [ ] RSI/MACD divergence detection
-  - [ ] Entry signals (RSI, MACD, EMA, volume)
-  - [ ] Risk scoring
-- [ ] Existing `TradeDecision` schema unchanged
-- [ ] Backward compatibility maintained (old chain still works)
-- [ ] Unit test coverage >80% on signal modules
-- [ ] JSON parse failure rate monitored
-- [ ] No new environment variables required
+- Start the dev server (`bun run dev` + `npx convex dev`)
+- Navigate to the dashboard with bot INACTIVE
+- Verify the PreFlightPanel loads and displays all 6 metrics
+- Click Refresh and verify it re-fetches
+- Toggle bot to ACTIVE and verify the panel disappears
+- Toggle bot back to INACTIVE and verify the panel reappears
+- Check Convex dashboard logs for the action execution timing
+- Verify no console errors in the browser
 
 ---
 
 ## File Summary
 
-### New Files (11)
+| File | Action | Est. Lines |
+|------|--------|------------|
+| `convex/preflight/preflightCheck.ts` | NEW | ~350 |
+| `components/preflight/PreFlightPanel.tsx` | NEW | ~300 |
+| `app/(dashboard)/dashboard/page.tsx` | MODIFY (add ~10 lines) | ~1346 |
+| `tests/preflight/preflightCheck.test.ts` | NEW (test) | ~150 |
+| `tests/preflight/PreFlightPanel.test.tsx` | NEW (test) | ~100 |
 
-| File | Lines (est) |
-|------|-------------|
-| `convex/signals/types.ts` | ~80 |
-| `convex/signals/trendAnalysis.ts` | ~120 |
-| `convex/signals/levelDetection.ts` | ~150 |
-| `convex/signals/divergenceDetection.ts` | ~100 |
-| `convex/signals/entrySignals.ts` | ~200 |
-| `convex/signals/riskAssessment.ts` | ~80 |
-| `convex/signals/signalProcessor.ts` | ~150 |
-| `convex/ai/prompts/compactSystem.ts` | ~150 |
-| `tests/signals/trendAnalysis.test.ts` | ~150 |
-| `tests/signals/levelDetection.test.ts` | ~150 |
-| `tests/signals/entrySignals.test.ts` | ~200 |
-
-### Modified Files (5)
-
-| File | Changes |
-|------|---------|
-| `convex/trading/tradingLoop.ts` | Add signal processing step, feature flag |
-| `convex/ai/chains/tradingChain.ts` | Add `createCompactTradingChain` |
-| `convex/ai/agents/tradingAgent.ts` | Add `makeCompactTradingDecision` |
-| `convex/hyperliquid/detailedMarketData.ts` | Add 24h high/low, volume ratio |
-| `convex/ai/prompts/promptHelpers.ts` | Add compact prompt helpers |
-
----
-
-## Task Dependencies Graph
+## Dependency Order
 
 ```
-[1.1 Types] ─────────┬───────────────────────────────────────────┐
-                     │                                           │
-[1.2 Trend] ────────┤                                           │
-                     │                                           │
-[1.3 Levels] ───────┤                                           │
-                     ├──▶ [3.1 Signal Processor] ──▶ [5.3 Loop] │
-[1.4 Divergence] ───┤                                           │
-                     │                                           │
-[2.1 Entry Signals]─┤                                           │
-                     │                                           │
-[2.2 Risk] ─────────┘                                           │
-                                                                 │
-[4.1 Compact Prompt] ──▶ [5.1 Chain] ──▶ [5.2 Agent] ──────────┘
-                                                                 │
-[6.1 24h Data] ──────────────────────────────────────────────────┘
+Task 1.1 (backend action)
+    |
+    v
+Task 2.1 (React component) -- depends on action being registered in Convex API
+    |
+    v
+Task 3.1 (dashboard integration) -- depends on component existing
+    |
+    v
+Task 4.1 (verification) -- depends on all above
 ```
 
----
-
-## Estimated Effort
-
-| Phase | Tasks | Days |
-|-------|-------|------|
-| Phase 1 | 4 | 2 |
-| Phase 2 | 2 | 1.5 |
-| Phase 3 | 2 | 1 |
-| Phase 4 | 2 | 1 |
-| Phase 5 | 3 | 1.5 |
-| Phase 6 | 2 | 0.5 |
-| Phase 7 | 4 | 2 |
-| Phase 8 | 2 | 0.5 |
-| **Total** | **21** | **10** |
+Tasks 1.1 and 2.1 can be built in parallel if the builder stubs the action type, but for clean builds they should be sequential.

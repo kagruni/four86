@@ -40,6 +40,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import PositionChart from "./PositionChart";
 import LiveChart from "./LiveChart";
+import PreFlightPanel from "@/components/preflight/PreFlightPanel";
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -589,6 +590,14 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Pre-Flight Check - shown only when bot is inactive */}
+      {!isBotActive && botConfig && (
+        <PreFlightPanel
+          symbols={botConfig.symbols || ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]}
+          testnet={userCredentials?.hyperliquidTestnet ?? true}
+        />
+      )}
 
       {/* Account Overview */}
       <div className="grid gap-4 md:grid-cols-3">

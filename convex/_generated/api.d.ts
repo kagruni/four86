@@ -35,6 +35,7 @@ import type * as liveQueries from "../liveQueries.js";
 import type * as migrations_removeStopLossEnabled from "../migrations/removeStopLossEnabled.js";
 import type * as migrations_runMigration from "../migrations/runMigration.js";
 import type * as mutations from "../mutations.js";
+import type * as preflight_preflightCheck from "../preflight/preflightCheck.js";
 import type * as queries from "../queries.js";
 import type * as research_newsApis from "../research/newsApis.js";
 import type * as research_researchLoop from "../research/researchLoop.js";
@@ -114,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/removeStopLossEnabled": typeof migrations_removeStopLossEnabled;
   "migrations/runMigration": typeof migrations_runMigration;
   mutations: typeof mutations;
+  "preflight/preflightCheck": typeof preflight_preflightCheck;
   queries: typeof queries;
   "research/newsApis": typeof research_newsApis;
   "research/researchLoop": typeof research_researchLoop;
