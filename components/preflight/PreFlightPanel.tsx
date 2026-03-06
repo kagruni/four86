@@ -58,6 +58,7 @@ interface PreFlightResult {
 interface PreFlightPanelProps {
   symbols: string[];
   testnet: boolean;
+  botActive?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +218,7 @@ function ErrorState({
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function PreFlightPanel({ symbols, testnet }: PreFlightPanelProps) {
+export default function PreFlightPanel({ symbols, testnet, botActive = false }: PreFlightPanelProps) {
   const runPreFlight = useAction(api.preflight.preflightCheck.runPreFlightCheck);
 
   const [result, setResult] = useState<PreFlightResult | null>(null);
@@ -294,7 +295,7 @@ export default function PreFlightPanel({ symbols, testnet }: PreFlightPanelProps
               </motion.div>
               <div>
                 <CardTitle className="text-gray-900 font-semibold">
-                  Pre-Flight Check
+                  {botActive ? "Market Status" : "Pre-Flight Check"}
                 </CardTitle>
                 <p className="text-sm text-gray-500 mt-1">
                   {isOpen ? "Market conditions assessment" : result.bestTimeHint}

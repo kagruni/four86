@@ -59,10 +59,13 @@ export default function DashboardPage() {
     userId,
     limit: 50
   });
-  const aiLogs = useQuery(api.queries.getRecentAILogs, {
+  const allAiLogs = useQuery(api.queries.getRecentAILogs, {
     userId,
-    limit: 5
+    limit: 50
   });
+  const [aiLogsLimit, setAiLogsLimit] = useState(5);
+  const aiLogs = allAiLogs?.slice(0, aiLogsLimit);
+  const hasMoreAiLogs = (allAiLogs?.length ?? 0) > aiLogsLimit;
 
   // Fetch LIVE positions with real-time prices
   const getLivePositions = useAction(api.liveQueries.getLivePositions);
@@ -597,11 +600,12 @@ export default function DashboardPage() {
         </Card>
       </motion.div>
 
-      {/* Pre-Flight Check - shown only when bot is inactive */}
-      {!isBotActive && botConfig && (
+      {/* Pre-Flight / Market Status Check */}
+      {botConfig && (
         <PreFlightPanel
           symbols={botConfig.symbols || ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]}
           testnet={userCredentials?.hyperliquidTestnet ?? true}
+          botActive={isBotActive}
         />
       )}
 
@@ -1403,6 +1407,18 @@ export default function DashboardPage() {
                       );
                     })}
                   </Accordion>
+                )}
+                {hasMoreAiLogs && (
+                  <div className="flex justify-center pt-3 pb-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs border-gray-200 text-gray-600 hover:text-black"
+                      onClick={() => setAiLogsLimit((prev) => prev + 10)}
+                    >
+                      Load More
+                    </Button>
+                  </div>
                 )}
               </ScrollArea>
             </CardContent>

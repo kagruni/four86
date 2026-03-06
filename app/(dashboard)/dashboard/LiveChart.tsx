@@ -242,13 +242,25 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     [positions, selectedSymbol]
   );
 
-  // Auto-select first position's symbol if current selection doesn't match any position
-  // (only when positions exist — when empty, keep the manually selected symbol)
+  // Auto-select first position's symbol only when positions list changes
+  // (e.g., a new position opens). Does NOT override manual symbol selection.
+  const prevPositionSymbols = useRef<string[]>([]);
   useEffect(() => {
-    if (positions.length > 0 && !positions.find((p) => p.symbol === selectedSymbol)) {
-      setSelectedSymbol(positions[0].symbol);
+    const currentSymbols = positions.map((p) => p.symbol).sort().join(",");
+    const prevSymbols = prevPositionSymbols.current.sort().join(",");
+    if (currentSymbols !== prevSymbols) {
+      prevPositionSymbols.current = positions.map((p) => p.symbol);
+      // Only auto-switch if a new position appeared that wasn't there before
+      if (positions.length > 0) {
+        const newSymbol = positions.find(
+          (p) => !prevSymbols.includes(p.symbol)
+        );
+        if (newSymbol) {
+          setSelectedSymbol(newSymbol.symbol);
+        }
+      }
     }
-  }, [positions, selectedSymbol]);
+  }, [positions]);
 
   // -----------------------------------------------------------------------
   // Price lines — standalone, only depends on selectedPosition changing
