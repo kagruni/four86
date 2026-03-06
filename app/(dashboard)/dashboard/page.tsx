@@ -11,6 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Table,
   TableBody,
   TableCell,
@@ -1307,33 +1313,50 @@ export default function DashboardPage() {
                     No AI logs yet
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {aiLogs.map((log: Doc<"aiLogs">) => (
-                      <div key={log._id} className="border-b border-gray-200 pb-4 last:border-0">
-                        <div className="flex items-center justify-between">
-                          <Badge
-                            variant="outline"
-                            className="border-black text-black bg-white"
-                          >
-                            {log.decision}
-                          </Badge>
-                          <span className="text-xs text-gray-500">
-                            {formatTimestamp(log.createdAt)}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm text-black line-clamp-4">
-                          {log.reasoning && log.reasoning.trim().startsWith("{")
-                            ? "AI analysis completed — no high-conviction setups detected."
-                            : log.reasoning}
-                        </p>
-                        {log.confidence !== undefined && (
-                          <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
-                            {(log.confidence * 100).toFixed(0)}%
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  <Accordion type="multiple" className="w-full">
+                    {aiLogs.map((log: Doc<"aiLogs">, index: number) => {
+                      const reasoningText = log.reasoning && log.reasoning.trim().startsWith("{")
+                        ? "AI analysis completed — no high-conviction setups detected."
+                        : log.reasoning;
+                      return (
+                        <AccordionItem key={log._id} value={`item-${index}`} className="border-b border-gray-200 last:border-0">
+                          <AccordionTrigger className="hover:no-underline py-3 [&[data-state=open]>div>p]:hidden">
+                            <div className="text-left w-full pr-2">
+                              <div className="flex items-center justify-between">
+                                <Badge
+                                  variant="outline"
+                                  className="border-black text-black bg-white"
+                                >
+                                  {log.decision}
+                                </Badge>
+                                <span className="text-xs text-gray-500">
+                                  {formatTimestamp(log.createdAt)}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-sm text-black line-clamp-4">
+                                {reasoningText}
+                              </p>
+                              {log.confidence !== undefined && (
+                                <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                                  {(log.confidence * 100).toFixed(0)}%
+                                </span>
+                              )}
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <p className="text-sm text-black whitespace-pre-wrap leading-relaxed">
+                              {reasoningText}
+                            </p>
+                            {log.confidence !== undefined && (
+                              <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                                {(log.confidence * 100).toFixed(0)}%
+                              </span>
+                            )}
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
                 )}
               </ScrollArea>
             </CardContent>

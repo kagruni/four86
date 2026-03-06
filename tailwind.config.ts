@@ -19,9 +19,25 @@ const config = {
   	},
   	extend: {
   		fontFamily: {
-  			sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-  			mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
-  			heading: ['var(--font-heading)', 'var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+  			sans: [
+  				'var(--font-inter)',
+  				'ui-sans-serif',
+  				'system-ui',
+  				'sans-serif'
+  			],
+  			mono: [
+  				'var(--font-mono)',
+  				'ui-monospace',
+  				'SFMono-Regular',
+  				'monospace'
+  			],
+  			heading: [
+  				'var(--font-heading)',
+  				'var(--font-inter)',
+  				'ui-sans-serif',
+  				'system-ui',
+  				'sans-serif'
+  			]
   		},
   		colors: {
   			border: 'hsl(var(--border))',
@@ -87,7 +103,7 @@ const config = {
   					height: '0'
   				}
   			},
-  			'fadeInUp': {
+  			fadeInUp: {
   				from: {
   					opacity: '0',
   					transform: 'translateY(20px)'
