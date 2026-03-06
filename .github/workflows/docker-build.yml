@@ -50,9 +50,14 @@ jobs:
 
       - name: Trigger Railway redeploy
         run: |
-          curl -s -X POST https://backboard.railway.com/graphql/v2 \
+          RESPONSE=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.RAILWAY_API_TOKEN }}" \
             -d '{
               "query": "mutation { serviceInstanceRedeploy(serviceId: \"${{ secrets.RAILWAY_SERVICE_ID }}\", environmentId: \"${{ secrets.RAILWAY_ENVIRONMENT_ID }}\") }"
-            }' --fail
+            }')
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q '"errors"'; then
+            echo "::error::Railway redeploy failed: $RESPONSE"
+            exit 1
+          fi
