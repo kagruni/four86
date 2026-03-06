@@ -1,8 +1,18 @@
 import { action } from "../../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../../fnRefs";
-import { createTradingChain, createDetailedTradingChain, createCompactTradingChain, createAlphaArenaTradingChain } from "../chains/tradingChain";
+import {
+  createTradingChain,
+  createDetailedTradingChain,
+  createCompactTradingChain,
+  createAlphaArenaTradingChain,
+  createHybridAlphaArenaSelectionChain,
+} from "../chains/tradingChain";
 import type { TradeDecision } from "../parsers/schemas";
+import type {
+  HybridCandidate,
+  HybridCloseCandidate,
+} from "../../trading/hybridSelection";
 
 export const makeTradingDecision = action({
   args: {
@@ -364,6 +374,120 @@ export const makeAlphaArenaTradingDecision = action({
       console.error("Error in Alpha Arena trading agent:", error);
 
       // Return safe default (HOLD)
+      return {
+        reasoning: `Error occurred: ${error}. Defaulting to HOLD for safety.`,
+        decision: "HOLD",
+        confidence: 0,
+      } as TradeDecision;
+    }
+  },
+});
+
+export const makeHybridAlphaArenaTradingDecision = action({
+  args: {
+    userId: v.string(),
+    modelType: v.union(v.literal("zhipuai"), v.literal("openrouter")),
+    modelName: v.string(),
+    accountState: v.any(),
+    positions: v.any(),
+    marketResearch: v.optional(v.any()),
+    candidateSet: v.any(),
+  },
+  handler: async (ctx, args): Promise<TradeDecision> => {
+    const startTime = Date.now();
+
+    try {
+      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        userId: args.userId,
+      });
+
+      if (!credentials) {
+        throw new Error(`No credentials found for user ${args.userId}`);
+      }
+
+      const apiKey = args.modelType === "zhipuai"
+        ? credentials.zhipuaiApiKey
+        : credentials.openrouterApiKey;
+
+      if (!apiKey) {
+        throw new Error(`${args.modelType === "zhipuai" ? "ZhipuAI" : "OpenRouter"} API key not configured for user ${args.userId}`);
+      }
+
+      const chain = createHybridAlphaArenaSelectionChain(
+        args.modelType,
+        args.modelName,
+        apiKey
+      );
+
+      const selection = await chain.invoke({
+        candidateSet: args.candidateSet,
+        accountState: args.accountState,
+        positions: args.positions || [],
+        marketResearch: args.marketResearch || null,
+      });
+
+      const candidateSet = args.candidateSet as {
+        topCandidates: HybridCandidate[];
+        closeCandidates: HybridCloseCandidate[];
+      };
+      const candidateMap = new Map(
+        (candidateSet.topCandidates || []).map((candidate) => [candidate.id, candidate])
+      );
+      const closeMap = new Map(
+        (candidateSet.closeCandidates || []).map((candidate) => [candidate.symbol, candidate])
+      );
+
+      let decision: TradeDecision;
+      if (selection.action === "SELECT_CANDIDATE" && selection.candidate_id) {
+        const candidate = candidateMap.get(selection.candidate_id);
+        if (!candidate) {
+          decision = {
+            decision: "HOLD",
+            symbol: null,
+            confidence: 0.9,
+            reasoning: "Selected candidate was not present in the deterministic shortlist. Defaulting to HOLD.",
+          } as TradeDecision;
+        } else {
+          decision = {
+            decision: candidate.decision,
+            symbol: candidate.symbol as any,
+            confidence: selection.confidence,
+            reasoning: selection.reasoning,
+            leverage: candidate.executionPlan.leverage,
+            size_usd: candidate.executionPlan.sizeUsd,
+            stop_loss: candidate.executionPlan.stopLoss,
+            take_profit: candidate.executionPlan.takeProfit,
+            invalidation_condition: candidate.executionPlan.invalidationCondition,
+          } as TradeDecision;
+        }
+      } else if (selection.action === "CLOSE" && selection.close_symbol) {
+        const closeCandidate = closeMap.get(selection.close_symbol);
+        decision = {
+          decision: closeCandidate ? "CLOSE" : "HOLD",
+          symbol: closeCandidate ? (selection.close_symbol as any) : null,
+          confidence: selection.confidence,
+          reasoning: selection.reasoning,
+        } as TradeDecision;
+      } else {
+        decision = {
+          decision: "HOLD",
+          symbol: null,
+          confidence: selection.confidence,
+          reasoning: selection.reasoning,
+        } as TradeDecision;
+      }
+
+      (decision as any)._selectedCandidateId = selection.candidate_id ?? null;
+      (decision as any)._selectionMode = "hybrid_llm_ranked";
+      (decision as any)._parserWarnings = selection._parserWarnings || [];
+      (decision as any)._rawModelResponse = selection._rawModelResponse || JSON.stringify(selection);
+
+      const processingTime = Date.now() - startTime;
+      console.log(`Hybrid Alpha Arena trading decision made in ${processingTime}ms:`, decision.decision);
+
+      return decision;
+    } catch (error) {
+      console.error("Error in hybrid Alpha Arena trading agent:", error);
       return {
         reasoning: `Error occurred: ${error}. Defaulting to HOLD for safety.`,
         decision: "HOLD",

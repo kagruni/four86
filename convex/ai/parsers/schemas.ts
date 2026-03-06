@@ -46,6 +46,16 @@ export const TradeDecisionSchema = z.object({
 
 export type TradeDecision = z.infer<typeof TradeDecisionSchema>;
 
+export const HybridSelectionResponseSchema = z.object({
+  action: z.enum(["HOLD", "SELECT_CANDIDATE", "CLOSE"]),
+  candidate_id: z.string().nullish(),
+  close_symbol: z.string().nullish(),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string(),
+});
+
+export type HybridSelectionResponse = z.infer<typeof HybridSelectionResponseSchema>;
+
 // Market analysis schema
 export const MarketAnalysisSchema = z.object({
   symbol: z.string(),

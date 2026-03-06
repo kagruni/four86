@@ -90,6 +90,7 @@ export const upsertBotConfig = mutation({
     redDayLongBlockPct: v.optional(v.number()),
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
+    useHybridSelection: v.optional(v.boolean()),
     tradingPromptMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -158,6 +159,7 @@ export const toggleBot = mutation({
         redDayLongBlockPct: -1.5,
         greenDayShortBlockPct: 1.5,
         reentryCooldownMinutes: 15,
+        useHybridSelection: false,
         createdAt: now,
         updatedAt: now,
       });

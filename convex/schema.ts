@@ -61,6 +61,7 @@ export default defineSchema({
     redDayLongBlockPct: v.optional(v.number()), // default -1.5
     greenDayShortBlockPct: v.optional(v.number()), // default 1.5
     reentryCooldownMinutes: v.optional(v.number()), // default 15
+    useHybridSelection: v.optional(v.boolean()), // default false
 
     // Deprecated fields (for backward compatibility, will be removed in migration)
     stopLossEnabled: v.optional(v.boolean()), // DEPRECATED - always enabled for safety
@@ -244,6 +245,7 @@ export default defineSchema({
     redDayLongBlockPct: v.optional(v.number()),
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
+    useHybridSelection: v.optional(v.boolean()),
 
     // Results (populated on completion)
     totalPnl: v.optional(v.number()),

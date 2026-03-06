@@ -9,7 +9,9 @@ export type ParserWarningType =
   | "SYMBOL_CORRECTED"
   | "JSON_EXTRACTION_FALLBACK"
   | "LEGACY_FORMAT_RECOVERED"
-  | "MULTIPLE_DECISIONS_DROPPED";
+  | "MULTIPLE_DECISIONS_DROPPED"
+  | "INVALID_CANDIDATE_SELECTION"
+  | "INVALID_CLOSE_SELECTION";
 
 export interface ParserWarning {
   type: ParserWarningType;

@@ -86,6 +86,7 @@ const botConfigSchema = z.object({
   redDayLongBlockPct: z.number().min(-10).max(0),
   greenDayShortBlockPct: z.number().min(0).max(10),
   reentryCooldownMinutes: z.number().min(1).max(60),
+  useHybridSelection: z.boolean(),
 });
 
 const credentialsSchema = z.object({
@@ -151,6 +152,7 @@ export default function SettingsPage() {
     redDayLongBlockPct: -1.5,
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
+    useHybridSelection: false,
   });
 
   // Credentials state
@@ -208,6 +210,7 @@ export default function SettingsPage() {
         redDayLongBlockPct: botConfig.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
+        useHybridSelection: botConfig.useHybridSelection ?? false,
       });
       setTradingPromptMode(botConfig.tradingPromptMode ?? "alpha_arena");
     }
@@ -346,6 +349,7 @@ export default function SettingsPage() {
         redDayLongBlockPct: validatedData.redDayLongBlockPct,
         greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
         reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
+        useHybridSelection: validatedData.useHybridSelection,
         tradingPromptMode,
       };
 
@@ -1103,6 +1107,23 @@ export default function SettingsPage() {
                       checked={botConfigData.enableRegimeFilter}
                       onCheckedChange={(checked) =>
                         setBotConfigData((prev) => ({ ...prev, enableRegimeFilter: checked }))
+                      }
+                    />
+                  </div>
+
+                  {/* Hybrid Selection */}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="use-hybrid-selection" className="text-gray-900">Use Hybrid LLM Selection</Label>
+                      <p className="text-sm text-gray-500">
+                        Deterministic code ranks valid setups first, then the AI chooses among the shortlist
+                      </p>
+                    </div>
+                    <Switch
+                      id="use-hybrid-selection"
+                      checked={botConfigData.useHybridSelection}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, useHybridSelection: checked }))
                       }
                     />
                   </div>

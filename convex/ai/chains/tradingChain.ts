@@ -12,6 +12,11 @@ import {
   type AlphaArenaRegimePromptConfig,
   type AlphaArenaOutput,
 } from "../prompts/alphaArenaPrompt";
+import {
+  formatHybridCandidateSection,
+  formatHybridCloseSection,
+  hybridSelectionPrompt,
+} from "../prompts/hybridSelectionPrompt";
 import { ParserWarning, createWarning } from "../parsers/parserWarnings";
 import { generatePromptVariables, type BotConfig } from "../prompts/promptHelpers";
 import { tradeDecisionParser } from "../parsers/tradeDecision";
@@ -20,6 +25,12 @@ import { OpenRouterChat } from "../models/openrouter";
 import { getTradingTools } from "../tools/tradingTools";
 import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
 import type { ProcessedSignals } from "../../signals/types";
+import { HybridSelectionResponseSchema } from "../parsers/schemas";
+import type {
+  HybridCandidate,
+  HybridCandidateSet,
+  HybridCloseCandidate,
+} from "../../trading/hybridSelection";
 
 export function createTradingChain(
   modelType: "zhipuai" | "openrouter",
@@ -277,6 +288,7 @@ export interface CompactBotConfig {
   require1hAlignment?: boolean;
   redDayLongBlockPct?: number;
   greenDayShortBlockPct?: number;
+  useHybridSelection?: boolean;
 }
 
 /**
@@ -808,4 +820,156 @@ export function createAlphaArenaTradingChain(
   ]);
 
   return chain;
+}
+
+function extractModelText(output: any): string {
+  if (typeof output === "string") return output;
+  if (output?.content !== undefined) return String(output.content);
+  if (output?.text !== undefined) return String(output.text);
+  return JSON.stringify(output ?? "");
+}
+
+export function parseHybridSelectionOutput(
+  text: string,
+  validCandidateIds: Set<string>,
+  validCloseSymbols: Set<string>
+): {
+  action: "HOLD" | "SELECT_CANDIDATE" | "CLOSE";
+  candidate_id?: string | null;
+  close_symbol?: string | null;
+  confidence: number;
+  reasoning: string;
+  warnings: ParserWarning[];
+} {
+  const warnings: ParserWarning[] = [];
+  let cleanedText = extractModelText(text).trim();
+
+  const codeFenceMatch = cleanedText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeFenceMatch) {
+    cleanedText = codeFenceMatch[1].trim();
+  }
+
+  if (!cleanedText.startsWith("{")) {
+    const extracted = extractFirstJsonObject(cleanedText);
+    if (extracted) {
+      cleanedText = extracted;
+      warnings.push(
+        createWarning(
+          "JSON_EXTRACTION_FALLBACK",
+          "Hybrid selection JSON extracted from non-JSON response"
+        )
+      );
+    }
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleanedText);
+  } catch {
+    parsed = JSON.parse(repairJson(cleanedText));
+    warnings.push(
+      createWarning(
+        "JSON_EXTRACTION_FALLBACK",
+        "Hybrid selection JSON required repair before parsing"
+      )
+    );
+  }
+
+  const result = HybridSelectionResponseSchema.parse(parsed);
+
+  if (result.action === "SELECT_CANDIDATE") {
+    if (!result.candidate_id || !validCandidateIds.has(result.candidate_id)) {
+      warnings.push(
+        createWarning(
+          "INVALID_CANDIDATE_SELECTION",
+          `Invalid candidate_id "${result.candidate_id}" normalized to HOLD`,
+          result.candidate_id,
+          null
+        )
+      );
+      return {
+        action: "HOLD",
+        confidence: result.confidence,
+        reasoning: result.reasoning,
+        warnings,
+      };
+    }
+  }
+
+  if (result.action === "CLOSE") {
+    if (!result.close_symbol || !validCloseSymbols.has(result.close_symbol)) {
+      warnings.push(
+        createWarning(
+          "INVALID_CLOSE_SELECTION",
+          `Invalid close_symbol "${result.close_symbol}" normalized to HOLD`,
+          result.close_symbol,
+          null
+        )
+      );
+      return {
+        action: "HOLD",
+        confidence: result.confidence,
+        reasoning: result.reasoning,
+        warnings,
+      };
+    }
+  }
+
+  return {
+    ...result,
+    warnings,
+  };
+}
+
+type HybridSelectionInput = {
+  candidateSet: HybridCandidateSet;
+  accountState: any;
+  positions?: any[];
+  marketResearch?: any;
+};
+
+export function createHybridAlphaArenaSelectionChain(
+  modelType: "zhipuai" | "openrouter",
+  modelName: string,
+  apiKey: string
+) {
+  const model = modelType === "zhipuai"
+    ? new ZhipuAI({ apiKey, model: modelName })
+    : new OpenRouterChat({ apiKey, model: modelName });
+
+  return {
+    invoke: async (input: HybridSelectionInput) => {
+      const validCandidateIds = new Set(
+        input.candidateSet.topCandidates.map((candidate) => candidate.id)
+      );
+      const validCloseSymbols = new Set(
+        input.candidateSet.closeCandidates.map((candidate) => candidate.symbol)
+      );
+
+      const messages = await hybridSelectionPrompt.formatMessages({
+        timestamp: new Date().toISOString(),
+        accountValue: input.accountState.accountValue.toFixed(2),
+        availableCash: input.accountState.withdrawable.toFixed(2),
+        positionCount: (input.positions || []).length,
+        scoreFloor: input.candidateSet.scoreFloor,
+        candidateSection: formatHybridCandidateSection(input.candidateSet),
+        closeSection: formatHybridCloseSection(input.candidateSet.closeCandidates),
+        sentimentContext: formatSentimentContext(input.marketResearch || null),
+      });
+
+      const response = await model.invoke(messages);
+      const rawModelResponse = extractModelText(response);
+      const parsed = parseHybridSelectionOutput(
+        rawModelResponse,
+        validCandidateIds,
+        validCloseSymbols
+      );
+
+      return {
+        ...parsed,
+        _rawModelResponse: rawModelResponse,
+        _parserWarnings: parsed.warnings,
+      };
+    },
+  };
 }

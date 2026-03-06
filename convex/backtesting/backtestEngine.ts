@@ -6,6 +6,16 @@ import { v } from "convex/values";
 import { fetchCandlesInternal } from "../hyperliquid/candles";
 import { validateDecisionAgainstRegime } from "../trading/validators/regimeValidator";
 import type { DecisionContext } from "../trading/decisionContext";
+import { calculateATR } from "../indicators/technicalIndicators";
+import {
+  buildHybridCandidateSet,
+  buildHybridHoldDecision,
+} from "../trading/hybridSelection";
+import {
+  formatHybridCandidateSection,
+  formatHybridCloseSection,
+} from "../ai/prompts/hybridSelectionPrompt";
+import { parseHybridSelectionOutput } from "../ai/chains/tradingChain";
 
 /**
  * Backtest Engine (Chunked) — Realistic Hyperliquid Simulation
@@ -147,6 +157,7 @@ export const runBacktest = internalAction({
     tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    useHybridSelection: v.optional(v.boolean()),
     enableRegimeFilter: v.optional(v.boolean()),
     require1hAlignment: v.optional(v.boolean()),
     redDayLongBlockPct: v.optional(v.number()),
@@ -221,12 +232,14 @@ export const runBacktest = internalAction({
           modelName: args.modelName,
           initialCapital: args.initialCapital,
           maxLeverage: effectiveMaxLeverage,
+          useHybridSelection: args.useHybridSelection ?? false,
           enableRegimeFilter: args.enableRegimeFilter ?? true,
           require1hAlignment: args.require1hAlignment ?? true,
           redDayLongBlockPct: args.redDayLongBlockPct ?? -1.5,
           greenDayShortBlockPct: args.greenDayShortBlockPct ?? 1.5,
           reentryCooldownMinutes: args.reentryCooldownMinutes ?? 15,
           openrouterApiKey: args.openrouterApiKey,
+          testnet: args.testnet,
           startTime: Date.now(),
           // Candle data (serialized)
           periodCandlesJson: JSON.stringify(periodCandles),
@@ -282,12 +295,14 @@ export const processBacktestChunk = internalAction({
     modelName: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    useHybridSelection: v.boolean(),
     enableRegimeFilter: v.boolean(),
     require1hAlignment: v.boolean(),
     redDayLongBlockPct: v.number(),
     greenDayShortBlockPct: v.number(),
     reentryCooldownMinutes: v.number(),
     openrouterApiKey: v.string(),
+    testnet: v.boolean(),
     startTime: v.number(),
     // Candle data
     periodCandlesJson: v.string(),
@@ -595,8 +610,9 @@ export const processBacktestChunk = internalAction({
           }
         }
 
-        // Skip AI decision if we already have a position
-        if (currentPosition) {
+        // Legacy mode only opens and then lets TP/SL manage exits.
+        // Hybrid mode may still ask the LLM whether to HOLD or CLOSE an eligible open position.
+        if (currentPosition && !args.useHybridSelection) {
           candleIndex += args.stepSize;
           continue;
         }
@@ -611,6 +627,7 @@ export const processBacktestChunk = internalAction({
         }
 
         if (
+          !currentPosition &&
           lastTradeTimestamp > 0 &&
           currentCandle.t - lastTradeTimestamp < args.reentryCooldownMinutes * 60 * 1000
         ) {
@@ -645,12 +662,14 @@ export const processBacktestChunk = internalAction({
               modelName: args.modelName,
               initialCapital: args.initialCapital,
               maxLeverage: args.maxLeverage,
+              useHybridSelection: args.useHybridSelection,
               enableRegimeFilter: args.enableRegimeFilter,
               require1hAlignment: args.require1hAlignment,
               redDayLongBlockPct: args.redDayLongBlockPct,
               greenDayShortBlockPct: args.greenDayShortBlockPct,
               reentryCooldownMinutes: args.reentryCooldownMinutes,
               openrouterApiKey: args.openrouterApiKey,
+              testnet: args.testnet,
               startTime: args.startTime,
               periodCandlesJson: args.periodCandlesJson,
               candles1hJson: args.candles1hJson,
@@ -707,12 +726,14 @@ export const processBacktestChunk = internalAction({
               modelName: args.modelName,
               initialCapital: args.initialCapital,
               maxLeverage: args.maxLeverage,
+              useHybridSelection: args.useHybridSelection,
               enableRegimeFilter: args.enableRegimeFilter,
               require1hAlignment: args.require1hAlignment,
               redDayLongBlockPct: args.redDayLongBlockPct,
               greenDayShortBlockPct: args.greenDayShortBlockPct,
               reentryCooldownMinutes: args.reentryCooldownMinutes,
               openrouterApiKey: args.openrouterApiKey,
+              testnet: args.testnet,
               startTime: args.startTime,
               periodCandlesJson: args.periodCandlesJson,
               candles1hJson: args.candles1hJson,
@@ -793,19 +814,157 @@ Max Leverage: ${args.maxLeverage}x`;
           recent1d
         );
 
+        const backtestPositions = currentPosition
+          ? [{
+              symbol: args.symbol,
+              side: currentPosition.side,
+              stopLoss: currentPosition.stopLoss,
+              takeProfit: currentPosition.takeProfit,
+              unrealizedPnlPct: (() => {
+                const rawMovePct = currentPosition.side === "LONG"
+                  ? ((currentPrice - currentPosition.entryPrice) / currentPosition.entryPrice) * 100
+                  : ((currentPosition.entryPrice - currentPrice) / currentPosition.entryPrice) * 100;
+                return rawMovePct * currentPosition.leverage;
+              })(),
+            }]
+          : [];
+
         // Call AI
         try {
-          aiCallsThisChunk++;
-          const aiDecision = await callAIForBacktest(
-            args.openrouterApiKey,
-            args.modelName,
-            args.symbol,
-            marketContext,
-            capital,
-            args.maxLeverage
-          );
+          let aiDecision: any;
+          let hybridCandidateSet = null;
+
+          if (args.useHybridSelection) {
+            hybridCandidateSet = buildHybridCandidateSet({
+              decisionContext,
+              accountState: {
+                accountValue: capital,
+                withdrawable: capital,
+              },
+              positions: backtestPositions,
+              recentTrades: lastTradeTimestamp > 0
+                ? [{ symbol: args.symbol, executedAt: lastTradeTimestamp, action: "OPEN" }]
+                : [],
+              config: {
+                maxLeverage: args.maxLeverage,
+                maxPositionSize: 20,
+                perTradeRiskPct: 2,
+                maxTotalPositions: 1,
+                maxSameDirectionPositions: 1,
+                minRiskRewardRatio: 2,
+                stopLossAtrMultiplier: 1.5,
+                reentryCooldownMinutes: args.reentryCooldownMinutes,
+                enableRegimeFilter: args.enableRegimeFilter,
+                require1hAlignment: args.require1hAlignment,
+                redDayLongBlockPct: args.redDayLongBlockPct,
+                greenDayShortBlockPct: args.greenDayShortBlockPct,
+              },
+              allowedSymbols: [args.symbol],
+              testnet: args.testnet,
+              now: currentCandle.t,
+            });
+
+            if (hybridCandidateSet.forcedHold && hybridCandidateSet.closeCandidates.length === 0) {
+              aiDecision = buildHybridHoldDecision(
+                hybridCandidateSet.holdReason || "No valid hybrid candidates in backtest."
+              );
+            } else {
+              aiCallsThisChunk++;
+              aiDecision = await callHybridAIForBacktest(
+                args.openrouterApiKey,
+                args.modelName,
+                hybridCandidateSet,
+                capital
+              );
+            }
+          } else {
+            aiCallsThisChunk++;
+            aiDecision = await callAIForBacktest(
+              args.openrouterApiKey,
+              args.modelName,
+              args.symbol,
+              marketContext,
+              capital,
+              args.maxLeverage
+            );
+          }
 
           if (aiDecision && aiDecision.decision !== "HOLD") {
+            if (currentPosition && aiDecision.decision === "CLOSE") {
+              const notional = currentPosition.size * currentPosition.leverage;
+              const remainingFunding = calculateFundingForPeriod(
+                args.symbol,
+                currentPosition.side,
+                notional,
+                currentPosition.lastFundingCheckTime,
+                currentCandle.t
+              );
+              currentPosition.accumulatedFunding += remainingFunding;
+              const exitSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
+              const exitPrice = currentPosition.side === "LONG"
+                ? currentPrice * (1 - exitSlippage)
+                : currentPrice * (1 + exitSlippage);
+
+              let pnl: number;
+              if (currentPosition.side === "LONG") {
+                pnl =
+                  ((exitPrice - currentPosition.entryPrice) /
+                    currentPosition.entryPrice) *
+                  notional;
+              } else {
+                pnl =
+                  ((currentPosition.entryPrice - exitPrice) /
+                    currentPosition.entryPrice) *
+                  notional;
+              }
+
+              const exitFee = notional * TAKER_FEE_PCT;
+              pnl -= exitFee + currentPosition.accumulatedFunding;
+              totalFees += exitFee;
+              totalFunding += currentPosition.accumulatedFunding;
+
+              capital += pnl;
+              const pnlPct = (pnl / currentPosition.size) * 100;
+              tradeCount++;
+              if (pnl > 0) winCount++;
+              returnsSum += pnlPct;
+              returnsSquaredSum += pnlPct * pnlPct;
+              returnsCount++;
+              lastTradeTimestamp = currentCandle.t;
+
+              await ctx.runMutation(
+                internal.backtesting.backtestActions.saveBacktestTrade,
+                {
+                  runId: args.runId,
+                  userId: args.userId,
+                  symbol: args.symbol,
+                  action: "CLOSE",
+                  side: currentPosition.side,
+                  entryPrice: currentPosition.entryPrice,
+                  exitPrice,
+                  size: currentPosition.size,
+                  leverage: currentPosition.leverage,
+                  pnl,
+                  pnlPct,
+                  exitReason: "ai_close",
+                  fundingPaid: currentPosition.accumulatedFunding,
+                  confidence: aiDecision.confidence,
+                  reasoning: aiDecision.reasoning,
+                  entryTime: currentPosition.entryTime,
+                  exitTime: currentCandle.t,
+                }
+              );
+
+              currentPosition = null;
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            if (currentPosition) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
             const regimeValidation = validateDecisionAgainstRegime(
               {
                 enableRegimeFilter: args.enableRegimeFilter,
@@ -1068,6 +1227,8 @@ function createBacktestDecisionContext(
   const ema50_4h = fourHourPrices.length > 0
     ? fourHourPrices.slice(-50).reduce((sum: number, v: number) => sum + v, 0) / Math.min(50, fourHourPrices.length)
     : currentPrice;
+  const atr3_4h = recent4h.length >= 3 ? calculateATR(recent4h, 3) : Math.abs(currentPrice * 0.01);
+  const atr14_4h = recent4h.length >= 14 ? calculateATR(recent4h, 14) : Math.abs(currentPrice * 0.015);
 
   const priceVsEma20Pct = intradayEma20 > 0 ? ((currentPrice - intradayEma20) / intradayEma20) * 100 : 0;
   const ema20VsEma50Pct4h = ema50_4h > 0 ? ((ema20_4h - ema50_4h) / ema50_4h) * 100 : 0;
@@ -1108,8 +1269,8 @@ function createBacktestDecisionContext(
             ema50: ema50_4h,
             ema20VsEma50Pct: ema20VsEma50Pct4h,
             trendDirection: ema20_4h >= ema50_4h ? "BULLISH" : "BEARISH",
-            atr3: 0,
-            atr14: 0,
+            atr3: atr3_4h,
+            atr14: atr14_4h,
             currentVolume: recent4h[recent4h.length - 1]?.v || 0,
             avgVolume: 0,
             volumeRatio: 1,
@@ -1253,4 +1414,124 @@ Respond ONLY with valid JSON:
       return { decision: "HOLD", reasoning: "JSON parse failed" };
     }
   }
+}
+
+async function callHybridAIForBacktest(
+  apiKey: string,
+  modelName: string,
+  candidateSet: ReturnType<typeof buildHybridCandidateSet>,
+  capital: number
+): Promise<any> {
+  const systemPrompt = `You are the final selector in a hybrid crypto trading backtest.
+
+Choose exactly one action:
+- HOLD
+- SELECT_CANDIDATE using one provided candidate_id
+- CLOSE using one provided close_symbol
+
+You may only choose from the provided options. Prefer HOLD over forcing a weak trade.
+
+Respond ONLY with valid JSON:
+{
+  "action": "HOLD" | "SELECT_CANDIDATE" | "CLOSE",
+  "candidate_id": "<provided candidate_id or null>",
+  "close_symbol": "<provided close symbol or null>",
+  "confidence": 0.0 to 1.0,
+  "reasoning": "<brief reason>"
+}`;
+
+  const userPrompt = [
+    `Account Balance: $${capital.toFixed(2)}`,
+    `Score Floor: ${candidateSet.scoreFloor}`,
+    `Top Entry Candidates:`,
+    formatHybridCandidateSection(candidateSet),
+    `Eligible Close Options:`,
+    formatHybridCloseSection(candidateSet.closeCandidates),
+  ].join("\n\n");
+
+  const startMs = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_FETCH_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 2000,
+        }),
+        signal: controller.signal,
+      }
+    );
+  } catch (fetchError: any) {
+    clearTimeout(timeoutId);
+    if (fetchError?.name === "AbortError") {
+      return buildHybridHoldDecision("Hybrid AI call timed out");
+    }
+    throw fetchError;
+  }
+  clearTimeout(timeoutId);
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "unknown");
+    throw new Error(`OpenRouter API error ${response.status}: ${errorText.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const message = data.choices?.[0]?.message;
+  const content = message?.content || message?.reasoning || "";
+  const elapsed = Date.now() - startMs;
+  console.log(`[BACKTEST-HYBRID-AI] Response in ${elapsed}ms, ${content.length} chars`);
+
+  const selection = parseHybridSelectionOutput(
+    content,
+    new Set(candidateSet.topCandidates.map((candidate) => candidate.id)),
+    new Set(candidateSet.closeCandidates.map((candidate) => candidate.symbol))
+  );
+
+  if (selection.action === "SELECT_CANDIDATE" && selection.candidate_id) {
+    const selected = candidateSet.topCandidates.find((candidate) => candidate.id === selection.candidate_id);
+    if (!selected) {
+      return buildHybridHoldDecision("Selected candidate missing from shortlist");
+    }
+    return {
+      decision: selected.decision,
+      symbol: selected.symbol,
+      confidence: selection.confidence,
+      reasoning: selection.reasoning,
+      leverage: selected.executionPlan.leverage,
+      size_usd: selected.executionPlan.sizeUsd,
+      stop_loss: selected.executionPlan.stopLoss,
+      take_profit: selected.executionPlan.takeProfit,
+      invalidation_condition: selected.executionPlan.invalidationCondition,
+    };
+  }
+
+  if (selection.action === "CLOSE" && selection.close_symbol) {
+    return {
+      decision: "CLOSE",
+      symbol: selection.close_symbol,
+      confidence: selection.confidence,
+      reasoning: selection.reasoning,
+    };
+  }
+
+  return {
+    decision: "HOLD",
+    symbol: null,
+    confidence: selection.confidence,
+    reasoning: selection.reasoning,
+  };
 }

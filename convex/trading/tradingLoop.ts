@@ -40,6 +40,15 @@ import {
   formatPositionsAlphaArena,
   formatSentimentContext,
 } from "../ai/prompts/alphaArenaPrompt";
+import {
+  formatHybridCandidateSection,
+  formatHybridCloseSection,
+} from "../ai/prompts/hybridSelectionPrompt";
+import {
+  buildHybridCandidateSet,
+  buildHybridHoldDecision,
+  type HybridCandidateSet,
+} from "./hybridSelection";
 
 function normalizeMaxPositionSizePct(rawMaxPositionSize: number | undefined): number {
   const fallbackPct = 10;
@@ -265,9 +274,73 @@ export const runTradingCycle = internalAction({
           // ── 7. AI Decision (with circuit breaker tracking) ────────
           let decision;
           let systemPromptName: string;
+          let hybridCandidateSet: HybridCandidateSet | null = null;
+
+          let openOrders: any[] = [];
+          try {
+            openOrders = await ctx.runAction(api.hyperliquid.client.getUserOpenOrders, {
+              address: credentials.hyperliquidAddress,
+              testnet: credentials.hyperliquidTestnet,
+            });
+          } catch (error) {
+            console.warn(`[LOOP-${loopId}] Open orders fetch skipped: ${error instanceof Error ? error.message : String(error)}`);
+          }
+
+          const recentTrades = await ctx.runQuery(api.queries.getRecentTrades, {
+            userId: bot.userId,
+            limit: 50,
+          });
 
           try {
-            if (tradingMode === "alpha_arena") {
+            if (tradingMode === "alpha_arena" && (bot.useHybridSelection ?? false)) {
+              console.log(`[LOOP-${loopId}] Using ALPHA ARENA hybrid candidate selector...`);
+              hybridCandidateSet = buildHybridCandidateSet({
+                decisionContext,
+                accountState,
+                positions,
+                openOrders,
+                recentTrades,
+                config: {
+                  maxLeverage: bot.maxLeverage,
+                  maxPositionSize: maxPositionSizePct,
+                  perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
+                  maxTotalPositions: bot.maxTotalPositions ?? 3,
+                  maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
+                  minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
+                  stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
+                  reentryCooldownMinutes: bot.reentryCooldownMinutes ?? 15,
+                  enableRegimeFilter: bot.enableRegimeFilter ?? true,
+                  require1hAlignment: bot.require1hAlignment ?? true,
+                  redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
+                  greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
+                },
+                allowedSymbols: symbols,
+                testnet: credentials.hyperliquidTestnet,
+              });
+
+              if (hybridCandidateSet.forcedHold && hybridCandidateSet.closeCandidates.length === 0) {
+                decision = buildHybridHoldDecision(
+                  hybridCandidateSet.holdReason || "No valid hybrid candidates available."
+                );
+                (decision as any)._selectionMode = "hybrid_llm_ranked";
+                (decision as any)._selectedCandidateId = null;
+                (decision as any)._rawModelResponse = JSON.stringify({
+                  action: "HOLD",
+                  reasoning: decision.reasoning,
+                });
+              } else {
+                decision = await ctx.runAction(api.ai.agents.tradingAgent.makeHybridAlphaArenaTradingDecision, {
+                  userId: bot.userId,
+                  modelType: "openrouter",
+                  modelName: bot.modelName,
+                  accountState,
+                  positions,
+                  marketResearch: marketResearch || undefined,
+                  candidateSet: hybridCandidateSet,
+                });
+              }
+              systemPromptName = "Alpha Arena hybrid candidate selector";
+            } else if (tradingMode === "alpha_arena") {
               console.log(`[LOOP-${loopId}] Using ALPHA ARENA trading system...`);
               decision = await ctx.runAction(api.ai.agents.tradingAgent.makeAlphaArenaTradingDecision, {
                 userId: bot.userId,
@@ -409,30 +482,46 @@ export const runTradingCycle = internalAction({
           // Build the actual prompt content that was sent to the model
           let renderedUserPrompt: string;
           if (tradingMode === "alpha_arena") {
-            const marketSection = formatMarketDataAlphaArena(
-              detailedMarketData,
-              bot.stopLossAtrMultiplier ?? 1.5,
-              bot.minRiskRewardRatio ?? 2.0,
-              {
-                enableRegimeFilter: bot.enableRegimeFilter ?? true,
-                require1hAlignment: bot.require1hAlignment ?? true,
-                redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
-                greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
-              }
-            );
-            const positionsSection = formatPositionsAlphaArena(positions);
-            const sentimentSection = formatSentimentContext(marketResearch);
-            renderedUserPrompt = [
-              `###[MARKET DATA - ${new Date().toISOString()}]`,
-              marketSection,
-              `###[ACCOUNT STATUS]`,
-              `Account Value: ${accountState.accountValue.toFixed(2)} USD`,
-              `Available Cash: ${accountState.withdrawable.toFixed(2)} USD`,
-              `Open Positions: ${positions.length} / ${bot.maxTotalPositions ?? 3}`,
-              `###[CURRENT OPEN POSITIONS]`,
-              positionsSection,
-              sentimentSection,
-            ].join("\n\n");
+            if ((bot.useHybridSelection ?? false) && hybridCandidateSet) {
+              renderedUserPrompt = [
+                `###[HYBRID CANDIDATE SELECTION - ${new Date().toISOString()}]`,
+                `Score Floor: ${hybridCandidateSet.scoreFloor}`,
+                `Forced Hold: ${hybridCandidateSet.forcedHold ? "yes" : "no"}`,
+                hybridCandidateSet.holdReason ? `Hold Reason: ${hybridCandidateSet.holdReason}` : null,
+                `###[TOP RANKED ENTRY CANDIDATES]`,
+                formatHybridCandidateSection(hybridCandidateSet),
+                `###[ELIGIBLE CLOSE OPTIONS]`,
+                formatHybridCloseSection(hybridCandidateSet.closeCandidates),
+                `###[CURRENT OPEN POSITIONS]`,
+                formatPositionsAlphaArena(positions),
+                formatSentimentContext(marketResearch),
+              ].filter(Boolean).join("\n\n");
+            } else {
+              const marketSection = formatMarketDataAlphaArena(
+                detailedMarketData,
+                bot.stopLossAtrMultiplier ?? 1.5,
+                bot.minRiskRewardRatio ?? 2.0,
+                {
+                  enableRegimeFilter: bot.enableRegimeFilter ?? true,
+                  require1hAlignment: bot.require1hAlignment ?? true,
+                  redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
+                  greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
+                }
+              );
+              const positionsSection = formatPositionsAlphaArena(positions);
+              const sentimentSection = formatSentimentContext(marketResearch);
+              renderedUserPrompt = [
+                `###[MARKET DATA - ${new Date().toISOString()}]`,
+                marketSection,
+                `###[ACCOUNT STATUS]`,
+                `Account Value: ${accountState.accountValue.toFixed(2)} USD`,
+                `Available Cash: ${accountState.withdrawable.toFixed(2)} USD`,
+                `Open Positions: ${positions.length} / ${bot.maxTotalPositions ?? 3}`,
+                `###[CURRENT OPEN POSITIONS]`,
+                positionsSection,
+                sentimentSection,
+              ].join("\n\n");
+            }
           } else if (tradingMode === "compact") {
             renderedUserPrompt = "Pre-processed signals (compact mode)";
           } else {
@@ -462,8 +551,17 @@ export const runTradingCycle = internalAction({
           // ── 9. Save AI Log ────────────────────────────────────────
           // Include parser warnings and decision context for dashboard visibility
           const parserWarnings = (decision as any)._parserWarnings || [];
+          const selectionMode = (decision as any)._selectionMode || "legacy_llm";
           const parsedResponseWithWarnings = {
             ...decision,
+            selectionMode,
+            selectedCandidateId: (decision as any)._selectedCandidateId ?? null,
+            candidateSet: hybridCandidateSet,
+            candidateScoreBreakdown: hybridCandidateSet?.topCandidates.map((candidate) => ({
+              candidateId: candidate.id,
+              score: candidate.score,
+              scoreBreakdown: candidate.scoreBreakdown,
+            })) ?? null,
             marketSnapshotSummary: decisionContext.marketSnapshotSummary,
             executionResult,
             ...(parserWarnings.length > 0 ? { _parserWarnings: parserWarnings } : {}),
@@ -483,6 +581,8 @@ export const runTradingCycle = internalAction({
             marketData: {
               detailedMarketData,
               marketSnapshotSummary: decisionContext.marketSnapshotSummary,
+              selectionMode,
+              candidateSet: hybridCandidateSet,
             },
             processingTimeMs: 0,
           });
