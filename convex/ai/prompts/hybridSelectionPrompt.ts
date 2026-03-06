@@ -15,6 +15,13 @@ You are the final selector in a hybrid crypto trading system.
 Deterministic code has already filtered invalid trades and ranked the strongest valid candidates.
 You are NOT allowed to invent symbols, directions, or close targets outside the provided option set.
 
+IMPORTANT PRIORITY:
+- The ranked candidate set is the primary technical truth
+- Sentiment/news is secondary and may only be used as a weak tie-breaker
+- Broad sentiment labels like "risk_on", "risk_off", "bullish", or "bearish" are NOT enough by themselves to override a valid top-ranked candidate into HOLD
+- If all ranked entry candidates point in the same direction and the shortlist is above the score floor, prefer the top-ranked candidate unless its own technical summary is mixed or weakening
+- Prefer HOLD only when the shortlist is weak, mixed, nearly tied without a clear edge, or when an eligible CLOSE is more compelling
+
 SELECTION RULES:
 - Choose exactly one action:
   1. HOLD
@@ -42,6 +49,7 @@ Account Value: {accountValue} USD
 Available Cash: {availableCash} USD
 Open Positions: {positionCount}
 Candidate Score Floor: {scoreFloor}
+Direction Summary: {directionSummary}
 
 ###[TOP RANKED ENTRY CANDIDATES]
 {candidateSection}
@@ -54,7 +62,8 @@ Candidate Score Floor: {scoreFloor}
 REMINDERS:
 - You may only choose HOLD, one listed candidate_id, or one listed close_symbol.
 - The deterministic filters are authoritative.
-- If sentiment conflicts with the technical ranking and no candidate is clearly superior, choose HOLD.
+- Sentiment may break ties, but sentiment alone must not veto a clean one-direction shortlist.
+- If all top candidates are the same direction and one is clearly highest-ranked, choose it unless its own technical summary is weak.
 Respond with ONLY valid JSON.
 `);
 
@@ -101,4 +110,57 @@ export function formatHybridCloseSection(closeCandidates: HybridCloseCandidate[]
     return "No eligible close options.";
   }
   return closeCandidates.map(formatCloseCandidate).join("\n\n");
+}
+
+export function formatHybridDirectionSummary(candidateSet: HybridCandidateSet): string {
+  if (candidateSet.topCandidates.length === 0) {
+    return "No ranked entry candidates.";
+  }
+
+  const uniqueDirections = Array.from(
+    new Set(candidateSet.topCandidates.map((candidate) => candidate.decision))
+  );
+
+  if (uniqueDirections.length === 1) {
+    const direction = uniqueDirections[0];
+    const top = candidateSet.topCandidates[0];
+    return `All ranked entry candidates point ${direction}. Top candidate is ${top.symbol} at score ${top.score.toFixed(1)}.`;
+  }
+
+  return `Ranked entry candidates are mixed across directions: ${candidateSet.topCandidates
+    .map((candidate) => `${candidate.symbol} ${candidate.decision} (${candidate.score.toFixed(1)})`)
+    .join(", ")}.`;
+}
+
+export function formatHybridSentimentContext(
+  research: any | null,
+  candidateSet: HybridCandidateSet
+): string {
+  if (!research) return "";
+
+  const topSymbols = new Set(
+    candidateSet.topCandidates.map((candidate) => candidate.symbol)
+  );
+
+  const perCoinBits: string[] = [];
+  if (research.perCoinSentiment) {
+    for (const [symbol, data] of Object.entries(research.perCoinSentiment as Record<string, any>)) {
+      if (!topSymbols.has(symbol)) continue;
+      perCoinBits.push(`${symbol}: ${data.sentiment}`);
+    }
+  }
+
+  const lines = [
+    "###[SENTIMENT TIE-BREAK CONTEXT]",
+    `Overall Sentiment: ${research.overallSentiment}`,
+    `Recommended Bias: ${research.recommendedBias}`,
+  ];
+
+  if (perCoinBits.length > 0) {
+    lines.push(`Top-candidate sentiment: ${perCoinBits.join(", ")}`);
+  }
+
+  lines.push("Use this only as a weak tie-break. Do not override a clean one-direction technical shortlist on sentiment alone.");
+
+  return lines.join("\n");
 }

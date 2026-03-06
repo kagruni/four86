@@ -15,6 +15,8 @@ import {
 import {
   formatHybridCandidateSection,
   formatHybridCloseSection,
+  formatHybridDirectionSummary,
+  formatHybridSentimentContext,
   hybridSelectionPrompt,
 } from "../prompts/hybridSelectionPrompt";
 import { ParserWarning, createWarning } from "../parsers/parserWarnings";
@@ -954,7 +956,8 @@ export function createHybridAlphaArenaSelectionChain(
         scoreFloor: input.candidateSet.scoreFloor,
         candidateSection: formatHybridCandidateSection(input.candidateSet),
         closeSection: formatHybridCloseSection(input.candidateSet.closeCandidates),
-        sentimentContext: formatSentimentContext(input.marketResearch || null),
+        directionSummary: formatHybridDirectionSummary(input.candidateSet),
+        sentimentContext: formatHybridSentimentContext(input.marketResearch || null, input.candidateSet),
       });
 
       const response = await model.invoke(messages);
