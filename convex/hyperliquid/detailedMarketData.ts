@@ -32,6 +32,9 @@ export interface DetailedCoinData {
   rsi14History: number[];
 
   // 4-hour context
+  ema20_1h: number;
+  ema50_1h: number;
+  priceHistory_1h: number[];
   ema20_4h: number;
   ema50_4h: number;
   atr3_4h: number;
@@ -42,6 +45,8 @@ export interface DetailedCoinData {
   rsi14History_4h: number[];
 
   // 24-hour price range and volume
+  dayOpen: number;
+  dayChangePct: number;
   high24h: number;
   low24h: number;
   volumeRatio: number; // currentVolume_4h / avgVolume_4h
@@ -120,8 +125,10 @@ async function getDetailedCoinData(
   const candles1m = await fetchCandlesInternal(symbol, "1m", 120, testnet); // Fetch 120 1m candles
   const candles2m = aggregate1mTo2m(candles1m); // Aggregate to 2-minute candles
 
+  const candles1h = await fetchCandlesInternal(symbol, "1h", 80, testnet);
   // Fetch 4-hour candles (need at least 50 + 10 for history)
   const candles4h = await fetchCandlesInternal(symbol, "4h", 60, testnet);
+  const candles1d = await fetchCandlesInternal(symbol, "1d", 7, testnet);
 
   // Calculate intraday (2-minute) indicators
   const intradayIndicators = calculateHistoricalIndicators(candles2m, 10);
@@ -135,9 +142,12 @@ async function getDetailedCoinData(
   const currentRsi14 = calculateRSI(closePrices2m, 14);
 
   // Calculate 4-hour context
+  const closePrices1h = extractClosePrices(candles1h);
   const closePrices4h = extractClosePrices(candles4h);
   const fourHourIndicators = calculateHistoricalIndicators(candles4h, 10);
 
+  const ema20_1h = calculateEMA(closePrices1h, 20);
+  const ema50_1h = calculateEMA(closePrices1h, 50);
   const ema20_4h = calculateEMA(closePrices4h, 20);
   const ema50_4h = calculateEMA(closePrices4h, 50);
 
@@ -161,6 +171,10 @@ async function getDetailedCoinData(
   // Volume ratio (current vs average)
   const volumeRatio = avgVolume_4h > 0 ? currentVolume_4h / avgVolume_4h : 1;
 
+  const currentDayCandle = candles1d[candles1d.length - 1];
+  const dayOpen = currentDayCandle?.o || currentPrice;
+  const dayChangePct = dayOpen > 0 ? ((currentPrice - dayOpen) / dayOpen) * 100 : 0;
+
   return {
     symbol,
     currentPrice,
@@ -177,6 +191,9 @@ async function getDetailedCoinData(
     rsi14History: intradayIndicators.rsi14History,
 
     // 4-hour context
+    ema20_1h,
+    ema50_1h,
+    priceHistory_1h: closePrices1h.slice(-10),
     ema20_4h,
     ema50_4h,
     atr3_4h,
@@ -187,6 +204,8 @@ async function getDetailedCoinData(
     rsi14History_4h: fourHourIndicators.rsi14History,
 
     // 24-hour price range and volume
+    dayOpen,
+    dayChangePct,
     high24h,
     low24h,
     volumeRatio,
@@ -231,6 +250,9 @@ export const getDetailedMarketData = action({
             macdHistory: [],
             rsi7History: [],
             rsi14History: [],
+            ema20_1h: 0,
+            ema50_1h: 0,
+            priceHistory_1h: [],
             ema20_4h: 0,
             ema50_4h: 0,
             atr3_4h: 0,
@@ -239,6 +261,8 @@ export const getDetailedMarketData = action({
             avgVolume_4h: 0,
             macdHistory_4h: [],
             rsi14History_4h: [],
+            dayOpen: 0,
+            dayChangePct: 0,
             high24h: 0,
             low24h: 0,
             volumeRatio: 1,

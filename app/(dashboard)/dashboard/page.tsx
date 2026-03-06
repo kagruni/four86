@@ -1315,6 +1315,23 @@ export default function DashboardPage() {
                 ) : (
                   <Accordion type="multiple" className="w-full">
                     {aiLogs.map((log: Doc<"aiLogs">, index: number) => {
+                      const parsedResponse = (log.parsedResponse ?? {}) as {
+                        executionResult?: {
+                          executed?: boolean;
+                          blockedBy?: string | null;
+                          regimeValidation?: { reason?: string | null } | null;
+                          trendValidation?: { reason?: string | null } | null;
+                          positionValidation?: { reason?: string | null; checkName?: string | null } | null;
+                        };
+                      };
+                      const executionResult = parsedResponse.executionResult;
+                      const blockedBy = executionResult?.blockedBy ?? null;
+                      const executionBlocked = Boolean(blockedBy);
+                      const blockReason =
+                        executionResult?.regimeValidation?.reason ||
+                        executionResult?.trendValidation?.reason ||
+                        executionResult?.positionValidation?.reason ||
+                        (blockedBy ? `Execution blocked by ${blockedBy}` : null);
                       const reasoningText = log.reasoning && log.reasoning.trim().startsWith("{")
                         ? "AI analysis completed — no high-conviction setups detected."
                         : log.reasoning;
@@ -1325,7 +1342,11 @@ export default function DashboardPage() {
                               <div className="flex items-center justify-between">
                                 <Badge
                                   variant="outline"
-                                  className="border-black text-black bg-white"
+                                  className={
+                                    executionBlocked
+                                      ? "border-red-600 text-red-600 bg-white"
+                                      : "border-black text-black bg-white"
+                                  }
                                 >
                                   {log.decision}
                                 </Badge>
@@ -1333,6 +1354,16 @@ export default function DashboardPage() {
                                   {formatTimestamp(log.createdAt)}
                                 </span>
                               </div>
+                              {executionBlocked && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <span className="inline-block rounded bg-red-50 px-2 py-0.5 text-xs font-mono text-red-700">
+                                    BLOCKED
+                                  </span>
+                                  <span className="text-xs text-red-700">
+                                    {blockReason}
+                                  </span>
+                                </div>
+                              )}
                               <p className="mt-2 text-sm text-black line-clamp-4">
                                 {reasoningText}
                               </p>
@@ -1344,6 +1375,21 @@ export default function DashboardPage() {
                             </div>
                           </AccordionTrigger>
                           <AccordionContent>
+                            {executionBlocked && (
+                              <div className="mb-3 rounded border border-red-200 bg-red-50 p-3">
+                                <div className="text-xs font-mono uppercase tracking-wide text-red-700">
+                                  Execution Blocked
+                                </div>
+                                <div className="mt-1 text-sm text-red-800">
+                                  {blockReason}
+                                </div>
+                                {executionResult?.positionValidation?.checkName && (
+                                  <div className="mt-1 text-xs font-mono text-red-700">
+                                    Validator: {executionResult.positionValidation.checkName}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             <p className="text-sm text-black whitespace-pre-wrap leading-relaxed">
                               {reasoningText}
                             </p>

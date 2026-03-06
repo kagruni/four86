@@ -1,5 +1,5 @@
 import { action, mutation, internalMutation, internalQuery, query } from "../_generated/server";
-import { internal } from "../fnRefs";
+import { api, internal } from "../fnRefs";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 
@@ -19,12 +19,14 @@ export const startBacktest = action({
   },
   handler: async (ctx, args): Promise<Id<"backtestRuns">> => {
     // Get user credentials for API key
-    const credentials = await ctx.runQuery(
-      internal.queries.getFullUserCredentials,
-      {
+    const [credentials, botConfig] = await Promise.all([
+      ctx.runQuery(internal.queries.getFullUserCredentials, {
         userId: args.userId,
-      }
-    );
+      }),
+      ctx.runQuery(api.queries.getBotConfig, {
+        userId: args.userId,
+      }),
+    ]);
 
     if (!credentials?.openrouterApiKey) {
       throw new Error("OpenRouter API key required for backtesting");
@@ -42,6 +44,11 @@ export const startBacktest = action({
         tradingPromptMode: args.tradingPromptMode,
         initialCapital: args.initialCapital,
         maxLeverage: args.maxLeverage,
+        enableRegimeFilter: botConfig?.enableRegimeFilter ?? true,
+        require1hAlignment: botConfig?.require1hAlignment ?? true,
+        redDayLongBlockPct: botConfig?.redDayLongBlockPct ?? -1.5,
+        greenDayShortBlockPct: botConfig?.greenDayShortBlockPct ?? 1.5,
+        reentryCooldownMinutes: botConfig?.reentryCooldownMinutes ?? 15,
       }
     );
 
@@ -59,6 +66,11 @@ export const startBacktest = action({
         tradingPromptMode: args.tradingPromptMode,
         initialCapital: args.initialCapital,
         maxLeverage: args.maxLeverage,
+        enableRegimeFilter: botConfig?.enableRegimeFilter ?? true,
+        require1hAlignment: botConfig?.require1hAlignment ?? true,
+        redDayLongBlockPct: botConfig?.redDayLongBlockPct ?? -1.5,
+        greenDayShortBlockPct: botConfig?.greenDayShortBlockPct ?? 1.5,
+        reentryCooldownMinutes: botConfig?.reentryCooldownMinutes ?? 15,
         openrouterApiKey: credentials.openrouterApiKey,
         testnet: credentials.hyperliquidTestnet,
       }
@@ -81,6 +93,11 @@ export const createBacktestRun = internalMutation({
     tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    enableRegimeFilter: v.optional(v.boolean()),
+    require1hAlignment: v.optional(v.boolean()),
+    redDayLongBlockPct: v.optional(v.number()),
+    greenDayShortBlockPct: v.optional(v.number()),
+    reentryCooldownMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("backtestRuns", {

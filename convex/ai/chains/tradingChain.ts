@@ -9,6 +9,7 @@ import {
   formatSentimentContext,
   parseAlphaArenaOutput,
   parseAlphaArenaOutputWithWarnings,
+  type AlphaArenaRegimePromptConfig,
   type AlphaArenaOutput,
 } from "../prompts/alphaArenaPrompt";
 import { ParserWarning, createWarning } from "../parsers/parserWarnings";
@@ -272,6 +273,10 @@ export interface CompactBotConfig {
   tradingMode?: string;
   consecutiveLosses?: number;
   consecutiveLossLimit?: number;
+  enableRegimeFilter?: boolean;
+  require1hAlignment?: boolean;
+  redDayLongBlockPct?: number;
+  greenDayShortBlockPct?: number;
 }
 
 /**
@@ -475,6 +480,7 @@ function createAlphaArenaParser() {
           console.log("[AlphaArena Parser] Received object input, attempting direct parse");
           try {
             const legacyDecision = parseAlphaArenaOutput(input as AlphaArenaOutput);
+            (legacyDecision as any)._rawModelResponse = JSON.stringify(input);
             return legacyDecision;
           } catch {
             text = JSON.stringify(input);
@@ -671,6 +677,7 @@ function createAlphaArenaParser() {
       if (warnings.length > 0) {
         (legacyDecision as any)._parserWarnings = warnings;
       }
+      (legacyDecision as any)._rawModelResponse = text;
 
       console.log(`[AlphaArena Parser] Decision: ${legacyDecision.decision} ${legacyDecision.symbol || ""}`);
       return legacyDecision;
@@ -711,6 +718,13 @@ export function createAlphaArenaTradingChain(
     marketResearch?: any;
   };
 
+  const regimePromptConfig: AlphaArenaRegimePromptConfig = {
+    enableRegimeFilter: config.enableRegimeFilter,
+    require1hAlignment: config.require1hAlignment,
+    redDayLongBlockPct: config.redDayLongBlockPct,
+    greenDayShortBlockPct: config.greenDayShortBlockPct,
+  };
+
   // Create the chain with Alpha Arena prompts
   const chain = RunnableSequence.from([
     {
@@ -719,7 +733,8 @@ export function createAlphaArenaTradingChain(
         formatMarketDataAlphaArena(
           input.detailedMarketData,
           promptVars.stopLossAtrMultiplier,
-          promptVars.minRiskRewardRatio
+          promptVars.minRiskRewardRatio,
+          regimePromptConfig
         ),
 
       // Format positions in Alpha Arena style

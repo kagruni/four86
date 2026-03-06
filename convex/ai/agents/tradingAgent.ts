@@ -310,6 +310,10 @@ export const makeAlphaArenaTradingDecision = action({
       tradingMode: v.optional(v.string()),
       consecutiveLosses: v.optional(v.number()),
       consecutiveLossLimit: v.optional(v.number()),
+      enableRegimeFilter: v.optional(v.boolean()),
+      require1hAlignment: v.optional(v.boolean()),
+      redDayLongBlockPct: v.optional(v.number()),
+      greenDayShortBlockPct: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {

@@ -236,28 +236,35 @@ export async function validateOpenPosition(
     return { allowed: false, reason: `Position too small: $${decision.size_usd.toFixed(2)}`, checkName: "MIN_SIZE" };
   }
 
-  // ✅ CHECK #5: Recent trade cooldown (5 minutes per symbol)
+  const reentryCooldownMinutes = bot.reentryCooldownMinutes ?? 15;
+  const reentryCooldownMs = reentryCooldownMinutes * 60 * 1000;
+
+  // ✅ CHECK #5: Recent trade cooldown (configurable, applies after opens and closes)
   const recentTrades = await ctx.runQuery(api.queries.getRecentTrades, {
     userId: bot.userId,
+    limit: 50,
   });
 
-  const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+  const cooldownCutoff = Date.now() - reentryCooldownMs;
   const recentTradeOnSymbol = recentTrades.find((trade: any) =>
     trade.symbol === decision.symbol &&
-    trade.action === "OPEN" &&
-    trade.executedAt > fiveMinutesAgo
+    trade.executedAt > cooldownCutoff
   );
 
   if (recentTradeOnSymbol) {
     const minutesAgo = Math.floor((Date.now() - recentTradeOnSymbol.executedAt) / 60000);
-    console.log(`❌ Trade rejected: Opened ${decision.symbol} ${minutesAgo} minute(s) ago (5min cooldown)`);
+    console.log(`❌ Trade rejected: ${decision.symbol} was traded ${minutesAgo} minute(s) ago (${reentryCooldownMinutes}min cooldown)`);
     await ctx.runMutation(api.mutations.saveSystemLog, {
       userId: bot.userId,
       level: "WARNING",
       message: `Symbol cooldown active: ${decision.symbol} traded ${minutesAgo}min ago`,
-      data: { decision },
+      data: { decision, recentAction: recentTradeOnSymbol.action, reentryCooldownMinutes },
     });
-    return { allowed: false, reason: `Symbol cooldown: traded ${minutesAgo}min ago`, checkName: "COOLDOWN" };
+    return {
+      allowed: false,
+      reason: `Symbol cooldown: traded ${minutesAgo}min ago`,
+      checkName: "COOLDOWN",
+    };
   }
 
   // ✅ CHECK #6: Ultra-short 60-second duplicate guard

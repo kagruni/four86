@@ -10,6 +10,12 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 
+const TESTNET_UNSUPPORTED_SYMBOLS = new Set(["XRP"]);
+
+export function isSymbolSupportedForEnvironment(symbol: string, testnet: boolean): boolean {
+  return !(testnet && TESTNET_UNSUPPORTED_SYMBOLS.has(symbol.toUpperCase()));
+}
+
 /**
  * Candle data structure from Hyperliquid API
  */
@@ -59,6 +65,11 @@ async function fetchCandlesFromAPI(
   endTime: number,
   testnet: boolean = true
 ): Promise<Candle[]> {
+  if (!isSymbolSupportedForEnvironment(symbol, testnet)) {
+    console.warn(`[candles] Skipping unsupported testnet symbol: ${symbol}`);
+    return [];
+  }
+
   const baseUrl = testnet
     ? "https://api.hyperliquid-testnet.xyz"
     : "https://api.hyperliquid.xyz";

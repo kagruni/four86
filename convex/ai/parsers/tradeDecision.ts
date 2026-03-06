@@ -180,6 +180,7 @@ class ReasoningAwareParser extends StructuredOutputParser<typeof TradeDecisionSc
       if (warnings.length > 0) {
         (validated as any)._parserWarnings = warnings;
       }
+      (validated as any)._rawModelResponse = text;
 
       return validated;
     } catch (jsonError) {
@@ -259,8 +260,9 @@ export async function parseTradeDecisionWithWarnings(text: string): Promise<{
     }
 
     // Validate with schema
-    const decision = TradeDecisionSchema.parse(rawParsed);
-    return { decision, warnings };
+      const decision = TradeDecisionSchema.parse(rawParsed);
+      (decision as any)._rawModelResponse = text;
+      return { decision, warnings };
   } catch (error) {
     console.error("Failed to parse trade decision:", error);
 
@@ -286,6 +288,7 @@ export async function parseTradeDecisionWithWarnings(text: string): Promise<{
       applyCorrections(parsed, warnings);
 
       const decision = TradeDecisionSchema.parse(parsed);
+      (decision as any)._rawModelResponse = text;
       return { decision, warnings };
     }
 

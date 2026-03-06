@@ -5,9 +5,12 @@
  * Uses trend analysis to prevent opening positions against strong trends.
  */
 
-import { analyzeTrend } from "../../signals/trendAnalysis";
+import {
+  calculateTrendDirection,
+  calculateTrendStrength,
+} from "../../signals/trendAnalysis";
 import { createLogger } from "../logger";
-import type { GenericActionCtx } from "convex/server";
+import type { DecisionContext } from "../decisionContext";
 
 export interface TrendGuardResult {
   allowed: boolean;
@@ -28,11 +31,9 @@ export interface TrendGuardResult {
  * @returns Result indicating if the trade is allowed
  */
 export async function checkTrendGuard(
-  ctx: any,
-  api: any,
   decision: any,
-  credentials: any,
-  userId: string
+  userId: string,
+  decisionContext: DecisionContext
 ): Promise<TrendGuardResult> {
   const log = createLogger("TREND_GUARD", undefined, userId);
 
@@ -41,61 +42,47 @@ export async function checkTrendGuard(
     return { allowed: true, reason: "Not an open trade — trend guard skipped" };
   }
 
-  // Get market data for this symbol to analyze trend
-  const detailedMarketData = await ctx.runAction(
-    api.hyperliquid.detailedMarketData.getDetailedMarketData,
-    {
-      symbols: [decision.symbol!],
-      testnet: credentials.hyperliquidTestnet,
-    }
-  );
-
-  const coinData = detailedMarketData[decision.symbol!];
-  if (!coinData || coinData.currentPrice <= 0) {
+  const snapshot = decisionContext.marketSnapshot.symbols[decision.symbol!];
+  if (!snapshot || snapshot.currentPrice <= 0) {
     return { allowed: true, reason: "No market data available — trend guard skipped" };
   }
 
-  const trend = analyzeTrend(coinData);
+  const trendDirection = calculateTrendDirection(
+    snapshot.intraday.priceVsEma20Pct,
+    snapshot.fourHour.ema20VsEma50Pct
+  );
+  const trendStrength = calculateTrendStrength(
+    snapshot.intraday.priceVsEma20Pct,
+    snapshot.fourHour.ema20VsEma50Pct,
+    snapshot.intraday.rsi14
+  );
 
   // Block strong counter-trend trades
   const isCounterTrend =
-    (decision.decision === "OPEN_LONG" && trend.direction === "BEARISH" && trend.strength >= 6) ||
-    (decision.decision === "OPEN_SHORT" && trend.direction === "BULLISH" && trend.strength >= 6);
+    (decision.decision === "OPEN_LONG" && trendDirection === "BEARISH" && trendStrength >= 6) ||
+    (decision.decision === "OPEN_SHORT" && trendDirection === "BULLISH" && trendStrength >= 6);
 
   if (isCounterTrend) {
     log.warn(`Blocking ${decision.decision} on ${decision.symbol}`, {
-      reason: `Strong ${trend.direction} trend`,
-      strength: trend.strength,
-      priceVsEma20Pct: trend.priceVsEma20Pct,
-    });
-
-    await ctx.runMutation(api.mutations.saveSystemLog, {
-      userId,
-      level: "WARNING",
-      message: `Trend guard blocked counter-trend trade: ${decision.decision} on ${decision.symbol}`,
-      data: {
-        decision: decision.decision,
-        symbol: decision.symbol,
-        trendDirection: trend.direction,
-        trendStrength: trend.strength,
-        priceVsEma20Pct: trend.priceVsEma20Pct,
-      },
+      reason: `Strong ${trendDirection} trend`,
+      strength: trendStrength,
+      priceVsEma20Pct: snapshot.intraday.priceVsEma20Pct,
     });
 
     return {
       allowed: false,
-      reason: `Strong ${trend.direction} trend (strength: ${trend.strength}/10)`,
-      trendDirection: trend.direction,
-      trendStrength: trend.strength,
+      reason: `Strong ${trendDirection} trend (strength: ${trendStrength}/10)`,
+      trendDirection,
+      trendStrength,
     };
   }
 
-  log.info(`Trade aligned with ${trend.direction} trend (strength: ${trend.strength}/10)`);
+  log.info(`Trade aligned with ${trendDirection} trend (strength: ${trendStrength}/10)`);
 
   return {
     allowed: true,
-    reason: `Aligned with ${trend.direction} trend`,
-    trendDirection: trend.direction,
-    trendStrength: trend.strength,
+    reason: `Aligned with ${trendDirection} trend`,
+    trendDirection,
+    trendStrength,
   };
 }

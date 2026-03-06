@@ -53,9 +53,14 @@ export default defineSchema({
     // Tier 3: Advanced (optional for backward compatibility)
     minEntrySignals: v.optional(v.number()), // 1 - 4, default 2
     require4hAlignment: v.optional(v.boolean()), // default false
+    require1hAlignment: v.optional(v.boolean()), // default true
     tradeVolatileMarkets: v.optional(v.boolean()), // default true
     volatilitySizeReduction: v.optional(v.number()), // 25 - 75, default 50 (percentage)
     stopLossAtrMultiplier: v.optional(v.number()), // 1.0 - 3.0, default 1.5
+    enableRegimeFilter: v.optional(v.boolean()), // default true
+    redDayLongBlockPct: v.optional(v.number()), // default -1.5
+    greenDayShortBlockPct: v.optional(v.number()), // default 1.5
+    reentryCooldownMinutes: v.optional(v.number()), // default 15
 
     // Deprecated fields (for backward compatibility, will be removed in migration)
     stopLossEnabled: v.optional(v.boolean()), // DEPRECATED - always enabled for safety
@@ -234,6 +239,11 @@ export default defineSchema({
     tradingPromptMode: v.string(), // "alpha_arena" | "compact" | "detailed"
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    enableRegimeFilter: v.optional(v.boolean()),
+    require1hAlignment: v.optional(v.boolean()),
+    redDayLongBlockPct: v.optional(v.number()),
+    greenDayShortBlockPct: v.optional(v.number()),
+    reentryCooldownMinutes: v.optional(v.number()),
 
     // Results (populated on completion)
     totalPnl: v.optional(v.number()),

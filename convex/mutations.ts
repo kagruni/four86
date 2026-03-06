@@ -82,9 +82,14 @@ export const upsertBotConfig = mutation({
     // Tier 3: Advanced (optional for backward compatibility)
     minEntrySignals: v.optional(v.number()),
     require4hAlignment: v.optional(v.boolean()),
+    require1hAlignment: v.optional(v.boolean()),
     tradeVolatileMarkets: v.optional(v.boolean()),
     volatilitySizeReduction: v.optional(v.number()),
     stopLossAtrMultiplier: v.optional(v.number()),
+    enableRegimeFilter: v.optional(v.boolean()),
+    redDayLongBlockPct: v.optional(v.number()),
+    greenDayShortBlockPct: v.optional(v.number()),
+    reentryCooldownMinutes: v.optional(v.number()),
     tradingPromptMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -148,6 +153,11 @@ export const toggleBot = mutation({
         maxTotalPositions: 3,
         maxSameDirectionPositions: 2,
         minEntryConfidence: 0.6,
+        require1hAlignment: true,
+        enableRegimeFilter: true,
+        redDayLongBlockPct: -1.5,
+        greenDayShortBlockPct: 1.5,
+        reentryCooldownMinutes: 15,
         createdAt: now,
         updatedAt: now,
       });

@@ -64,6 +64,7 @@ import type * as testing_manualTrigger from "../testing/manualTrigger.js";
 import type * as testing_recoverPositions from "../testing/recoverPositions.js";
 import type * as trading_circuitBreaker from "../trading/circuitBreaker.js";
 import type * as trading_converters_positionConverter from "../trading/converters/positionConverter.js";
+import type * as trading_decisionContext from "../trading/decisionContext.js";
 import type * as trading_executors_tradeExecutor from "../trading/executors/tradeExecutor.js";
 import type * as trading_logger from "../trading/logger.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
@@ -71,6 +72,7 @@ import type * as trading_pnlCalculator from "../trading/pnlCalculator.js";
 import type * as trading_positionSync from "../trading/positionSync.js";
 import type * as trading_tradingLoop from "../trading/tradingLoop.js";
 import type * as trading_validators_positionValidator from "../trading/validators/positionValidator.js";
+import type * as trading_validators_regimeValidator from "../trading/validators/regimeValidator.js";
 import type * as trading_validators_trendGuard from "../trading/validators/trendGuard.js";
 
 import type {
@@ -144,6 +146,7 @@ declare const fullApi: ApiFromModules<{
   "testing/recoverPositions": typeof testing_recoverPositions;
   "trading/circuitBreaker": typeof trading_circuitBreaker;
   "trading/converters/positionConverter": typeof trading_converters_positionConverter;
+  "trading/decisionContext": typeof trading_decisionContext;
   "trading/executors/tradeExecutor": typeof trading_executors_tradeExecutor;
   "trading/logger": typeof trading_logger;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
@@ -151,6 +154,7 @@ declare const fullApi: ApiFromModules<{
   "trading/positionSync": typeof trading_positionSync;
   "trading/tradingLoop": typeof trading_tradingLoop;
   "trading/validators/positionValidator": typeof trading_validators_positionValidator;
+  "trading/validators/regimeValidator": typeof trading_validators_regimeValidator;
   "trading/validators/trendGuard": typeof trading_validators_trendGuard;
 }>;
 declare const fullApiWithMounts: typeof fullApi;

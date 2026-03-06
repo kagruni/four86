@@ -9,6 +9,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { fetchCandlesInternal, extractClosePrices, calculateAverageVolume } from "../hyperliquid/candles";
+import { isSymbolSupportedForEnvironment } from "../hyperliquid/candles";
 import type { Candle } from "../hyperliquid/candles";
 import { calculateRSI, calculateMACD } from "../indicators/technicalIndicators";
 
@@ -157,7 +158,8 @@ const EXPLANATIONS: Record<string, Record<MetricStatus, string>> = {
 export const runPreFlightCheck = action({
   args: { symbols: v.array(v.string()), testnet: v.boolean() },
   handler: async (_ctx, args): Promise<PreFlightResult> => {
-    const { symbols, testnet } = args;
+    const { testnet } = args;
+    const symbols = args.symbols.filter((symbol) => isSymbolSupportedForEnvironment(symbol, testnet));
     const start = Date.now();
     const baseUrl = testnet ? "https://api.hyperliquid-testnet.xyz" : "https://api.hyperliquid.xyz";
 

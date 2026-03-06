@@ -11,6 +11,7 @@ import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
 
 type TrendDirection = "BULLISH" | "BEARISH" | "NEUTRAL";
 type PriceMomentum = "RISING" | "FALLING" | "FLAT";
+type AllowedActionLabel = "HOLD_ONLY" | "HOLD_OR_LONG" | "HOLD_OR_SHORT" | "BIDIRECTIONAL";
 
 /**
  * Calculate price momentum from recent price history.
@@ -42,30 +43,106 @@ function calculateTrendDirection(priceVsEma20Pct: number, ema20VsEma50Pct: numbe
   return "NEUTRAL";
 }
 
-/**
- * Get trading recommendation based on trend and momentum
- */
-function getTradingBias(trendDirection: TrendDirection, momentum: PriceMomentum): string {
-  if (trendDirection === "BULLISH" && momentum !== "FALLING") return "BIAS: Look for LONG entries";
-  if (trendDirection === "BEARISH" && momentum !== "RISING") return "BIAS: Look for SHORT entries";
-  if (trendDirection === "BULLISH" && momentum === "FALLING") return "CAUTION: Bullish trend but momentum fading";
-  if (trendDirection === "BEARISH" && momentum === "RISING") return "CAUTION: Bearish trend but momentum reversing";
-  return "BIAS: NEUTRAL - wait for clearer setup";
+export interface AlphaArenaRegimePromptConfig {
+  enableRegimeFilter?: boolean;
+  require1hAlignment?: boolean;
+  redDayLongBlockPct?: number;
+  greenDayShortBlockPct?: number;
+}
+
+function describeTrendContext(trendDirection: TrendDirection, momentum: PriceMomentum): string {
+  if (trendDirection === "BULLISH" && momentum === "RISING") return "Context: bullish trend with rising intraday momentum";
+  if (trendDirection === "BULLISH" && momentum === "FLAT") return "Context: bullish trend but intraday momentum is flat";
+  if (trendDirection === "BULLISH" && momentum === "FALLING") return "Context: bullish higher timeframe, but intraday momentum is fading";
+  if (trendDirection === "BEARISH" && momentum === "FALLING") return "Context: bearish trend with falling intraday momentum";
+  if (trendDirection === "BEARISH" && momentum === "FLAT") return "Context: bearish trend but intraday momentum is flat";
+  if (trendDirection === "BEARISH" && momentum === "RISING") return "Context: bearish higher timeframe, but intraday momentum is rebounding";
+  return "Context: mixed regime, no directional edge";
+}
+
+function buildRuntimeConstraints(
+  data: DetailedCoinData,
+  regimeConfig: AlphaArenaRegimePromptConfig = {}
+): {
+  longAllowed: boolean;
+  shortAllowed: boolean;
+  longReason: string;
+  shortReason: string;
+  allowedActions: AllowedActionLabel;
+} {
+  const enableRegimeFilter = regimeConfig.enableRegimeFilter ?? true;
+  const require1hAlignment = regimeConfig.require1hAlignment ?? true;
+  const redDayLongBlockPct = regimeConfig.redDayLongBlockPct ?? -1.5;
+  const greenDayShortBlockPct = regimeConfig.greenDayShortBlockPct ?? 1.5;
+
+  if (!enableRegimeFilter) {
+    return {
+      longAllowed: true,
+      shortAllowed: true,
+      longReason: "ALLOWED - regime filter disabled",
+      shortReason: "ALLOWED - regime filter disabled",
+      allowedActions: "BIDIRECTIONAL",
+    };
+  }
+
+  const priceVsEma20Pct = ((data.currentPrice - data.ema20) / data.ema20) * 100;
+  const priceMomentum = calculatePriceMomentum(data.priceHistory);
+
+  let longAllowed = true;
+  let shortAllowed = true;
+  let longReason = "ALLOWED";
+  let shortReason = "ALLOWED";
+
+  if (priceVsEma20Pct < -0.3 && priceMomentum === "FALLING") {
+    longAllowed = false;
+    longReason = `FORBIDDEN - price is ${priceVsEma20Pct.toFixed(2)}% below EMA20 with falling momentum`;
+  } else if (require1hAlignment && data.ema20_1h < data.ema50_1h) {
+    longAllowed = false;
+    longReason = "FORBIDDEN - 1h EMA20 is below EMA50";
+  } else {
+    const hasBullishRecovery = data.ema20_1h >= data.ema50_1h && priceMomentum !== "FALLING";
+    if (data.dayChangePct <= redDayLongBlockPct && !hasBullishRecovery) {
+      longAllowed = false;
+      longReason = `FORBIDDEN - red session (${data.dayChangePct.toFixed(2)}%) without bullish 1h/intraday recovery`;
+    }
+  }
+
+  if (priceVsEma20Pct > 0.3 && priceMomentum === "RISING") {
+    shortAllowed = false;
+    shortReason = `FORBIDDEN - price is ${priceVsEma20Pct.toFixed(2)}% above EMA20 with rising momentum`;
+  } else if (require1hAlignment && data.ema20_1h > data.ema50_1h) {
+    shortAllowed = false;
+    shortReason = "FORBIDDEN - 1h EMA20 is above EMA50";
+  } else {
+    const hasBearishRecovery = data.ema20_1h <= data.ema50_1h && priceMomentum !== "RISING";
+    if (data.dayChangePct >= greenDayShortBlockPct && !hasBearishRecovery) {
+      shortAllowed = false;
+      shortReason = `FORBIDDEN - green session (${data.dayChangePct.toFixed(2)}%) without bearish 1h/intraday rollover`;
+    }
+  }
+
+  let allowedActions: AllowedActionLabel = "BIDIRECTIONAL";
+  if (!longAllowed && !shortAllowed) allowedActions = "HOLD_ONLY";
+  else if (longAllowed && !shortAllowed) allowedActions = "HOLD_OR_LONG";
+  else if (!longAllowed && shortAllowed) allowedActions = "HOLD_OR_SHORT";
+
+  return {
+    longAllowed,
+    shortAllowed,
+    longReason,
+    shortReason,
+    allowedActions,
+  };
 }
 
 /**
- * Alpha Arena-Style Trading Prompt
- *
- * Replicates the exact format used by winning AI traders in Alpha Arena:
- * - DeepSeek R1: 130% return - used 5-10x leverage, held positions LONG
- * - Qwen 2.5 Max: 22% return - strict TP/SL discipline, let trades play out
+ * Alpha Arena-style trading prompt with a single-decision contract.
  *
  * Key principles:
- * - Use LEVERAGE (5-10x) when confident
- * - ALWAYS set TP and SL on every trade
- * - HOLD positions until TP or SL is hit (don't close early!)
- * - Raw data, let AI analyze (no pre-processed recommendations)
- * - Per-coin chain-of-thought analysis
+ * - Use leverage only when regime and momentum align
+ * - Always set TP and SL on every new trade
+ * - HOLD on mixed or low-conviction conditions
+ * - Treat long and short setups symmetrically
  */
 
 // =============================================================================
@@ -76,12 +153,12 @@ export const ALPHA_ARENA_SYSTEM_PROMPT = SystemMessagePromptTemplate.fromTemplat
 You are an autonomous crypto trading AI for Hyperliquid DEX perpetual futures.
 Your goal is PROFITABILITY through leveraged trading with strict TP/SL discipline.
 
-WINNING STRATEGY (from Alpha Arena top performers - DeepSeek 130%, Qwen 22%):
-- Use LEVERAGE when confident in the setup
+TRADING DISCIPLINE:
+- Use LEVERAGE only when the setup is aligned across regime and momentum
 - ALWAYS set TP and SL: Every trade MUST have take-profit and stop-loss
-- Default is HOLD: Let TP/SL handle exits in most cases
-- Protect winners: If profitable (>=+1%) and momentum reversing, close to lock in gains
-- Cut losers: Stop loss handles this automatically — never close at breakeven or loss
+- Default is HOLD when signals are mixed
+- Protect winners: If profitable (>=+1%) and momentum reverses, close to lock in gains
+- Let stop loss handle losers — do not invent discretionary exits at breakeven
 
 ACCOUNT CONFIG:
 - Max Leverage: {maxLeverage}x | Max Position Size: {maxPositionSize}% of account
@@ -153,6 +230,8 @@ The winning strategies let TP/SL handle most exits. Only close manually to PROTE
 
 4. NEW ENTRIES: Open when you see:
    - Clear trend direction with momentum
+   - 1h context supports the trade direction
+   - Session regime is not fighting the trade direction
    - RSI supports direction (oversold for longs, overbought for shorts)
    - EMA alignment (price vs EMA20)
    - 4h timeframe confirms direction
@@ -161,21 +240,25 @@ The winning strategies let TP/SL handle most exits. Only close manually to PROTE
 
 ANALYSIS PROCESS (do this for EACH coin):
 1. Read current indicators (price, EMA, MACD, RSI)
-2. Check intraday series trend (is it accelerating or reversing?)
-3. Confirm with 4h context (is 4h aligned with intraday?)
-4. Check [SUGGESTED ZONES] for pre-calculated ATR-based TP/SL levels
-5. If you have a position: check P&L. If profitable (>=+1%) and momentum reversing, consider closing to lock gains. If at breakeven or negative, output "hold" — let TP/SL handle it.
-6. If no position: is this a good setup? Verify R:R meets {minRiskRewardRatio}:1 before deciding
+2. Read [RUNTIME CONSTRAINTS] and obey them exactly
+3. Check intraday series trend (is it accelerating or reversing?)
+4. Check 1h context and current session direction (green/red day)
+5. Confirm with 4h context
+6. Check [SUGGESTED ZONES] for pre-calculated ATR-based TP/SL levels
+7. If you have a position: check P&L. If profitable (>=+1%) and momentum reversing, consider closing to lock gains. If at breakeven or negative, output "hold" — let TP/SL handle it.
+8. If no position: is this a good setup? Verify R:R meets {minRiskRewardRatio}:1 before deciding
 
 MANDATORY TREND-FOLLOWING RULES:
 1. LONG entries ONLY when:
    - Price is ABOVE EMA20 (or within 0.3% after a bounce)
    - Price momentum is RISING or FLAT (NOT FALLING)
+   - 1h trend is not bearish
    - 4h trend preferably BULLISH
 
 2. SHORT entries ONLY when:
    - Price is BELOW EMA20 (or within 0.3% after rejection)
    - Price momentum is FALLING or FLAT (NOT RISING)
+   - 1h trend is not bullish
    - 4h trend preferably BEARISH
 
 3. FORBIDDEN (will lose money):
@@ -191,34 +274,30 @@ MANDATORY TREND-FOLLOWING RULES:
    - RSI > 70 in DOWNTREND = "short opportunity" = consider SHORT
 
 OUTPUT FORMAT:
-CRITICAL: Your entire response must be a single valid JSON object. Do NOT write any text, explanations, or markdown before or after the JSON. No prose, no commentary — ONLY JSON. One decision per coin. Format:
+CRITICAL: Your entire response must be a single valid JSON object. Do NOT write any text, explanations, or markdown before or after the JSON. No prose, no commentary — ONLY JSON. Return exactly ONE portfolio-level decision for the account. Format:
 {{
-  "thinking": "Your chain-of-thought analysis for each coin...",
-  "decisions": {{
-    "BTC": {{ "signal": "hold" }},
-    "ETH": {{ "signal": "close", "reason": "Profitable +2.3%, momentum reversing, locking gains" }},
-    "SOL": {{
-      "signal": "entry",
-      "side": "long",
-      "leverage": 7,
-      "size_usd": 500,
-      "stop_loss": 180.00,
-      "take_profit": 210.00,
-      "invalidation_condition": "Close below $182 on 2-minute candle",
-      "confidence": 0.75,
-      "reason": "Strong RSI bounce from oversold, 4h trend bullish, R:R 3:1"
-    }}
-  }}
+  "decision": "HOLD" | "CLOSE" | "OPEN_LONG" | "OPEN_SHORT",
+  "symbol": "BTC" | "ETH" | "SOL" | "BNB" | "DOGE" | "XRP" | null,
+  "confidence": 0.0-1.0,
+  "leverage": 1-{{maxLeverage}},
+  "size_usd": 50-{{maxPositionSizeUsd}},
+  "stop_loss": 0,
+  "take_profit": 0,
+  "invalidation_condition": "Reason the setup is invalid",
+  "reasoning": "Brief but concrete explanation grounded in intraday, 1h, session, and 4h context"
 }}
 
-SIGNALS:
-- "hold": Do nothing for this coin (DEFAULT for all open positions at breakeven or loss)
-- "close": Close existing position (ONLY when profitable >=+1% with momentum reversal, OR TP/SL missing)
-- "entry": Open new position with leverage and TP/SL
+RULES:
+- HOLD: Use when signals are mixed, regime is hostile, or no high-conviction setup exists
+- CLOSE: Only for an existing profitable position with reversal, or when TP/SL are missing
+- OPEN_LONG / OPEN_SHORT: Use only for one best setup in the entire account
+- The [RUNTIME CONSTRAINTS] section is authoritative. If LONG is marked FORBIDDEN for a symbol, NEVER return OPEN_LONG for that symbol. Same for shorts.
+- If a symbol says ONLY HOLD OR SHORT, then OPEN_LONG is invalid. If it says ONLY HOLD OR LONG, then OPEN_SHORT is invalid.
+- If all candidate entries are forbidden by runtime constraints, return HOLD.
+- symbol must be null for HOLD when no specific position is targeted
+- For HOLD or CLOSE, omit leverage/size_usd/stop_loss/take_profit unless needed
 
-KEY INSIGHT: The losers closed at breakeven constantly — death by a thousand paper cuts.
-The winners let TP/SL work, and only closed manually to PROTECT large unrealized gains.
-Rule of thumb: if P&L is near $0, output "hold". If P&L is significantly positive and fading, consider "close".
+If regime is mixed or you are choosing between a weak long and a weak short, return HOLD.
 `);
 
 // =============================================================================
@@ -286,7 +365,8 @@ export const alphaArenaTradingPrompt = ChatPromptTemplate.fromMessages([
 export function formatMarketDataAlphaArena(
   marketData: Record<string, DetailedCoinData>,
   slAtrMultiplier: number = 1.5,
-  rrRatio: number = 2.0
+  rrRatio: number = 2.0,
+  regimeConfig: AlphaArenaRegimePromptConfig = {}
 ): string {
   const lines: string[] = [];
   const tpAtrMultiplier = slAtrMultiplier * rrRatio;
@@ -297,7 +377,8 @@ export function formatMarketDataAlphaArena(
     const ema20VsEma50Pct = ((data.ema20_4h - data.ema50_4h) / data.ema50_4h) * 100;
     const priceMomentum = calculatePriceMomentum(data.priceHistory);
     const trendDirection = calculateTrendDirection(priceVsEma20Pct, ema20VsEma50Pct);
-    const tradingBias = getTradingBias(trendDirection, priceMomentum);
+    const trendContext = describeTrendContext(trendDirection, priceMomentum);
+    const runtimeConstraints = buildRuntimeConstraints(data, regimeConfig);
 
     // ATR-based volatility classification
     const atrPct = (data.atr14_4h / data.currentPrice) * 100;
@@ -311,7 +392,17 @@ export function formatMarketDataAlphaArena(
     lines.push(`[TREND ANALYSIS - READ FIRST]`);
     lines.push(`Trend: ${trendDirection} | Momentum: ${priceMomentum}`);
     lines.push(`Price vs EMA20: ${priceVsEma20Pct > 0 ? "ABOVE" : "BELOW"} (${priceVsEma20Pct.toFixed(2)}%)`);
-    lines.push(`${tradingBias}`);
+    lines.push(`${trendContext}`);
+    lines.push(`[RUNTIME CONSTRAINTS - AUTHORITATIVE]`);
+    lines.push(`Allowed Actions: ${runtimeConstraints.allowedActions === "HOLD_ONLY"
+      ? "ONLY HOLD"
+      : runtimeConstraints.allowedActions === "HOLD_OR_LONG"
+      ? "ONLY HOLD OR OPEN_LONG"
+      : runtimeConstraints.allowedActions === "HOLD_OR_SHORT"
+      ? "ONLY HOLD OR OPEN_SHORT"
+      : "OPEN_LONG or OPEN_SHORT allowed if the rest of the setup is strong"}`);
+    lines.push(`LONG: ${runtimeConstraints.longReason}`);
+    lines.push(`SHORT: ${runtimeConstraints.shortReason}`);
     lines.push(``);
     lines.push(`Current Price: $${data.currentPrice.toFixed(2)}`);
     lines.push(`EMA20: $${data.ema20.toFixed(2)} (last: [${data.ema20History.slice(-5).map(v => v.toFixed(2)).join(", ")}])`);
@@ -319,11 +410,16 @@ export function formatMarketDataAlphaArena(
     lines.push(`RSI_7: ${data.rsi7.toFixed(1)} (last: [${data.rsi7History.slice(-5).map(v => v.toFixed(1)).join(", ")}])`);
     lines.push(`RSI_14: ${data.rsi14.toFixed(1)} (last: [${data.rsi14History.slice(-5).map(v => v.toFixed(1)).join(", ")}])`);
     lines.push(``);
+    lines.push(`[1h Context]`);
+    lines.push(`EMA20 vs EMA50: ${data.ema20_1h > data.ema50_1h ? "BULLISH" : "BEARISH"} (EMA20: $${data.ema20_1h.toFixed(2)}, EMA50: $${data.ema50_1h.toFixed(2)})`);
+    lines.push(`1h Closes: [${data.priceHistory_1h.slice(-5).map(v => v.toFixed(2)).join(", ")}]`);
+    lines.push(``);
     lines.push(`[4h Context]`);
     lines.push(`EMA20 vs EMA50: ${data.ema20_4h > data.ema50_4h ? "BULLISH" : "BEARISH"} (EMA20: $${data.ema20_4h.toFixed(2)}, EMA50: $${data.ema50_4h.toFixed(2)})`);
     lines.push(`ATR(3): ${data.atr3_4h.toFixed(2)} | ATR(14): ${data.atr14_4h.toFixed(2)}`);
     lines.push(`Volume: ${data.currentVolume_4h.toFixed(0)} (avg: ${data.avgVolume_4h.toFixed(0)}, ratio: ${data.volumeRatio.toFixed(2)}x)`);
     lines.push(`24h Range: $${data.low24h.toFixed(2)} - $${data.high24h.toFixed(2)}`);
+    lines.push(`Session Open: $${data.dayOpen.toFixed(2)} | Session Change: ${data.dayChangePct >= 0 ? "+" : ""}${data.dayChangePct.toFixed(2)}%`);
 
     if (data.fundingRate !== undefined) {
       lines.push(`Funding Rate: ${(data.fundingRate * 100).toFixed(4)}%`);
@@ -574,16 +670,10 @@ export function parseAlphaArenaOutputWithWarnings(output: AlphaArenaOutput): {
       );
       output.decisions = recovered;
     } else if ((output as any).decision && typeof (output as any).decision === "string") {
-      // Legacy single-decision format: { decision: "HOLD"|"OPEN_LONG"|..., confidence, symbol, ... }
+      // Canonical single-decision format: { decision: "HOLD"|"OPEN_LONG"|..., confidence, symbol, ... }
       const legacy = output as any;
       const legacyDecision = String(legacy.decision).toUpperCase();
-      console.log(`[AlphaArena Parser] Recovered legacy single-decision format: ${legacyDecision}`);
-      warnings.push(
-        createWarning(
-          "LEGACY_FORMAT_RECOVERED",
-          `Model returned legacy single-decision format (${legacyDecision}) instead of Alpha Arena multi-decision format`
-        )
-      );
+      console.log(`[AlphaArena Parser] Parsed single-decision format: ${legacyDecision}`);
       return {
         decision: {
           decision: legacyDecision as AlphaArenaLegacyDecision["decision"],

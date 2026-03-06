@@ -27,8 +27,14 @@ import {
 } from "./circuitBreaker";
 import { convertHyperliquidPositions, extractHyperliquidSymbols } from "./converters/positionConverter";
 import { checkTrendGuard } from "./validators/trendGuard";
+import { validateDecisionAgainstRegime } from "./validators/regimeValidator";
 import { validateOpenPosition } from "./validators/positionValidator";
 import { executeClose, executeOpen } from "./executors/tradeExecutor";
+import {
+  buildMarketSnapshot,
+  summarizeMarketSnapshot,
+  type DecisionContext,
+} from "./decisionContext";
 import {
   formatMarketDataAlphaArena,
   formatPositionsAlphaArena,
@@ -229,6 +235,11 @@ export const runTradingCycle = internalAction({
           }
 
           const positions = convertHyperliquidPositions(hyperliquidPositions, dbPositions, detailedMarketData);
+          const marketSnapshot = buildMarketSnapshot(detailedMarketData);
+          const decisionContext: DecisionContext = {
+            marketSnapshot,
+            marketSnapshotSummary: summarizeMarketSnapshot(marketSnapshot),
+          };
 
           console.log(`[LOOP-${loopId}] Hyperliquid has ${positions.length} active positions: ${positions.map((p: any) => `${p.symbol} ${p.side}`).join(", ") || "none"}`);
           console.log(`[LOOP-${loopId}] Database has ${dbPositions.length} positions`);
@@ -281,6 +292,10 @@ export const runTradingCycle = internalAction({
                   tradingMode: bot.tradingMode ?? "balanced",
                   consecutiveLosses: bot.consecutiveLosses ?? 0,
                   consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
+                  enableRegimeFilter: bot.enableRegimeFilter ?? true,
+                  require1hAlignment: bot.require1hAlignment ?? true,
+                  redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
+                  greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
                 },
               });
               systemPromptName = "Alpha Arena trading system (leverage + TP/SL discipline)";
@@ -391,21 +406,19 @@ export const runTradingCycle = internalAction({
             throw aiError;
           }
 
-          // ── 8. Save AI Log ────────────────────────────────────────
-          // Include parser warnings in parsedResponse for dashboard visibility
-          const parserWarnings = (decision as any)._parserWarnings || [];
-          const parsedResponseWithWarnings = {
-            ...decision,
-            ...(parserWarnings.length > 0 ? { _parserWarnings: parserWarnings } : {}),
-          };
-
           // Build the actual prompt content that was sent to the model
           let renderedUserPrompt: string;
           if (tradingMode === "alpha_arena") {
             const marketSection = formatMarketDataAlphaArena(
               detailedMarketData,
               bot.stopLossAtrMultiplier ?? 1.5,
-              bot.minRiskRewardRatio ?? 2.0
+              bot.minRiskRewardRatio ?? 2.0,
+              {
+                enableRegimeFilter: bot.enableRegimeFilter ?? true,
+                require1hAlignment: bot.require1hAlignment ?? true,
+                redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
+                greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
+              }
             );
             const positionsSection = formatPositionsAlphaArena(positions);
             const sentimentSection = formatSentimentContext(marketResearch);
@@ -426,25 +439,53 @@ export const runTradingCycle = internalAction({
             renderedUserPrompt = JSON.stringify({ detailedMarketData, accountState, positions, performanceMetrics });
           }
 
+          let executionResult: any = {
+            executed: false,
+            blockedBy: null,
+            regimeValidation: null,
+            trendValidation: null,
+            positionValidation: null,
+          };
+
+          // ── 8. Execute Trade ──────────────────────────────────────
+          if (decision.decision !== "HOLD") {
+            executionResult = await executeTradeDecision(
+              ctx,
+              bot,
+              credentials,
+              decision,
+              accountState,
+              decisionContext
+            );
+          }
+
+          // ── 9. Save AI Log ────────────────────────────────────────
+          // Include parser warnings and decision context for dashboard visibility
+          const parserWarnings = (decision as any)._parserWarnings || [];
+          const parsedResponseWithWarnings = {
+            ...decision,
+            marketSnapshotSummary: decisionContext.marketSnapshotSummary,
+            executionResult,
+            ...(parserWarnings.length > 0 ? { _parserWarnings: parserWarnings } : {}),
+          };
+
           await ctx.runMutation(api.mutations.saveAILog, {
             userId: bot.userId,
             modelName: bot.modelName,
             systemPrompt: systemPromptName,
             userPrompt: renderedUserPrompt,
-            rawResponse: JSON.stringify(decision),
+            rawResponse: (decision as any)._rawModelResponse || JSON.stringify(decision),
             parsedResponse: parsedResponseWithWarnings,
             decision: decision.decision,
             reasoning: decision.reasoning,
             confidence: decision.confidence,
             accountValue: accountState.accountValue,
-            marketData: detailedMarketData,
+            marketData: {
+              detailedMarketData,
+              marketSnapshotSummary: decisionContext.marketSnapshotSummary,
+            },
             processingTimeMs: 0,
           });
-
-          // ── 9. Execute Trade ──────────────────────────────────────
-          if (decision.decision !== "HOLD") {
-            await executeTradeDecision(ctx, bot, credentials, decision, accountState);
-          }
 
           console.log(`Bot ${bot._id} decision: ${decision.decision}`);
 
@@ -491,9 +532,16 @@ export const runTradingCycle = internalAction({
  * Trade execution orchestrator.
  * Delegates to trendGuard → positionValidator → tradeExecutor.
  */
-async function executeTradeDecision(ctx: any, bot: any, credentials: any, decision: any, accountState: any) {
+async function executeTradeDecision(
+  ctx: any,
+  bot: any,
+  credentials: any,
+  decision: any,
+  accountState: any,
+  decisionContext: DecisionContext
+) {
   console.log(`\n┌─────────────────────────────────────────────────────────────┐`);
-  console.log(`│ TRADE EXECUTION: ${decision.decision} ${decision.symbol || 'N/A'}`);
+  console.log(`│ TRADE DECISION: ${decision.decision} ${decision.symbol || 'N/A'}`);
   console.log(`│ Size: $${decision.size_usd?.toFixed(2) || 'N/A'} | Leverage: ${decision.leverage || 'N/A'}x`);
   console.log(`│ Confidence: ${(decision.confidence * 100).toFixed(0)}%`);
   console.log(`└─────────────────────────────────────────────────────────────┘`);
@@ -548,7 +596,13 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
           message: `AI close blocked: ${decision.symbol} P&L ${pnlPct.toFixed(2)}% below +${MIN_CLOSE_PNL_PCT}% threshold`,
           data: { symbol: decision.symbol, pnlPct, reasoning: decision.reasoning },
         });
-        return;
+        return {
+          executed: false,
+          blockedBy: "close_guard",
+          regimeValidation: null,
+          trendValidation: null,
+          positionValidation: null,
+        };
       }
 
       if (!hasTpSl) {
@@ -560,8 +614,50 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
   }
 
   // ── Trend Guard ───────────────────────────────────────────────
-  const trendResult = await checkTrendGuard(ctx, api, decision, credentials, bot.userId);
-  if (!trendResult.allowed) return;
+  const regimeResult = validateDecisionAgainstRegime(bot, decision, decisionContext);
+  if (!regimeResult.allowed) {
+    console.log(`❌ EXECUTION BLOCKED [regime_validator]: ${regimeResult.reason}`);
+    await ctx.runMutation(api.mutations.saveSystemLog, {
+      userId: bot.userId,
+      level: "WARNING",
+      message: `Regime validator blocked trade: ${decision.decision} on ${decision.symbol}`,
+      data: {
+        reason: regimeResult.reason,
+        checks: regimeResult.checks,
+        snapshot: regimeResult.snapshot,
+      },
+    });
+    return {
+      executed: false,
+      blockedBy: "regime_validator",
+      regimeValidation: regimeResult,
+      trendValidation: null,
+      positionValidation: null,
+    };
+  }
+
+  // ── Trend Guard ───────────────────────────────────────────────
+  const trendResult = await checkTrendGuard(decision, bot.userId, decisionContext);
+  if (!trendResult.allowed) {
+    console.log(`❌ EXECUTION BLOCKED [trend_guard]: ${trendResult.reason}`);
+    await ctx.runMutation(api.mutations.saveSystemLog, {
+      userId: bot.userId,
+      level: "WARNING",
+      message: `Trend guard blocked trade: ${decision.decision} on ${decision.symbol}`,
+      data: {
+        reason: trendResult.reason,
+        trendDirection: trendResult.trendDirection,
+        trendStrength: trendResult.trendStrength,
+      },
+    });
+    return {
+      executed: false,
+      blockedBy: "trend_guard",
+      regimeValidation: regimeResult,
+      trendValidation: trendResult,
+      positionValidation: null,
+    };
+  }
 
   // ── Size Normalization (safety net) ──────────────────────────
   if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
@@ -591,23 +687,45 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
   // ── Position Validation ───────────────────────────────────────
   if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
     const validation = await validateOpenPosition(ctx, api, bot, credentials, decision, accountState);
-    if (!validation.allowed) return;
+    if (!validation.allowed) {
+      console.log(`❌ EXECUTION BLOCKED [position_validator/${validation.checkName}]: ${validation.reason}`);
+      return {
+        executed: false,
+        blockedBy: "position_validator",
+        regimeValidation: regimeResult,
+        trendValidation: trendResult,
+        positionValidation: validation,
+      };
+    }
 
     // Legacy risk checks (normalization above already handled sizing, these are now redundant safety nets)
     const maxPositionSizePct_check = normalizeMaxPositionSizePct(bot.maxPositionSize);
     const maxPositionSizeUsd_check = accountState.accountValue * (maxPositionSizePct_check / 100);
     if (decision.size_usd && decision.size_usd > maxPositionSizeUsd_check * 1.01) {
       console.log(`❌ Trade rejected: position size ${decision.size_usd} still exceeds max ${maxPositionSizeUsd_check} after normalization`);
-      return;
+      return {
+        executed: false,
+        blockedBy: "size_cap",
+        regimeValidation: regimeResult,
+        trendValidation: trendResult,
+        positionValidation: validation,
+      };
     }
     if (decision.leverage && decision.leverage > bot.maxLeverage) {
       console.log(`❌ Trade rejected: leverage ${decision.leverage} still exceeds max ${bot.maxLeverage} after normalization`);
-      return;
+      return {
+        executed: false,
+        blockedBy: "leverage_cap",
+        regimeValidation: regimeResult,
+        trendValidation: trendResult,
+        positionValidation: validation,
+      };
     }
   }
 
   // ── Execute ───────────────────────────────────────────────────
   try {
+    console.log(`✅ EXECUTING ORDER: ${decision.decision} ${decision.symbol || "N/A"}`);
     if (decision.decision === "CLOSE") {
       await executeClose(ctx, api, bot, credentials, decision);
     } else if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
@@ -621,5 +739,20 @@ async function executeTradeDecision(ctx: any, bot: any, credentials: any, decisi
       message: "Trade execution error",
       data: { error: String(error), decision },
     });
+    return {
+      executed: false,
+      blockedBy: "execution_error",
+      regimeValidation: regimeResult,
+      trendValidation: trendResult,
+      positionValidation: null,
+    };
   }
+
+  return {
+    executed: true,
+    blockedBy: null,
+    regimeValidation: regimeResult,
+    trendValidation: trendResult,
+    positionValidation: null,
+  };
 }

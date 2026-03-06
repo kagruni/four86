@@ -1,6 +1,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../fnRefs";
+import { isSymbolSupportedForEnvironment } from "../hyperliquid/candles";
 import { calculatePnl } from "../trading/pnlCalculator";
 
 /**
@@ -382,10 +383,19 @@ export const runTradingCycleForUser = action({
       logs.push(`Network: ${credentials.hyperliquidTestnet ? "Testnet" : "Mainnet"}`);
 
       // 3. Fetch detailed multi-timeframe market data
-      logs.push(`Fetching detailed market data for: ${botConfig.symbols.join(", ")}`);
+      const symbols = botConfig.symbols.filter((symbol: string) =>
+        isSymbolSupportedForEnvironment(symbol, credentials.hyperliquidTestnet)
+      );
+
+      if (symbols.length !== botConfig.symbols.length) {
+        const skippedSymbols = botConfig.symbols.filter((symbol: string) => !symbols.includes(symbol));
+        logs.push(`Skipping unsupported symbols for ${credentials.hyperliquidTestnet ? "testnet" : "mainnet"}: ${skippedSymbols.join(", ")}`);
+      }
+
+      logs.push(`Fetching detailed market data for: ${symbols.join(", ")}`);
 
       const detailedMarketData = await ctx.runAction(api.hyperliquid.detailedMarketData.getDetailedMarketData, {
-        symbols: botConfig.symbols,
+        symbols,
         testnet: credentials.hyperliquidTestnet,
       });
 

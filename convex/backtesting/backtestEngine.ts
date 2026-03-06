@@ -4,6 +4,8 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../fnRefs";
 import { v } from "convex/values";
 import { fetchCandlesInternal } from "../hyperliquid/candles";
+import { validateDecisionAgainstRegime } from "../trading/validators/regimeValidator";
+import type { DecisionContext } from "../trading/decisionContext";
 
 /**
  * Backtest Engine (Chunked) — Realistic Hyperliquid Simulation
@@ -145,6 +147,11 @@ export const runBacktest = internalAction({
     tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    enableRegimeFilter: v.optional(v.boolean()),
+    require1hAlignment: v.optional(v.boolean()),
+    redDayLongBlockPct: v.optional(v.number()),
+    greenDayShortBlockPct: v.optional(v.number()),
+    reentryCooldownMinutes: v.optional(v.number()),
     openrouterApiKey: v.string(),
     testnet: v.boolean(),
   },
@@ -193,6 +200,12 @@ export const runBacktest = internalAction({
         200,
         args.testnet
       );
+      const candles1d = await fetchCandlesInternal(
+        args.symbol,
+        "1d",
+        60,
+        args.testnet
+      );
 
       const stepSize = 6; // every 6th candle = 30 min intervals
       const totalSteps = Math.ceil((periodCandles.length - 50) / stepSize);
@@ -208,12 +221,18 @@ export const runBacktest = internalAction({
           modelName: args.modelName,
           initialCapital: args.initialCapital,
           maxLeverage: effectiveMaxLeverage,
+          enableRegimeFilter: args.enableRegimeFilter ?? true,
+          require1hAlignment: args.require1hAlignment ?? true,
+          redDayLongBlockPct: args.redDayLongBlockPct ?? -1.5,
+          greenDayShortBlockPct: args.greenDayShortBlockPct ?? 1.5,
+          reentryCooldownMinutes: args.reentryCooldownMinutes ?? 15,
           openrouterApiKey: args.openrouterApiKey,
           startTime: Date.now(),
           // Candle data (serialized)
           periodCandlesJson: JSON.stringify(periodCandles),
           candles1hJson: JSON.stringify(candles1h),
           candles4hJson: JSON.stringify(candles4h),
+          candles1dJson: JSON.stringify(candles1d),
           // Chunk state
           candleIndex: 50, // start from index 50 (need lookback)
           stepSize,
@@ -235,6 +254,7 @@ export const runBacktest = internalAction({
           returnsCount: 0,
           // Current position (null = no position)
           positionJson: "null",
+          lastTradeTimestamp: 0,
         }
       );
     } catch (error) {
@@ -262,12 +282,18 @@ export const processBacktestChunk = internalAction({
     modelName: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    enableRegimeFilter: v.boolean(),
+    require1hAlignment: v.boolean(),
+    redDayLongBlockPct: v.number(),
+    greenDayShortBlockPct: v.number(),
+    reentryCooldownMinutes: v.number(),
     openrouterApiKey: v.string(),
     startTime: v.number(),
     // Candle data
     periodCandlesJson: v.string(),
     candles1hJson: v.string(),
     candles4hJson: v.string(),
+    candles1dJson: v.string(),
     // Chunk state
     candleIndex: v.number(),
     stepSize: v.number(),
@@ -289,6 +315,7 @@ export const processBacktestChunk = internalAction({
     returnsCount: v.number(),
     // Current position
     positionJson: v.string(),
+    lastTradeTimestamp: v.number(),
   },
   handler: async (ctx, args) => {
     try {
@@ -308,6 +335,7 @@ export const processBacktestChunk = internalAction({
       const periodCandles = JSON.parse(args.periodCandlesJson);
       const candles1h = JSON.parse(args.candles1hJson);
       const candles4h = JSON.parse(args.candles4hJson);
+      const candles1d = JSON.parse(args.candles1dJson);
 
       let capital = args.capital;
       let peakCapital = args.peakCapital;
@@ -322,6 +350,7 @@ export const processBacktestChunk = internalAction({
       let returnsSquaredSum = args.returnsSquaredSum;
       let returnsCount = args.returnsCount;
       let currentPosition = JSON.parse(args.positionJson);
+      let lastTradeTimestamp = args.lastTradeTimestamp;
       let stepCount = args.stepCount;
       let aiCallsThisChunk = 0;
       let candleIndex = args.candleIndex;
@@ -442,6 +471,7 @@ export const processBacktestChunk = internalAction({
 
               currentPosition = null;
               positionClosed = true;
+              lastTradeTimestamp = checkCandle.t;
 
               // Track drawdown
               if (capital > peakCapital) peakCapital = capital;
@@ -546,6 +576,7 @@ export const processBacktestChunk = internalAction({
 
               currentPosition = null;
               positionClosed = true;
+              lastTradeTimestamp = checkCandle.t;
 
               // Track drawdown
               if (capital > peakCapital) peakCapital = capital;
@@ -579,6 +610,14 @@ export const processBacktestChunk = internalAction({
           break;
         }
 
+        if (
+          lastTradeTimestamp > 0 &&
+          currentCandle.t - lastTradeTimestamp < args.reentryCooldownMinutes * 60 * 1000
+        ) {
+          candleIndex += args.stepSize;
+          continue;
+        }
+
         // Time watchdog: bail out before Convex's hard 600s kill
         const elapsedMs = Date.now() - chunkStartMs;
         if (elapsedMs >= CHUNK_TIME_BUDGET_MS) {
@@ -606,11 +645,17 @@ export const processBacktestChunk = internalAction({
               modelName: args.modelName,
               initialCapital: args.initialCapital,
               maxLeverage: args.maxLeverage,
+              enableRegimeFilter: args.enableRegimeFilter,
+              require1hAlignment: args.require1hAlignment,
+              redDayLongBlockPct: args.redDayLongBlockPct,
+              greenDayShortBlockPct: args.greenDayShortBlockPct,
+              reentryCooldownMinutes: args.reentryCooldownMinutes,
               openrouterApiKey: args.openrouterApiKey,
               startTime: args.startTime,
               periodCandlesJson: args.periodCandlesJson,
               candles1hJson: args.candles1hJson,
               candles4hJson: args.candles4hJson,
+              candles1dJson: args.candles1dJson,
               candleIndex,
               stepSize: args.stepSize,
               totalSteps: args.totalSteps,
@@ -628,6 +673,7 @@ export const processBacktestChunk = internalAction({
               returnsSquaredSum,
               returnsCount,
               positionJson: JSON.stringify(currentPosition),
+              lastTradeTimestamp,
             }
           );
           return;
@@ -661,11 +707,17 @@ export const processBacktestChunk = internalAction({
               modelName: args.modelName,
               initialCapital: args.initialCapital,
               maxLeverage: args.maxLeverage,
+              enableRegimeFilter: args.enableRegimeFilter,
+              require1hAlignment: args.require1hAlignment,
+              redDayLongBlockPct: args.redDayLongBlockPct,
+              greenDayShortBlockPct: args.greenDayShortBlockPct,
+              reentryCooldownMinutes: args.reentryCooldownMinutes,
               openrouterApiKey: args.openrouterApiKey,
               startTime: args.startTime,
               periodCandlesJson: args.periodCandlesJson,
               candles1hJson: args.candles1hJson,
               candles4hJson: args.candles4hJson,
+              candles1dJson: args.candles1dJson,
               candleIndex,
               stepSize: args.stepSize,
               totalSteps: args.totalSteps,
@@ -683,6 +735,7 @@ export const processBacktestChunk = internalAction({
               returnsSquaredSum,
               returnsCount,
               positionJson: JSON.stringify(currentPosition),
+              lastTradeTimestamp,
             }
           );
           return; // Exit this chunk
@@ -696,6 +749,9 @@ export const processBacktestChunk = internalAction({
         const recent4h = candles4h
           .filter((c: any) => c.t <= currentCandle.t)
           .slice(-12);
+        const recent1d = candles1d
+          .filter((c: any) => c.t <= currentCandle.t)
+          .slice(-7);
 
         const closes = recentCandles.map((c: any) => c.c);
         const currentPrice = currentCandle.c;
@@ -728,6 +784,14 @@ Recent High: $${Math.max(...recentCandles.slice(-12).map((c: any) => c.h)).toFix
 Recent Low: $${Math.min(...recentCandles.slice(-12).map((c: any) => c.l)).toFixed(2)}
 Account Balance: $${capital.toFixed(2)}
 Max Leverage: ${args.maxLeverage}x`;
+        const decisionContext = createBacktestDecisionContext(
+          args.symbol,
+          currentPrice,
+          recentCandles,
+          recent1h,
+          recent4h,
+          recent1d
+        );
 
         // Call AI
         try {
@@ -742,9 +806,24 @@ Max Leverage: ${args.maxLeverage}x`;
           );
 
           if (aiDecision && aiDecision.decision !== "HOLD") {
+            const regimeValidation = validateDecisionAgainstRegime(
+              {
+                enableRegimeFilter: args.enableRegimeFilter,
+                require1hAlignment: args.require1hAlignment,
+                redDayLongBlockPct: args.redDayLongBlockPct,
+                greenDayShortBlockPct: args.greenDayShortBlockPct,
+              },
+              aiDecision,
+              decisionContext
+            );
+            if (!regimeValidation.allowed) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
             const positionSize = Math.min(
               capital * 0.2,
-              (capital * (aiDecision.size_pct || 20)) / 100
+              aiDecision.size_usd || capital * 0.2
             );
 
             // Enforce per-asset max leverage
@@ -790,6 +869,7 @@ Max Leverage: ${args.maxLeverage}x`;
               lastFundingCheckTime: currentCandle.t,
               accumulatedFunding: 0,
             };
+            lastTradeTimestamp = currentCandle.t;
 
             // Save entry trade
             await ctx.runMutation(
@@ -867,6 +947,7 @@ Max Leverage: ${args.maxLeverage}x`;
         returnsSum += pnlPct;
         returnsSquaredSum += pnlPct * pnlPct;
         returnsCount++;
+        lastTradeTimestamp = lastCandle.t;
 
         await ctx.runMutation(
           internal.backtesting.backtestActions.saveBacktestTrade,
@@ -948,6 +1029,119 @@ Max Leverage: ${args.maxLeverage}x`;
 });
 
 /**
+ * Build a minimal shared decision context for backtests.
+ * Reuses the same regime validation rules as live trading.
+ */
+function createBacktestDecisionContext(
+  symbol: string,
+  currentPrice: number,
+  recentCandles: any[],
+  recent1h: any[],
+  recent4h: any[],
+  recent1d: any[]
+): DecisionContext {
+  const intradayPrices = recentCandles.slice(-10).map((c: any) => c.c);
+  const intradayEma20 = intradayPrices.length > 0
+    ? intradayPrices.reduce((sum: number, v: number) => sum + v, 0) / intradayPrices.length
+    : currentPrice;
+  const intradayMomentum =
+    intradayPrices.length < 5
+      ? "FLAT"
+      : intradayPrices[intradayPrices.length - 1] > intradayPrices[intradayPrices.length - 5]
+        ? "RISING"
+        : intradayPrices[intradayPrices.length - 1] < intradayPrices[intradayPrices.length - 5]
+          ? "FALLING"
+          : "FLAT";
+
+  const hourlyPrices = recent1h.map((c: any) => c.c);
+  const ema20_1h = hourlyPrices.length > 0
+    ? hourlyPrices.slice(-20).reduce((sum: number, v: number) => sum + v, 0) / Math.min(20, hourlyPrices.length)
+    : currentPrice;
+  const ema50_1h = hourlyPrices.length > 0
+    ? hourlyPrices.slice(-50).reduce((sum: number, v: number) => sum + v, 0) / Math.min(50, hourlyPrices.length)
+    : currentPrice;
+
+  const fourHourPrices = recent4h.map((c: any) => c.c);
+  const ema20_4h = fourHourPrices.length > 0
+    ? fourHourPrices.slice(-20).reduce((sum: number, v: number) => sum + v, 0) / Math.min(20, fourHourPrices.length)
+    : currentPrice;
+  const ema50_4h = fourHourPrices.length > 0
+    ? fourHourPrices.slice(-50).reduce((sum: number, v: number) => sum + v, 0) / Math.min(50, fourHourPrices.length)
+    : currentPrice;
+
+  const priceVsEma20Pct = intradayEma20 > 0 ? ((currentPrice - intradayEma20) / intradayEma20) * 100 : 0;
+  const ema20VsEma50Pct4h = ema50_4h > 0 ? ((ema20_4h - ema50_4h) / ema50_4h) * 100 : 0;
+  const dayOpen = recent1d[recent1d.length - 1]?.o || currentPrice;
+  const dayChangePct = dayOpen > 0 ? ((currentPrice - dayOpen) / dayOpen) * 100 : 0;
+
+  return {
+    marketSnapshot: {
+      generatedAt: new Date().toISOString(),
+      symbols: {
+        [symbol]: {
+          symbol,
+          currentPrice,
+          dayOpen,
+          dayChangePct,
+          intraday: {
+            ema20: intradayEma20,
+            priceVsEma20Pct,
+            momentum: intradayMomentum,
+            trendDirection: "NEUTRAL",
+            priceHistory: intradayPrices,
+            ema20History: [],
+            macd: 0,
+            macdHistory: [],
+            rsi7: 50,
+            rsi7History: [],
+            rsi14: 50,
+            rsi14History: [],
+          },
+          hourly: {
+            ema20: ema20_1h,
+            ema50: ema50_1h,
+            trendDirection: ema20_1h >= ema50_1h ? "BULLISH" : "BEARISH",
+            priceHistory: hourlyPrices.slice(-10),
+          },
+          fourHour: {
+            ema20: ema20_4h,
+            ema50: ema50_4h,
+            ema20VsEma50Pct: ema20VsEma50Pct4h,
+            trendDirection: ema20_4h >= ema50_4h ? "BULLISH" : "BEARISH",
+            atr3: 0,
+            atr14: 0,
+            currentVolume: recent4h[recent4h.length - 1]?.v || 0,
+            avgVolume: 0,
+            volumeRatio: 1,
+            macdHistory: [],
+            rsi14History: [],
+          },
+          session: {
+            high24h: Math.max(...recentCandles.slice(-12).map((c: any) => c.h)),
+            low24h: Math.min(...recentCandles.slice(-12).map((c: any) => c.l)),
+          },
+        },
+      },
+    },
+    marketSnapshotSummary: {
+      generatedAt: new Date().toISOString(),
+      symbols: {
+        [symbol]: {
+          currentPrice,
+          dayChangePct,
+          intradayMomentum,
+          intradayTrend: "NEUTRAL",
+          hourlyTrend: ema20_1h >= ema50_1h ? "BULLISH" : "BEARISH",
+          fourHourTrend: ema20_4h >= ema50_4h ? "BULLISH" : "BEARISH",
+          priceVsEma20Pct,
+          ema20VsEma50Pct4h,
+        },
+      },
+    },
+  };
+}
+
+/**
  * Call OpenRouter AI for a backtest trading decision
  */
 async function callAIForBacktest(
@@ -958,17 +1152,21 @@ async function callAIForBacktest(
   capital: number,
   maxLeverage: number
 ): Promise<any> {
-  const systemPrompt = `You are a crypto trading bot in backtest mode. Analyze the market data and decide:
-- OPEN_LONG: Buy/go long
-- OPEN_SHORT: Sell/go short
-- HOLD: No trade
+  const systemPrompt = `You are a crypto trading bot in backtest mode.
 
-Respond ONLY with JSON:
+Return exactly ONE portfolio-level decision for the current symbol.
+Allowed decisions:
+- HOLD
+- OPEN_LONG
+- OPEN_SHORT
+
+Respond ONLY with valid JSON:
 {
   "decision": "HOLD" | "OPEN_LONG" | "OPEN_SHORT",
+  "symbol": "${symbol}" | null,
   "confidence": 0.0 to 1.0,
   "leverage": 1 to ${maxLeverage},
-  "size_pct": 10 to 30,
+  "size_usd": <number>,
   "stop_loss": <price>,
   "take_profit": <price>,
   "reasoning": "<brief reason>"

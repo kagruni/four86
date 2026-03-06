@@ -78,9 +78,14 @@ const botConfigSchema = z.object({
   // Tier 3: Advanced
   minEntrySignals: z.number().min(1).max(4),
   require4hAlignment: z.boolean(),
+  require1hAlignment: z.boolean(),
   tradeVolatileMarkets: z.boolean(),
   volatilitySizeReduction: z.number().min(25).max(75),
   stopLossAtrMultiplier: z.number().min(1.0).max(3.0),
+  enableRegimeFilter: z.boolean(),
+  redDayLongBlockPct: z.number().min(-10).max(0),
+  greenDayShortBlockPct: z.number().min(0).max(10),
+  reentryCooldownMinutes: z.number().min(1).max(60),
 });
 
 const credentialsSchema = z.object({
@@ -138,9 +143,14 @@ export default function SettingsPage() {
     // Tier 3: Advanced (Balanced defaults)
     minEntrySignals: 2,
     require4hAlignment: false,
+    require1hAlignment: true,
     tradeVolatileMarkets: true,
     volatilitySizeReduction: 50,
     stopLossAtrMultiplier: 1.5,
+    enableRegimeFilter: true,
+    redDayLongBlockPct: -1.5,
+    greenDayShortBlockPct: 1.5,
+    reentryCooldownMinutes: 15,
   });
 
   // Credentials state
@@ -182,7 +192,7 @@ export default function SettingsPage() {
         consecutiveLossLimit: botConfig.consecutiveLossLimit ?? 3,
 
         // Tier 2: Trading Behavior
-        tradingMode: botConfig.tradingMode ?? "balanced",
+        tradingMode: (botConfig.tradingMode as "conservative" | "balanced" | "aggressive") ?? "balanced",
         minEntryConfidence: botConfig.minEntryConfidence ?? 0.60,
         minRiskRewardRatio: botConfig.minRiskRewardRatio ?? 2.0,
         stopOutCooldownHours: botConfig.stopOutCooldownHours ?? 6,
@@ -190,9 +200,14 @@ export default function SettingsPage() {
         // Tier 3: Advanced
         minEntrySignals: botConfig.minEntrySignals ?? 2,
         require4hAlignment: botConfig.require4hAlignment ?? false,
+        require1hAlignment: botConfig.require1hAlignment ?? true,
         tradeVolatileMarkets: botConfig.tradeVolatileMarkets ?? true,
         volatilitySizeReduction: botConfig.volatilitySizeReduction ?? 50,
         stopLossAtrMultiplier: botConfig.stopLossAtrMultiplier ?? 1.5,
+        enableRegimeFilter: botConfig.enableRegimeFilter ?? true,
+        redDayLongBlockPct: botConfig.redDayLongBlockPct ?? -1.5,
+        greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
+        reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
       });
       setTradingPromptMode(botConfig.tradingPromptMode ?? "alpha_arena");
     }
@@ -259,6 +274,7 @@ export default function SettingsPage() {
           minRiskRewardRatio: 2.5,
           minEntrySignals: 3,
           require4hAlignment: true,
+          require1hAlignment: true,
         };
       } else if (mode === "aggressive") {
         return {
@@ -268,6 +284,7 @@ export default function SettingsPage() {
           minRiskRewardRatio: 1.5,
           minEntrySignals: 2,
           require4hAlignment: false,
+          require1hAlignment: false,
         };
       } else {
         // Balanced
@@ -278,6 +295,7 @@ export default function SettingsPage() {
           minRiskRewardRatio: 2.0,
           minEntrySignals: 2,
           require4hAlignment: false,
+          require1hAlignment: true,
         };
       }
     });
@@ -320,9 +338,14 @@ export default function SettingsPage() {
         // Tier 3: Advanced
         minEntrySignals: validatedData.minEntrySignals,
         require4hAlignment: validatedData.require4hAlignment,
+        require1hAlignment: validatedData.require1hAlignment,
         tradeVolatileMarkets: validatedData.tradeVolatileMarkets,
         volatilitySizeReduction: validatedData.volatilitySizeReduction,
         stopLossAtrMultiplier: validatedData.stopLossAtrMultiplier,
+        enableRegimeFilter: validatedData.enableRegimeFilter,
+        redDayLongBlockPct: validatedData.redDayLongBlockPct,
+        greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
+        reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
         tradingPromptMode,
       };
 
@@ -1048,6 +1071,97 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, require4hAlignment: checked }))
                       }
                     />
+                  </div>
+
+                  {/* Require 1H Alignment */}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="require-1h" className="text-gray-900">Require 1-Hour Trend Alignment</Label>
+                      <p className="text-sm text-gray-500">
+                        Block trades that fight the 1-hour EMA structure
+                      </p>
+                    </div>
+                    <Switch
+                      id="require-1h"
+                      checked={botConfigData.require1hAlignment}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, require1hAlignment: checked }))
+                      }
+                    />
+                  </div>
+
+                  {/* Enable Regime Filter */}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="enable-regime" className="text-gray-900">Enable Session Regime Filter</Label>
+                      <p className="text-sm text-gray-500">
+                        Prevent weak longs on red sessions and weak shorts on green sessions
+                      </p>
+                    </div>
+                    <Switch
+                      id="enable-regime"
+                      checked={botConfigData.enableRegimeFilter}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, enableRegimeFilter: checked }))
+                      }
+                    />
+                  </div>
+
+                  {/* Red Day Long Block */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <Label htmlFor="red-day-long-block" className="text-gray-900">Red-Day Long Block Threshold</Label>
+                      <span className="text-sm text-gray-600 font-mono">{botConfigData.redDayLongBlockPct.toFixed(1)}%</span>
+                    </div>
+                    <Slider
+                      id="red-day-long-block"
+                      min={-5}
+                      max={0}
+                      step={0.1}
+                      value={[botConfigData.redDayLongBlockPct]}
+                      onValueChange={([value]) =>
+                        setBotConfigData((prev) => ({ ...prev, redDayLongBlockPct: value }))
+                      }
+                    />
+                    <p className="text-xs text-gray-500">Block new longs when the session is down by at least this much without recovery</p>
+                  </div>
+
+                  {/* Green Day Short Block */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <Label htmlFor="green-day-short-block" className="text-gray-900">Green-Day Short Block Threshold</Label>
+                      <span className="text-sm text-gray-600 font-mono">+{botConfigData.greenDayShortBlockPct.toFixed(1)}%</span>
+                    </div>
+                    <Slider
+                      id="green-day-short-block"
+                      min={0}
+                      max={5}
+                      step={0.1}
+                      value={[botConfigData.greenDayShortBlockPct]}
+                      onValueChange={([value]) =>
+                        setBotConfigData((prev) => ({ ...prev, greenDayShortBlockPct: value }))
+                      }
+                    />
+                    <p className="text-xs text-gray-500">Block new shorts when the session is up by at least this much without rollover</p>
+                  </div>
+
+                  {/* Re-entry Cooldown */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <Label htmlFor="reentry-cooldown" className="text-gray-900">Re-entry Cooldown</Label>
+                      <span className="text-sm text-gray-600 font-mono">{botConfigData.reentryCooldownMinutes} min</span>
+                    </div>
+                    <Slider
+                      id="reentry-cooldown"
+                      min={1}
+                      max={60}
+                      step={1}
+                      value={[botConfigData.reentryCooldownMinutes]}
+                      onValueChange={([value]) =>
+                        setBotConfigData((prev) => ({ ...prev, reentryCooldownMinutes: value }))
+                      }
+                    />
+                    <p className="text-xs text-gray-500">Minimum wait after any open or close on the same symbol before re-entering</p>
                   </div>
 
                   {/* Trade Volatile Markets */}
