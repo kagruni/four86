@@ -78,8 +78,8 @@ function ChartTooltip({ active, payload, label }: any) {
   const d = payload[0]?.payload as CandleData | undefined;
 
   return (
-    <div className="rounded border border-gray-200 bg-white px-3 py-2 shadow-sm">
-      <p className="font-mono text-xs tabular-nums text-gray-500">
+    <div className="rounded border border-gray-200 bg-background px-3 py-2 shadow-sm">
+      <p className="font-mono text-xs tabular-nums text-muted-foreground">
         {new Date(time).toLocaleString("en-US", {
           month: "short",
           day: "numeric",
@@ -89,10 +89,10 @@ function ChartTooltip({ active, payload, label }: any) {
       </p>
       {d && (
         <div className="mt-0.5 grid grid-cols-4 gap-x-2 font-mono text-xs tabular-nums">
-          <span className="text-gray-400">O</span>
-          <span className="text-gray-400">H</span>
-          <span className="text-gray-400">L</span>
-          <span className="text-gray-400">C</span>
+          <span className="text-muted-foreground">O</span>
+          <span className="text-muted-foreground">H</span>
+          <span className="text-muted-foreground">L</span>
+          <span className="text-muted-foreground">C</span>
           <span className="text-gray-900">{fmtPrice(d.open)}</span>
           <span className="text-gray-900">{fmtPrice(d.high)}</span>
           <span className="text-gray-900">{fmtPrice(d.low)}</span>
@@ -353,8 +353,8 @@ export default function PositionChart({
   if (loading) {
     return (
       <div className="flex items-center justify-center" style={{ height: 280 }}>
-        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-        <span className="ml-2 text-sm text-gray-500">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">
           Loading chart for {symbol}...
         </span>
       </div>
@@ -365,7 +365,7 @@ export default function PositionChart({
   if (error || candles.length === 0) {
     return (
       <div className="flex items-center justify-center" style={{ height: 280 }}>
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-muted-foreground">
           {error || "No price data available."}
         </p>
       </div>
@@ -382,7 +382,7 @@ export default function PositionChart({
           </span>
           <span
             className={`inline-flex items-center gap-1 text-xs font-mono ${
-              wsConnected ? "text-gray-900" : "text-gray-400"
+              wsConnected ? "text-gray-900" : "text-muted-foreground"
             }`}
           >
             <span
@@ -393,7 +393,7 @@ export default function PositionChart({
             {wsConnected ? "Live" : "Connecting..."}
           </span>
         </div>
-        <div className="flex items-center gap-4 text-xs font-mono tabular-nums text-gray-500">
+        <div className="flex items-center gap-4 text-xs font-mono tabular-nums text-muted-foreground">
           <span>Entry: {fmtPrice(entryPrice)}</span>
           {effectiveStop && (
             <span className="text-red-600">{stopLabel}: {fmtPrice(effectiveStop)}</span>
@@ -530,7 +530,7 @@ export default function PositionChart({
       </ResponsiveContainer>
 
       {/* Legend */}
-      <div className="mt-1 flex items-center justify-center gap-4 text-xs text-gray-400">
+      <div className="mt-1 flex items-center justify-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-px w-4 bg-black" style={{ borderTop: "2px dashed #000" }} />
           Entry

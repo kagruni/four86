@@ -158,19 +158,19 @@ export default function BacktestPage() {
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-900" />
+        <Loader2 className="h-8 w-8 animate-spin text-foreground" />
       </div>
     );
   }
 
   return (
     <div className="space-y-6 p-6">
-      <h1 className="text-2xl font-bold text-gray-900">Backtesting</h1>
+      <h1 className="text-2xl font-bold text-foreground">Backtesting</h1>
 
       {/* Configuration Form */}
-      <Card className="border border-gray-200">
+      <Card className="border border-border">
         <CardHeader>
-          <CardTitle className="text-lg text-gray-900">
+          <CardTitle className="text-lg text-foreground">
             New Backtest
           </CardTitle>
         </CardHeader>
@@ -178,9 +178,9 @@ export default function BacktestPage() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {/* Symbol */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">Symbol</Label>
+              <Label className="text-sm text-muted-foreground">Symbol</Label>
               <Select value={symbol} onValueChange={setSymbol}>
-                <SelectTrigger className="text-gray-900">
+                <SelectTrigger className="text-foreground">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -195,31 +195,31 @@ export default function BacktestPage() {
 
             {/* Start Date */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">Start Date</Label>
+              <Label className="text-sm text-muted-foreground">Start Date</Label>
               <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="text-gray-900"
+                className="text-foreground"
               />
             </div>
 
             {/* End Date */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">End Date</Label>
+              <Label className="text-sm text-muted-foreground">End Date</Label>
               <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="text-gray-900"
+                className="text-foreground"
               />
             </div>
 
             {/* Model */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">AI Model</Label>
+              <Label className="text-sm text-muted-foreground">AI Model</Label>
               <Select value={modelName} onValueChange={setModelName}>
-                <SelectTrigger className="text-gray-900">
+                <SelectTrigger className="text-foreground">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -234,9 +234,9 @@ export default function BacktestPage() {
 
             {/* Prompt Mode */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">Prompt Mode</Label>
+              <Label className="text-sm text-muted-foreground">Prompt Mode</Label>
               <Select value={promptMode} onValueChange={setPromptMode}>
-                <SelectTrigger className="text-gray-900">
+                <SelectTrigger className="text-foreground">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -251,14 +251,14 @@ export default function BacktestPage() {
 
             {/* Initial Capital */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">
+              <Label className="text-sm text-muted-foreground">
                 Initial Capital ($)
               </Label>
               <Input
                 type="number"
                 value={initialCapital}
                 onChange={(e) => setInitialCapital(e.target.value)}
-                className="text-gray-900 placeholder:text-gray-400 font-mono"
+                className="text-foreground placeholder:text-muted-foreground font-mono"
                 placeholder="1000"
                 min="100"
               />
@@ -266,12 +266,12 @@ export default function BacktestPage() {
 
             {/* Max Leverage */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-gray-600">Max Leverage</Label>
+              <Label className="text-sm text-muted-foreground">Max Leverage</Label>
               <Input
                 type="number"
                 value={maxLeverage}
                 onChange={(e) => setMaxLeverage(e.target.value)}
-                className="text-gray-900 placeholder:text-gray-400 font-mono"
+                className="text-foreground placeholder:text-muted-foreground font-mono"
                 placeholder="10"
                 min="1"
                 max="50"
@@ -298,19 +298,19 @@ export default function BacktestPage() {
       </Card>
 
       {/* Results Table */}
-      <Card className="border border-gray-200">
+      <Card className="border border-border">
         <CardHeader>
-          <CardTitle className="text-lg text-gray-900">
+          <CardTitle className="text-lg text-foreground">
             Backtest History
           </CardTitle>
         </CardHeader>
         <CardContent>
           {!backtestRuns ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-900" />
+              <Loader2 className="h-6 w-6 animate-spin text-foreground" />
             </div>
           ) : backtestRuns.length === 0 ? (
-            <p className="py-8 text-center text-sm text-gray-500">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               No backtests yet. Configure and run one above.
             </p>
           ) : (
@@ -397,69 +397,69 @@ function BacktestRow({
       >
         <TableCell>
           {isExpanded ? (
-            <ChevronUp className="h-4 w-4 text-gray-400" />
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
           ) : (
-            <ChevronDown className="h-4 w-4 text-gray-400" />
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
           )}
         </TableCell>
         <TableCell>
           {isRunning ? (
-            <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               Running{run.progressPct != null ? ` ${run.progressPct}%` : ""}
             </span>
           ) : isCancelled ? (
-            <span className="text-xs text-gray-500">Cancelled</span>
+            <span className="text-xs text-muted-foreground">Cancelled</span>
           ) : isFailed ? (
             <span className="text-xs text-red-600">Failed</span>
           ) : (
-            <span className="text-xs text-gray-900">Done</span>
+            <span className="text-xs text-foreground">Done</span>
           )}
         </TableCell>
-        <TableCell className="font-mono text-sm font-medium text-gray-900">
+        <TableCell className="font-mono text-sm font-medium text-foreground">
           {run.symbol}
         </TableCell>
-        <TableCell className="text-xs text-gray-600">
+        <TableCell className="text-xs text-muted-foreground">
           {formatDate(run.startDate)} - {formatDate(run.endDate)}
         </TableCell>
-        <TableCell className="text-xs text-gray-600">{modelShort}</TableCell>
+        <TableCell className="text-xs text-muted-foreground">{modelShort}</TableCell>
         <TableCell className="text-right font-mono text-sm tabular-nums">
           {isRunning ? (
             run.currentCapital != null ? (
-              <span className={run.currentCapital >= run.initialCapital ? "text-gray-900" : "text-red-600"}>
+              <span className={run.currentCapital >= run.initialCapital ? "text-foreground" : "text-red-600"}>
                 ${run.currentCapital.toFixed(2)}
-                <span className="ml-1 text-xs text-gray-500">
+                <span className="ml-1 text-xs text-muted-foreground">
                   ({run.currentCapital >= run.initialCapital ? "+" : ""}
                   {((run.currentCapital - run.initialCapital) / run.initialCapital * 100).toFixed(1)}%)
                 </span>
               </span>
             ) : (
-              <span className="text-xs text-gray-400">calculating...</span>
+              <span className="text-xs text-muted-foreground">calculating...</span>
             )
           ) : (
-            <span className={isPositive ? "text-gray-900" : "text-red-600"}>
+            <span className={isPositive ? "text-foreground" : "text-red-600"}>
               {isPositive ? "+" : ""}${pnl.toFixed(2)}{" "}
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-muted-foreground">
                 ({isPositive ? "+" : ""}
                 {pnlPct.toFixed(1)}%)
               </span>
             </span>
           )}
         </TableCell>
-        <TableCell className="text-right font-mono text-sm tabular-nums text-gray-900">
+        <TableCell className="text-right font-mono text-sm tabular-nums text-foreground">
           {isRunning ? "-" : `${(run.winRate ?? 0).toFixed(1)}%`}
         </TableCell>
-        <TableCell className="text-right font-mono text-sm tabular-nums text-gray-900">
+        <TableCell className="text-right font-mono text-sm tabular-nums text-foreground">
           {isRunning ? (
             run.currentTrades != null ? (
-              <span className="text-gray-600">{run.currentTrades}</span>
+              <span className="text-muted-foreground">{run.currentTrades}</span>
             ) : "-"
           ) : run.totalTrades ?? 0}
         </TableCell>
-        <TableCell className="text-right font-mono text-sm tabular-nums text-gray-900">
+        <TableCell className="text-right font-mono text-sm tabular-nums text-foreground">
           {isRunning ? "-" : (run.sharpeRatio ?? 0).toFixed(2)}
         </TableCell>
-        <TableCell className="text-right text-xs text-gray-500">
+        <TableCell className="text-right text-xs text-muted-foreground">
           {run.durationMs ? formatDuration(run.durationMs) : "-"}
         </TableCell>
         <TableCell>
@@ -469,7 +469,7 @@ function BacktestRow({
                 variant="ghost"
                 size="sm"
                 onClick={onCancel}
-                className="h-7 w-7 p-0 text-gray-500 hover:text-gray-900"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                 title="Cancel backtest"
               >
                 <Square className="h-3.5 w-3.5" />
@@ -480,7 +480,7 @@ function BacktestRow({
                 variant="ghost"
                 size="sm"
                 onClick={onDelete}
-                className="h-7 w-7 p-0 text-gray-400 hover:text-red-600"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
                 title="Delete backtest"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -524,7 +524,7 @@ function TradeRow({ trade }: { trade: any }) {
             {trade.side === "LONG" ? (
               <TrendingUp className="h-3 w-3 text-gray-700" />
             ) : (
-              <TrendingDown className="h-3 w-3 text-gray-500" />
+              <TrendingDown className="h-3 w-3 text-muted-foreground" />
             )}
             {trade.side}
           </span>
@@ -542,16 +542,16 @@ function TradeRow({ trade }: { trade: any }) {
           {trade.leverage}x
         </TableCell>
         <TableCell
-          className={`text-right font-mono text-xs tabular-nums ${isPos ? "text-gray-900" : "text-red-600"}`}
+          className={`text-right font-mono text-xs tabular-nums ${isPos ? "text-foreground" : "text-red-600"}`}
         >
           {isPos ? "+" : ""}${tradePnl.toFixed(2)}
         </TableCell>
-        <TableCell className="text-xs text-gray-600">
+        <TableCell className="text-xs text-muted-foreground">
           {trade.exitReason?.replace("_", " ")}
         </TableCell>
-        <TableCell className="text-xs text-gray-500">
+        <TableCell className="text-xs text-muted-foreground">
           {expanded ? (
-            <span className="inline-flex items-center gap-1 text-gray-600">
+            <span className="inline-flex items-center gap-1 text-muted-foreground">
               <ChevronUp className="h-3 w-3 flex-shrink-0" />
               collapse
             </span>
@@ -561,7 +561,7 @@ function TradeRow({ trade }: { trade: any }) {
                 {reasoning}
               </span>
               {isLong && (
-                <ChevronDown className="h-3 w-3 flex-shrink-0 text-gray-400" />
+                <ChevronDown className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
               )}
             </span>
           )}
@@ -572,11 +572,11 @@ function TradeRow({ trade }: { trade: any }) {
           <TableCell colSpan={8} className="bg-gray-50/70 px-4 py-3">
             <div className="space-y-1">
               <p className="text-xs font-medium text-gray-700">AI Reasoning</p>
-              <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-600">
+              <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
                 {reasoning}
               </p>
               {trade.confidence != null && (
-                <p className="pt-1 text-xs text-gray-400">
+                <p className="pt-1 text-xs text-muted-foreground">
                   Confidence: {(trade.confidence * 100).toFixed(0)}%
                   {trade.entryTime && (
                     <> &middot; Entry: {new Date(trade.entryTime).toLocaleString()}</>
@@ -598,7 +598,7 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
   if (!results) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-gray-900" />
+        <Loader2 className="h-5 w-5 animate-spin text-foreground" />
       </div>
     );
   }
@@ -616,7 +616,7 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
 
   if (closeTrades.length === 0) {
     return (
-      <p className="p-4 text-sm text-gray-500">No completed trades.</p>
+      <p className="p-4 text-sm text-muted-foreground">No completed trades.</p>
     );
   }
 
@@ -625,47 +625,47 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
       {/* Summary stats */}
       <div className="mb-4 grid grid-cols-4 gap-4 sm:grid-cols-7">
         <div>
-          <p className="text-xs text-gray-500">Max Drawdown</p>
-          <p className="font-mono text-sm tabular-nums text-gray-900">
+          <p className="text-xs text-muted-foreground">Max Drawdown</p>
+          <p className="font-mono text-sm tabular-nums text-foreground">
             ${(run.maxDrawdown ?? 0).toFixed(2)}{" "}
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-muted-foreground">
               ({(run.maxDrawdownPct ?? 0).toFixed(1)}%)
             </span>
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Final Capital</p>
-          <p className="font-mono text-sm tabular-nums text-gray-900">
+          <p className="text-xs text-muted-foreground">Final Capital</p>
+          <p className="font-mono text-sm tabular-nums text-foreground">
             ${(run.finalCapital ?? run.initialCapital).toFixed(2)}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Initial Capital</p>
-          <p className="font-mono text-sm tabular-nums text-gray-900">
+          <p className="text-xs text-muted-foreground">Initial Capital</p>
+          <p className="font-mono text-sm tabular-nums text-foreground">
             ${run.initialCapital.toFixed(2)}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Trading Fees</p>
+          <p className="text-xs text-muted-foreground">Trading Fees</p>
           <p className="font-mono text-sm tabular-nums text-red-600">
             -${(run.totalFees ?? 0).toFixed(2)}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Funding Paid</p>
-          <p className={`font-mono text-sm tabular-nums ${(run.totalFunding ?? 0) > 0 ? "text-red-600" : "text-gray-900"}`}>
+          <p className="text-xs text-muted-foreground">Funding Paid</p>
+          <p className={`font-mono text-sm tabular-nums ${(run.totalFunding ?? 0) > 0 ? "text-red-600" : "text-foreground"}`}>
             {(run.totalFunding ?? 0) > 0 ? "-" : "+"}${Math.abs(run.totalFunding ?? 0).toFixed(2)}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Liquidations</p>
-          <p className={`font-mono text-sm tabular-nums ${(run.liquidationCount ?? 0) > 0 ? "text-red-600" : "text-gray-900"}`}>
+          <p className="text-xs text-muted-foreground">Liquidations</p>
+          <p className={`font-mono text-sm tabular-nums ${(run.liquidationCount ?? 0) > 0 ? "text-red-600" : "text-foreground"}`}>
             {run.liquidationCount ?? 0}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Prompt Mode</p>
-          <p className="text-sm text-gray-900">{run.tradingPromptMode}</p>
+          <p className="text-xs text-muted-foreground">Prompt Mode</p>
+          <p className="text-sm text-foreground">{run.tradingPromptMode}</p>
         </div>
       </div>
 

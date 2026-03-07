@@ -39,22 +39,22 @@ html {
   .dark {
     --background: 0 0% 0%;
     --foreground: 0 0% 100%;
-    --card: 0 0% 0%;
+    --card: 0 0% 5%;
     --card-foreground: 0 0% 100%;
-    --popover: 0 0% 0%;
+    --popover: 0 0% 5%;
     --popover-foreground: 0 0% 100%;
     --primary: 0 0% 100%;
     --primary-foreground: 0 0% 0%;
     --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 100%;
     --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 70%;
+    --muted-foreground: 0 0% 65%;
     --accent: 0 0% 15%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 100%;
-    --input: 0 0% 100%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
     --ring: 0 0% 100%;
     --chart-1: 0 0% 100%;
     --chart-2: 0 0% 80%;
@@ -70,7 +70,7 @@ html {
   }
   body {
     @apply bg-background text-foreground;
-    background-image: radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+    background-image: radial-gradient(circle, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
     background-size: 24px 24px;
   }
 }

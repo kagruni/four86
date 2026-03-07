@@ -194,7 +194,7 @@ const itemVariants = {
 // ─── Card styling constant ────────────────────────────────────────────────────
 
 const cardClass =
-  "border border-gray-200 overflow-hidden";
+  "border border-border overflow-hidden";
 
 // ─── Computation Functions ────────────────────────────────────────────────────
 
@@ -292,26 +292,26 @@ const decisionConfig: Record<
 > = {
   OPEN_LONG: {
     label: "OPEN LONG",
-    borderClass: "border-black",
-    textClass: "text-black",
+    borderClass: "border-foreground",
+    textClass: "text-foreground",
     icon: ArrowUpRight,
   },
   OPEN_SHORT: {
     label: "OPEN SHORT",
     borderClass: "border-gray-600",
-    textClass: "text-gray-600",
+    textClass: "text-muted-foreground",
     icon: ArrowDownRight,
   },
   CLOSE: {
     label: "CLOSE",
     borderClass: "border-gray-400",
-    textClass: "text-gray-500",
+    textClass: "text-muted-foreground",
     icon: Minus,
   },
   HOLD: {
     label: "HOLD",
     borderClass: "border-gray-300",
-    textClass: "text-gray-400",
+    textClass: "text-muted-foreground",
     icon: Minus,
   },
 };
@@ -321,7 +321,7 @@ function getDecisionConfig(decision: string) {
     decisionConfig[decision] || {
       label: decision,
       borderClass: "border-gray-300",
-      textClass: "text-gray-500",
+      textClass: "text-muted-foreground",
       icon: Minus,
     }
   );
@@ -333,8 +333,8 @@ function EquityCurveTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="border border-gray-200 bg-white px-3 py-2">
-      <p className="text-xs text-gray-500">{formatTooltipDate(d.timestamp)}</p>
+    <div className="border border-border bg-background px-3 py-2">
+      <p className="text-xs text-muted-foreground">{formatTooltipDate(d.timestamp)}</p>
       <p className="font-mono text-sm font-bold tabular-nums text-gray-900">
         {formatCurrency(d.accountValue)}
       </p>
@@ -346,14 +346,14 @@ function TradeBarTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="border border-gray-200 bg-white px-3 py-2">
+    <div className="border border-border bg-background px-3 py-2">
       <p className="text-xs font-medium text-gray-900">
         {d.symbol} &middot; {d.side}
       </p>
-      <p className="text-xs text-gray-500">{formatTooltipDate(d.executedAt)}</p>
+      <p className="text-xs text-muted-foreground">{formatTooltipDate(d.executedAt)}</p>
       <p
         className={`font-mono text-sm font-bold tabular-nums ${
-          d.pnl >= 0 ? "text-gray-900" : "text-gray-500"
+          d.pnl >= 0 ? "text-gray-900" : "text-muted-foreground"
         }`}
       >
         {formatCurrency(d.pnl)}
@@ -365,9 +365,9 @@ function TradeBarTooltip({ active, payload }: any) {
 function ConfidenceTooltip({ active, payload, label }: any) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="border border-gray-200 bg-white px-3 py-2">
-      <p className="text-xs font-semibold text-black">{label}</p>
-      <p className="text-xs font-mono tabular-nums text-gray-600">
+    <div className="border border-border bg-background px-3 py-2">
+      <p className="text-xs font-semibold text-foreground">{label}</p>
+      <p className="text-xs font-mono tabular-nums text-muted-foreground">
         {payload[0].value} decisions
       </p>
     </div>
@@ -617,8 +617,8 @@ export default function AnalyticsPage() {
     return (
       <div className="flex h-[calc(100vh-200px)] items-center justify-center">
         <div className="text-center">
-          <Loader2 className="mx-auto h-10 w-10 animate-spin text-black" />
-          <p className="mt-4 font-mono text-sm tracking-wide text-gray-500">
+          <Loader2 className="mx-auto h-10 w-10 animate-spin text-foreground" />
+          <p className="mt-4 font-mono text-sm tracking-wide text-muted-foreground">
             Loading analytics...
           </p>
         </div>
@@ -640,8 +640,8 @@ export default function AnalyticsPage() {
       {/* Header */}
       <motion.div variants={itemVariants}>
         <div>
-          <h1 className="text-3xl font-bold text-black">Analytics</h1>
-          <p className="mt-2 text-sm text-gray-500">
+          <h1 className="text-3xl font-bold text-foreground">Analytics</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             Performance analytics and trading insights
           </p>
         </div>
@@ -651,16 +651,16 @@ export default function AnalyticsPage() {
       <motion.div variants={itemVariants}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {/* Total Return – dark treatment */}
-          <div className="bg-gray-950 px-4 py-4">
+          <div className="bg-foreground px-4 py-4">
             <div className="flex items-center gap-1.5">
-              <TrendingUp className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-xs text-gray-400">Total Return</p>
+              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Total Return</p>
             </div>
             <p
               className={`mt-1 font-mono text-2xl font-bold tabular-nums ${
                 heroMetrics.totalReturnPct >= 0
                   ? "text-white"
-                  : "text-gray-400"
+                  : "text-muted-foreground"
               }`}
             >
               {formatPercent(heroMetrics.totalReturnPct)}
@@ -668,10 +668,10 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Sharpe Ratio */}
-          <div className="border border-gray-200 bg-white px-4 py-4">
+          <div className="border border-border bg-background px-4 py-4">
             <div className="flex items-center gap-1.5">
-              <BarChart3 className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-xs text-gray-500">Sharpe Ratio</p>
+              <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Sharpe Ratio</p>
             </div>
             <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
               {heroMetrics.sharpeRatio !== null
@@ -681,10 +681,10 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Win Rate */}
-          <div className="border border-gray-200 bg-white px-4 py-4">
+          <div className="border border-border bg-background px-4 py-4">
             <div className="flex items-center gap-1.5">
-              <Target className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-xs text-gray-500">Win Rate</p>
+              <Target className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Win Rate</p>
             </div>
             <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
               {heroMetrics.totalTrades > 0
@@ -694,10 +694,10 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Total Trades */}
-          <div className="border border-gray-200 bg-white px-4 py-4">
+          <div className="border border-border bg-background px-4 py-4">
             <div className="flex items-center gap-1.5">
-              <BarChart3 className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-xs text-gray-500">Total Trades</p>
+              <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Total Trades</p>
             </div>
             <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
               {heroMetrics.totalTrades}
@@ -705,10 +705,10 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Best Trade */}
-          <div className="border border-gray-200 bg-white px-4 py-4">
+          <div className="border border-border bg-background px-4 py-4">
             <div className="flex items-center gap-1.5">
-              <Trophy className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-xs text-gray-500">Best Trade</p>
+              <Trophy className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Best Trade</p>
             </div>
             <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
               {heroMetrics.totalTrades > 0
@@ -718,12 +718,12 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Worst Trade */}
-          <div className="border border-gray-200 bg-white px-4 py-4">
+          <div className="border border-border bg-background px-4 py-4">
             <div className="flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-xs text-gray-500">Worst Trade</p>
+              <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Worst Trade</p>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-500">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-muted-foreground">
               {heroMetrics.totalTrades > 0
                 ? formatCurrency(heroMetrics.worstTrade)
                 : "--"}
@@ -737,7 +737,7 @@ export default function AnalyticsPage() {
         <Card className={cardClass}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-semibold text-black">
+              <CardTitle className="text-base font-semibold text-foreground">
                 Equity Curve
               </CardTitle>
               <div className="flex gap-1">
@@ -750,7 +750,7 @@ export default function AnalyticsPage() {
                     className={`h-7 px-2.5 font-mono text-xs ${
                       timeframe === tf
                         ? "bg-gray-900 text-white hover:bg-gray-800 hover:text-white"
-                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                        : "text-muted-foreground hover:bg-muted hover:text-gray-900"
                     }`}
                   >
                     {tf}
@@ -762,19 +762,19 @@ export default function AnalyticsPage() {
           <CardContent className="pb-4">
             {equityCurveData.length === 0 ? (
               <div className="flex h-64 items-center justify-center">
-                <p className="font-mono text-sm text-gray-400">No data yet</p>
+                <p className="font-mono text-sm text-muted-foreground">No data yet</p>
               </div>
             ) : (
               <div className="relative select-none" ref={chartContainerRef}>
                 {/* Floating P&L measurement label */}
                 {rangeMeasurement && !isDragging && (
-                  <div className="absolute top-2 right-14 z-10 flex items-start gap-2 border border-gray-200 bg-white px-3 py-2">
+                  <div className="absolute top-2 right-14 z-10 flex items-start gap-2 border border-border bg-background px-3 py-2">
                     <div className="text-right">
                       <p
                         className={`font-mono text-sm font-bold tabular-nums ${
                           rangeMeasurement.pnlPct >= 0
                             ? "text-gray-900"
-                            : "text-gray-500"
+                            : "text-muted-foreground"
                         }`}
                       >
                         {rangeMeasurement.pnlPct >= 0 ? "+" : ""}
@@ -784,14 +784,14 @@ export default function AnalyticsPage() {
                           {Math.abs(rangeMeasurement.pnlUsd).toFixed(2)})
                         </span>
                       </p>
-                      <p className="font-mono text-xs text-gray-400">
+                      <p className="font-mono text-xs text-muted-foreground">
                         {rangeMeasurement.startDate} &rarr;{" "}
                         {rangeMeasurement.endDate}
                       </p>
                     </div>
                     <button
                       onClick={clearSelection}
-                      className="mt-0.5 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                      className="mt-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-gray-700"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -900,7 +900,7 @@ export default function AnalyticsPage() {
 
                 {/* Hint text */}
                 {!rangeMeasurement && (
-                  <p className="mt-1 text-center font-mono text-xs text-gray-400">
+                  <p className="mt-1 text-center font-mono text-xs text-muted-foreground">
                     Drag to measure
                   </p>
                 )}
@@ -914,14 +914,14 @@ export default function AnalyticsPage() {
       <motion.div variants={itemVariants}>
         <Card className={cardClass}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold text-black">
+            <CardTitle className="text-base font-semibold text-foreground">
               Trade Performance
             </CardTitle>
           </CardHeader>
           <CardContent className="pb-4">
             {tradeBarData.length === 0 ? (
               <div className="flex h-64 items-center justify-center">
-                <p className="font-mono text-sm text-gray-400">
+                <p className="font-mono text-sm text-muted-foreground">
                   No closed trades yet
                 </p>
               </div>
@@ -990,43 +990,43 @@ export default function AnalyticsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-black">Symbol Performance</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">
+                <CardTitle className="text-foreground">Symbol Performance</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
                   Breakdown by trading pair (closed trades only)
                 </p>
               </div>
-              <BarChart3 className="h-4 w-4 text-gray-500" />
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
           <CardContent>
             {symbolData.length === 0 ? (
-              <div className="py-12 text-center text-sm font-mono text-gray-500">
+              <div className="py-12 text-center text-sm font-mono text-muted-foreground">
                 No closed trades yet
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-black hover:bg-gray-50">
-                      <TableHead className="text-black font-semibold">
+                    <TableRow className="border-foreground hover:bg-muted">
+                      <TableHead className="text-foreground font-semibold">
                         Symbol
                       </TableHead>
-                      <TableHead className="text-black font-semibold text-right">
+                      <TableHead className="text-foreground font-semibold text-right">
                         Trades
                       </TableHead>
-                      <TableHead className="text-black font-semibold text-right">
+                      <TableHead className="text-foreground font-semibold text-right">
                         Win Rate
                       </TableHead>
-                      <TableHead className="text-black font-semibold text-right">
+                      <TableHead className="text-foreground font-semibold text-right">
                         Total P&L
                       </TableHead>
-                      <TableHead className="text-black font-semibold text-right">
+                      <TableHead className="text-foreground font-semibold text-right">
                         Avg P&L
                       </TableHead>
-                      <TableHead className="text-black font-semibold text-right">
+                      <TableHead className="text-foreground font-semibold text-right">
                         Best
                       </TableHead>
-                      <TableHead className="text-black font-semibold text-right">
+                      <TableHead className="text-foreground font-semibold text-right">
                         Worst
                       </TableHead>
                     </TableRow>
@@ -1035,20 +1035,20 @@ export default function AnalyticsPage() {
                     {symbolData.map((row) => (
                       <TableRow
                         key={row.symbol}
-                        className="border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150"
+                        className="border-gray-300 even:bg-muted/50 hover:bg-black/[0.02] transition-colors duration-150"
                       >
-                        <TableCell className="font-mono font-semibold text-black">
+                        <TableCell className="font-mono font-semibold text-foreground">
                           {row.symbol}
                         </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums text-black">
+                        <TableCell className="text-right font-mono tabular-nums text-foreground">
                           {row.trades}
                         </TableCell>
                         <TableCell className="text-right font-mono tabular-nums">
                           <span
                             className={
                               row.winRate >= 50
-                                ? "text-black font-medium"
-                                : "text-gray-600"
+                                ? "text-foreground font-medium"
+                                : "text-muted-foreground"
                             }
                           >
                             {row.winRate.toFixed(1)}%
@@ -1056,22 +1056,22 @@ export default function AnalyticsPage() {
                         </TableCell>
                         <TableCell
                           className={`text-right font-mono tabular-nums font-medium ${
-                            row.totalPnl >= 0 ? "text-black" : "text-gray-600"
+                            row.totalPnl >= 0 ? "text-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {formatCurrency(row.totalPnl)}
                         </TableCell>
                         <TableCell
                           className={`text-right font-mono tabular-nums ${
-                            row.avgPnl >= 0 ? "text-black" : "text-gray-600"
+                            row.avgPnl >= 0 ? "text-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {formatCurrency(row.avgPnl)}
                         </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums text-black">
+                        <TableCell className="text-right font-mono tabular-nums text-foreground">
                           {formatCurrency(row.bestTrade)}
                         </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums text-gray-600">
+                        <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                           {formatCurrency(row.worstTrade)}
                         </TableCell>
                       </TableRow>
@@ -1081,18 +1081,18 @@ export default function AnalyticsPage() {
 
                 {/* Totals row */}
                 <div className="mt-3 flex items-center justify-between border-t border-gray-900 pt-3 px-4">
-                  <span className="text-xs font-semibold text-black uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
                     Total
                   </span>
                   <div className="flex items-center gap-6">
-                    <span className="text-xs font-mono tabular-nums text-gray-500">
+                    <span className="text-xs font-mono tabular-nums text-muted-foreground">
                       {symbolData.reduce((s, r) => s + r.trades, 0)} trades
                     </span>
                     <span
                       className={`text-sm font-mono tabular-nums font-bold ${
                         symbolData.reduce((s, r) => s + r.totalPnl, 0) >= 0
-                          ? "text-black"
-                          : "text-gray-600"
+                          ? "text-foreground"
+                          : "text-muted-foreground"
                       }`}
                     >
                       {formatCurrency(
@@ -1113,30 +1113,30 @@ export default function AnalyticsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-black">
+                <CardTitle className="text-foreground">
                   AI Confidence Analysis
                 </CardTitle>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Decision confidence distribution and trade outcomes
                 </p>
               </div>
-              <Brain className="h-4 w-4 text-gray-500" />
+              <Brain className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
           <CardContent>
             {!hasHistogramData && !hasOutcomeData ? (
-              <div className="py-12 text-center text-sm font-mono text-gray-500">
+              <div className="py-12 text-center text-sm font-mono text-muted-foreground">
                 No confidence data yet
               </div>
             ) : (
               <div className="grid gap-6 md:grid-cols-2">
                 {/* Left: Confidence Distribution Histogram */}
                 <div>
-                  <h4 className="text-xs font-semibold text-black uppercase tracking-wider mb-4">
+                  <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-4">
                     Confidence Distribution
                   </h4>
                   {!hasHistogramData ? (
-                    <div className="flex h-[200px] items-center justify-center text-sm font-mono text-gray-500">
+                    <div className="flex h-[200px] items-center justify-center text-sm font-mono text-muted-foreground">
                       No data yet
                     </div>
                   ) : (
@@ -1180,57 +1180,57 @@ export default function AnalyticsPage() {
 
                 {/* Right: Confidence vs Outcome */}
                 <div>
-                  <h4 className="text-xs font-semibold text-black uppercase tracking-wider mb-4">
+                  <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-4">
                     Confidence vs Outcome
                   </h4>
                   {!hasOutcomeData ? (
-                    <div className="flex h-[200px] items-center justify-center text-sm font-mono text-gray-500">
+                    <div className="flex h-[200px] items-center justify-center text-sm font-mono text-muted-foreground">
                       No data yet
                     </div>
                   ) : (
                     <div className="space-y-6 pt-2">
                       {/* Winning trades avg confidence */}
-                      <div className="border border-gray-200 p-4">
+                      <div className="border border-border p-4">
                         <div className="flex items-center gap-2 mb-2">
-                          <TrendingUp className="h-4 w-4 text-black" />
-                          <span className="text-xs font-semibold text-black uppercase tracking-wider">
+                          <TrendingUp className="h-4 w-4 text-foreground" />
+                          <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
                             Winning Trades
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between">
-                          <span className="text-3xl font-mono font-bold tabular-nums text-black">
+                          <span className="text-3xl font-mono font-bold tabular-nums text-foreground">
                             {confidenceOutcome.winningAvg !== null
                               ? `${(confidenceOutcome.winningAvg * 100).toFixed(1)}%`
                               : "--"}
                           </span>
-                          <span className="text-xs font-mono tabular-nums text-gray-500">
+                          <span className="text-xs font-mono tabular-nums text-muted-foreground">
                             {confidenceOutcome.winCount} trades
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Avg confidence
                         </p>
                       </div>
 
                       {/* Losing trades avg confidence */}
-                      <div className="border border-gray-200 p-4">
+                      <div className="border border-border p-4">
                         <div className="flex items-center gap-2 mb-2">
-                          <TrendingDown className="h-4 w-4 text-gray-500" />
-                          <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             Losing Trades
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between">
-                          <span className="text-3xl font-mono font-bold tabular-nums text-gray-600">
+                          <span className="text-3xl font-mono font-bold tabular-nums text-muted-foreground">
                             {confidenceOutcome.losingAvg !== null
                               ? `${(confidenceOutcome.losingAvg * 100).toFixed(1)}%`
                               : "--"}
                           </span>
-                          <span className="text-xs font-mono tabular-nums text-gray-500">
+                          <span className="text-xs font-mono tabular-nums text-muted-foreground">
                             {confidenceOutcome.loseCount} trades
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Avg confidence
                         </p>
                       </div>
@@ -1238,8 +1238,8 @@ export default function AnalyticsPage() {
                       {/* Confidence delta */}
                       {confidenceOutcome.winningAvg !== null &&
                         confidenceOutcome.losingAvg !== null && (
-                          <div className="flex items-center justify-between border-t border-gray-200 pt-3">
-                            <span className="text-xs text-gray-500">
+                          <div className="flex items-center justify-between border-t border-border pt-3">
+                            <span className="text-xs text-muted-foreground">
                               Confidence Delta
                             </span>
                             <span
@@ -1247,8 +1247,8 @@ export default function AnalyticsPage() {
                                 confidenceOutcome.winningAvg -
                                   confidenceOutcome.losingAvg >
                                 0
-                                  ? "text-black"
-                                  : "text-gray-600"
+                                  ? "text-foreground"
+                                  : "text-muted-foreground"
                               }`}
                             >
                               {formatPercentShort(
@@ -1274,17 +1274,17 @@ export default function AnalyticsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-black">Decision Activity</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">
+                <CardTitle className="text-foreground">Decision Activity</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
                   Recent AI trading decisions ({recentDecisions.length} of {allAiLogs.length})
                 </p>
               </div>
-              <Clock className="h-4 w-4 text-gray-500" />
+              <Clock className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
           <CardContent>
             {recentDecisions.length === 0 ? (
-              <div className="py-12 text-center text-sm font-mono text-gray-500">
+              <div className="py-12 text-center text-sm font-mono text-muted-foreground">
                 No AI decisions yet
               </div>
             ) : (
@@ -1311,21 +1311,21 @@ export default function AnalyticsPage() {
                         >
                           {/* Timeline dot */}
                           <div
-                            className={`absolute left-0 top-1.5 h-[15px] w-[15px] rounded-full border-2 bg-white ${config.borderClass}`}
+                            className={`absolute left-0 top-1.5 h-[15px] w-[15px] rounded-full border-2 bg-background ${config.borderClass}`}
                           />
 
                           {/* Content */}
-                          <div className="border border-gray-100 bg-gray-50/50 p-3 hover:bg-gray-50 transition-colors duration-150">
+                          <div className="border border-gray-100 bg-muted/50 p-3 hover:bg-muted transition-colors duration-150">
                             {/* Top row: badge + timestamp */}
                             <div className="flex items-center justify-between mb-2">
                               <Badge
                                 variant="outline"
-                                className={`${config.borderClass} ${config.textClass} bg-white text-xs`}
+                                className={`${config.borderClass} ${config.textClass} bg-background text-xs`}
                               >
                                 <Icon className="mr-1 h-3 w-3" />
                                 {config.label}
                               </Badge>
-                              <span className="text-xs font-mono tabular-nums text-gray-400">
+                              <span className="text-xs font-mono tabular-nums text-muted-foreground">
                                 {formatTimestampFull(log.createdAt)}
                               </span>
                             </div>
@@ -1334,7 +1334,7 @@ export default function AnalyticsPage() {
                             {log.confidence !== undefined &&
                               log.confidence !== null && (
                                 <div className="mb-2">
-                                  <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                                  <span className="inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
                                     Confidence:{" "}
                                     {(log.confidence * 100).toFixed(0)}%
                                   </span>
@@ -1344,15 +1344,15 @@ export default function AnalyticsPage() {
                             {/* Reasoning (expandable) */}
                             <Accordion type="single" collapsible className="w-full">
                               <AccordionItem value="reasoning" className="border-0">
-                                <AccordionTrigger className="hover:no-underline py-0 [&[data-state=open]>div]:hidden [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-gray-400">
+                                <AccordionTrigger className="hover:no-underline py-0 [&[data-state=open]>div]:hidden [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground">
                                   <div className="text-left">
-                                    <p className="text-xs text-gray-600 leading-relaxed">
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
                                       {truncateText(log.reasoning, 200)}
                                     </p>
                                   </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                  <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">
+                                  <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
                                     {log.reasoning}
                                   </p>
                                 </AccordionContent>
@@ -1361,10 +1361,10 @@ export default function AnalyticsPage() {
 
                             {/* Footer: model name + account value */}
                             <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-                              <span className="text-[10px] font-mono text-gray-400 uppercase tracking-wider">
+                              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
                                 {log.modelName}
                               </span>
-                              <span className="text-[10px] font-mono tabular-nums text-gray-400">
+                              <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
                                 Account: {formatCurrency(log.accountValue)}
                               </span>
                             </div>
@@ -1380,7 +1380,7 @@ export default function AnalyticsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="text-xs border-gray-200 text-gray-600 hover:text-black"
+                        className="text-xs border-border text-muted-foreground hover:text-foreground"
                         onClick={() => setDecisionLimit((prev) => prev + 20)}
                       >
                         Load More

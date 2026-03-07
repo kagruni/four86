@@ -57,7 +57,7 @@ const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
 function InfoHint({ text }: { text: string }) {
   return (
     <span
-      className="inline-flex cursor-help items-center text-gray-400 transition-colors hover:text-gray-600"
+      className="inline-flex cursor-help items-center text-muted-foreground transition-colors hover:text-muted-foreground"
       title={text}
       aria-label={text}
     >
@@ -509,43 +509,43 @@ export default function SettingsPage() {
 
   if (!userId) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-900" />
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 p-8">
+    <div className="min-h-screen bg-background text-foreground p-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold mb-2 text-gray-900 tracking-tight">Bot Settings</h1>
-          <p className="text-gray-600">Configure your trading bot parameters and API credentials</p>
+          <h1 className="text-3xl font-bold mb-2 text-foreground tracking-tight">Bot Settings</h1>
+          <p className="text-muted-foreground">Configure your trading bot parameters and API credentials</p>
         </div>
 
         <Tabs defaultValue="credentials" className="w-full">
           <TabsList className="bg-gray-100 p-1 w-full grid grid-cols-4">
             <TabsTrigger
               value="credentials"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
+              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
             >
               Credentials
             </TabsTrigger>
             <TabsTrigger
               value="risk-strategy"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
+              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
             >
               Risk & Strategy
             </TabsTrigger>
             <TabsTrigger
               value="advanced"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
+              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
             >
               Advanced
             </TabsTrigger>
             <TabsTrigger
               value="telegram"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-gray-600"
+              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
             >
               Telegram
             </TabsTrigger>
@@ -560,7 +560,7 @@ export default function SettingsPage() {
               className="space-y-6 pt-4"
             >
               {/* Security Warning */}
-              <Alert className="border-gray-200">
+              <Alert className="border-border">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Security Notice</AlertTitle>
                 <AlertDescription>
@@ -570,17 +570,17 @@ export default function SettingsPage() {
               </Alert>
 
               {/* AI Provider Credentials */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">OpenRouter API Settings</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">OpenRouter API Settings</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Configure your OpenRouter API key for all AI trading models
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* OpenRouter API Key */}
                   <div className="space-y-2">
-                    <Label htmlFor="openrouter-key" className="text-gray-900">OpenRouter API Key</Label>
+                    <Label htmlFor="openrouter-key" className="text-foreground">OpenRouter API Key</Label>
                     <div className="flex gap-2">
                       <Input
                         id="openrouter-key"
@@ -593,19 +593,19 @@ export default function SettingsPage() {
                           }))
                         }
                         placeholder="Enter your OpenRouter API key"
-                        className="flex-1 text-gray-900 placeholder:text-gray-400"
+                        className="flex-1 text-foreground placeholder:text-muted-foreground"
                       />
                       <Button
                         type="button"
                         variant="outline"
                         size="icon"
                         onClick={() => setShowPrivateKeys(prev => ({ ...prev, openrouter: !prev.openrouter }))}
-                        className="border-gray-200"
+                        className="border-border"
                       >
                         {showPrivateKeys.openrouter ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-500">Required for all AI models: Claude, GPT, Gemini, DeepSeek, Grok, GLM, Llama, and Kimi</p>
+                    <p className="text-xs text-muted-foreground">Required for all AI models: Claude, GPT, Gemini, DeepSeek, Grok, GLM, Llama, and Kimi</p>
                   </div>
 
                   <div className="flex justify-end pt-4">
@@ -622,17 +622,17 @@ export default function SettingsPage() {
               </Card>
 
               {/* Hyperliquid Credentials */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Hyperliquid Settings</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Hyperliquid Settings</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Configure your Hyperliquid wallet credentials and network
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Private Key */}
                   <div className="space-y-2">
-                    <Label htmlFor="private-key" className="text-gray-900">Private Key</Label>
+                    <Label htmlFor="private-key" className="text-foreground">Private Key</Label>
                     <div className="flex gap-2">
                       <Input
                         id="private-key"
@@ -645,14 +645,14 @@ export default function SettingsPage() {
                           }))
                         }
                         placeholder="0x..."
-                        className="flex-1 text-gray-900 placeholder:text-gray-400"
+                        className="flex-1 text-foreground placeholder:text-muted-foreground"
                       />
                       <Button
                         type="button"
                         variant="outline"
                         size="icon"
                         onClick={() => setShowPrivateKeys(prev => ({ ...prev, hyperliquid: !prev.hyperliquid }))}
-                        className="border-gray-200"
+                        className="border-border"
                       >
                         {showPrivateKeys.hyperliquid ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
@@ -664,7 +664,7 @@ export default function SettingsPage() {
 
                   {/* Wallet Address */}
                   <div className="space-y-2">
-                    <Label htmlFor="address" className="text-gray-900">Wallet Address</Label>
+                    <Label htmlFor="address" className="text-foreground">Wallet Address</Label>
                     <Input
                       id="address"
                       type="text"
@@ -676,7 +676,7 @@ export default function SettingsPage() {
                         }))
                       }
                       placeholder="0x..."
-                      className="text-gray-900 placeholder:text-gray-400"
+                      className="text-foreground placeholder:text-muted-foreground"
                     />
                     {errors.hyperliquidAddress && (
                       <p className="text-sm text-red-600">{errors.hyperliquidAddress}</p>
@@ -688,8 +688,8 @@ export default function SettingsPage() {
                   {/* Testnet Toggle */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="testnet-mode" className="text-gray-900">Testnet Mode</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="testnet-mode" className="text-foreground">Testnet Mode</Label>
+                      <p className="text-sm text-muted-foreground">
                         Use Hyperliquid testnet for safe testing (recommended)
                       </p>
                     </div>
@@ -729,23 +729,23 @@ export default function SettingsPage() {
               className="space-y-6 pt-4"
             >
               {/* AI Model Selection */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">AI Model</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">AI Model</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Select the AI model for trading decisions
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    <Label htmlFor="model" className="text-gray-900">Model</Label>
+                    <Label htmlFor="model" className="text-foreground">Model</Label>
                     <Select
                       value={botConfigData.modelName}
                       onValueChange={(value) =>
                         setBotConfigData((prev) => ({ ...prev, modelName: value }))
                       }
                     >
-                      <SelectTrigger id="model" className="text-gray-900">
+                      <SelectTrigger id="model" className="text-foreground">
                         <SelectValue placeholder="Select an AI model" />
                       </SelectTrigger>
                       <SelectContent>
@@ -764,21 +764,21 @@ export default function SettingsPage() {
               </Card>
 
               {/* Trading Prompt Mode */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Trading Prompt Mode</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Trading Prompt Mode</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Controls how market data is formatted for the AI model
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    <Label htmlFor="trading-prompt-mode" className="text-gray-900">Prompt Mode</Label>
+                    <Label htmlFor="trading-prompt-mode" className="text-foreground">Prompt Mode</Label>
                     <Select
                       value={tradingPromptMode}
                       onValueChange={(value) => setTradingPromptMode(value)}
                     >
-                      <SelectTrigger id="trading-prompt-mode" className="text-gray-900">
+                      <SelectTrigger id="trading-prompt-mode" className="text-foreground">
                         <SelectValue placeholder="Select a trading prompt mode" />
                       </SelectTrigger>
                       <SelectContent>
@@ -787,7 +787,7 @@ export default function SettingsPage() {
                         <SelectItem value="detailed">Detailed Analysis</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       {tradingPromptMode === "alpha_arena" && "Replicates winning Alpha Arena strategy with leverage and TP/SL discipline"}
                       {tradingPromptMode === "compact" && "Pre-processed signal-based analysis (150-line prompt)"}
                       {tradingPromptMode === "detailed" && "Comprehensive 680-line prompt system with full technical analysis"}
@@ -797,10 +797,10 @@ export default function SettingsPage() {
               </Card>
 
               {/* Trading Symbols */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Trading Symbols</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Trading Symbols</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Select which cryptocurrencies to trade
                   </CardDescription>
                 </CardHeader>
@@ -815,11 +815,11 @@ export default function SettingsPage() {
                         />
                         <Label
                           htmlFor={symbol}
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-gray-900"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-foreground"
                         >
                           {symbol}
                           {symbol === "XRP" && (
-                            <span className="ml-2 text-xs text-gray-500">(Mainnet only)</span>
+                            <span className="ml-2 text-xs text-muted-foreground">(Mainnet only)</span>
                           )}
                         </Label>
                       </div>
@@ -832,10 +832,10 @@ export default function SettingsPage() {
               </Card>
 
               {/* Risk Management */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Risk Management</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Risk Management</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Configure risk parameters for your trading bot
                   </CardDescription>
                 </CardHeader>
@@ -843,8 +843,8 @@ export default function SettingsPage() {
                   {/* Max Leverage */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="leverage" className="text-gray-900">Max Leverage</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.maxLeverage}x</span>
+                      <Label htmlFor="leverage" className="text-foreground">Max Leverage</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.maxLeverage}x</span>
                     </div>
                     <Slider
                       id="leverage"
@@ -861,8 +861,8 @@ export default function SettingsPage() {
                   {/* Max Position Size */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="position-size" className="text-gray-900">Max Position Size</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.maxPositionSize}%</span>
+                      <Label htmlFor="position-size" className="text-foreground">Max Position Size</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.maxPositionSize}%</span>
                     </div>
                     <Slider
                       id="position-size"
@@ -879,8 +879,8 @@ export default function SettingsPage() {
                   {/* Max Daily Loss */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="daily-loss" className="text-gray-900">Max Daily Loss</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.maxDailyLoss}%</span>
+                      <Label htmlFor="daily-loss" className="text-foreground">Max Daily Loss</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.maxDailyLoss}%</span>
                     </div>
                     <Slider
                       id="daily-loss"
@@ -896,7 +896,7 @@ export default function SettingsPage() {
 
                   {/* Min Account Value */}
                   <div className="space-y-2">
-                    <Label htmlFor="min-account" className="text-gray-900">Min Account Value ($)</Label>
+                    <Label htmlFor="min-account" className="text-foreground">Min Account Value ($)</Label>
                     <Input
                       id="min-account"
                       type="number"
@@ -908,7 +908,7 @@ export default function SettingsPage() {
                         }))
                       }
                       placeholder="100"
-                      className="text-gray-900 placeholder:text-gray-400"
+                      className="text-foreground placeholder:text-muted-foreground"
                     />
                     {errors.minAccountValue && (
                       <p className="text-sm text-red-600">{errors.minAccountValue}</p>
@@ -924,8 +924,8 @@ export default function SettingsPage() {
                   {/* Tier 1: Essential Risk Controls */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="per-trade-risk" className="text-gray-900">Per-Trade Risk</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.perTradeRiskPct.toFixed(1)}%</span>
+                      <Label htmlFor="per-trade-risk" className="text-foreground">Per-Trade Risk</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.perTradeRiskPct.toFixed(1)}%</span>
                     </div>
                     <Slider
                       id="per-trade-risk"
@@ -937,13 +937,13 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, perTradeRiskPct: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">How much of your account to risk per trade (0.5% - 10%)</p>
+                    <p className="text-xs text-muted-foreground">How much of your account to risk per trade (0.5% - 10%)</p>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="max-total-positions" className="text-gray-900">Max Total Positions</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.maxTotalPositions}</span>
+                      <Label htmlFor="max-total-positions" className="text-foreground">Max Total Positions</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.maxTotalPositions}</span>
                     </div>
                     <Slider
                       id="max-total-positions"
@@ -955,13 +955,13 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, maxTotalPositions: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Maximum concurrent positions</p>
+                    <p className="text-xs text-muted-foreground">Maximum concurrent positions</p>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="max-same-dir" className="text-gray-900">Max Same-Direction Positions</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.maxSameDirectionPositions}</span>
+                      <Label htmlFor="max-same-dir" className="text-foreground">Max Same-Direction Positions</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.maxSameDirectionPositions}</span>
                     </div>
                     <Slider
                       id="max-same-dir"
@@ -973,13 +973,13 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, maxSameDirectionPositions: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Max LONG or SHORT positions at once</p>
+                    <p className="text-xs text-muted-foreground">Max LONG or SHORT positions at once</p>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="consecutive-loss" className="text-gray-900">Consecutive Loss Limit</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.consecutiveLossLimit}</span>
+                      <Label htmlFor="consecutive-loss" className="text-foreground">Consecutive Loss Limit</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.consecutiveLossLimit}</span>
                     </div>
                     <Slider
                       id="consecutive-loss"
@@ -991,30 +991,30 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, consecutiveLossLimit: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Reduce risk after X losses in a row</p>
+                    <p className="text-xs text-muted-foreground">Reduce risk after X losses in a row</p>
                   </div>
                 </CardContent>
               </Card>
 
               {/* Trading Strategy */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Trading Strategy</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Trading Strategy</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Configure trading behavior and entry requirements
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {/* Trading Mode Preset */}
                   <div className="space-y-2">
-                    <Label htmlFor="trading-mode" className="text-gray-900">Trading Mode</Label>
+                    <Label htmlFor="trading-mode" className="text-foreground">Trading Mode</Label>
                     <Select
                       value={botConfigData.tradingMode}
                       onValueChange={(value: "conservative" | "balanced" | "aggressive") =>
                         handleTradingModeChange(value)
                       }
                     >
-                      <SelectTrigger id="trading-mode" className="text-gray-900">
+                      <SelectTrigger id="trading-mode" className="text-foreground">
                         <SelectValue placeholder="Select trading mode" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1023,7 +1023,7 @@ export default function SettingsPage() {
                         <SelectItem value="aggressive">Aggressive (More trades, lower confidence)</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       Preset adjusts confidence, risk/reward, and signal requirements
                     </p>
                   </div>
@@ -1031,8 +1031,8 @@ export default function SettingsPage() {
                   {/* Min Entry Confidence */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="min-confidence" className="text-gray-900">Minimum Entry Confidence</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.minEntryConfidence.toFixed(2)}</span>
+                      <Label htmlFor="min-confidence" className="text-foreground">Minimum Entry Confidence</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.minEntryConfidence.toFixed(2)}</span>
                     </div>
                     <Slider
                       id="min-confidence"
@@ -1044,14 +1044,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, minEntryConfidence: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Minimum AI confidence to enter trades</p>
+                    <p className="text-xs text-muted-foreground">Minimum AI confidence to enter trades</p>
                   </div>
 
                   {/* Min Risk/Reward Ratio */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="min-rr" className="text-gray-900">Minimum Risk/Reward Ratio</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.minRiskRewardRatio.toFixed(1)}:1</span>
+                      <Label htmlFor="min-rr" className="text-foreground">Minimum Risk/Reward Ratio</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.minRiskRewardRatio.toFixed(1)}:1</span>
                     </div>
                     <Slider
                       id="min-rr"
@@ -1063,14 +1063,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, minRiskRewardRatio: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Minimum reward per unit of risk</p>
+                    <p className="text-xs text-muted-foreground">Minimum reward per unit of risk</p>
                   </div>
 
                   {/* Stop-Out Cooldown */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="cooldown" className="text-gray-900">Stop-Out Cooldown Period</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.stopOutCooldownHours}h</span>
+                      <Label htmlFor="cooldown" className="text-foreground">Stop-Out Cooldown Period</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.stopOutCooldownHours}h</span>
                     </div>
                     <Slider
                       id="cooldown"
@@ -1082,7 +1082,7 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, stopOutCooldownHours: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Wait time before re-entering same symbol after stop loss</p>
+                    <p className="text-xs text-muted-foreground">Wait time before re-entering same symbol after stop loss</p>
                   </div>
                 </CardContent>
               </Card>
@@ -1098,10 +1098,10 @@ export default function SettingsPage() {
               className="space-y-6 pt-4"
             >
               {/* Advanced Settings */}
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Advanced Settings</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Advanced Settings</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Technical analysis parameters (modify with caution)
                   </CardDescription>
                 </CardHeader>
@@ -1117,8 +1117,8 @@ export default function SettingsPage() {
                   {/* Min Entry Signals */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="min-signals" className="text-gray-900">Minimum Entry Signals</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.minEntrySignals}</span>
+                      <Label htmlFor="min-signals" className="text-foreground">Minimum Entry Signals</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.minEntrySignals}</span>
                     </div>
                     <Slider
                       id="min-signals"
@@ -1130,14 +1130,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, minEntrySignals: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">How many indicators must align to enter a trade</p>
+                    <p className="text-xs text-muted-foreground">How many indicators must align to enter a trade</p>
                   </div>
 
                   {/* Require 4H Alignment */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="require-4h" className="text-gray-900">Require 4-Hour Trend Alignment</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="require-4h" className="text-foreground">Require 4-Hour Trend Alignment</Label>
+                      <p className="text-sm text-muted-foreground">
                         Only enter trades aligned with 4-hour trend (more conservative)
                       </p>
                     </div>
@@ -1153,8 +1153,8 @@ export default function SettingsPage() {
                   {/* Require 1H Alignment */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="require-1h" className="text-gray-900">Require 1-Hour Trend Alignment</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="require-1h" className="text-foreground">Require 1-Hour Trend Alignment</Label>
+                      <p className="text-sm text-muted-foreground">
                         Block trades that fight the 1-hour EMA structure
                       </p>
                     </div>
@@ -1170,8 +1170,8 @@ export default function SettingsPage() {
                   {/* Enable Regime Filter */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="enable-regime" className="text-gray-900">Enable Session Regime Filter</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="enable-regime" className="text-foreground">Enable Session Regime Filter</Label>
+                      <p className="text-sm text-muted-foreground">
                         Prevent weak longs on red sessions and weak shorts on green sessions
                       </p>
                     </div>
@@ -1187,8 +1187,8 @@ export default function SettingsPage() {
                   {/* Hybrid Selection */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="use-hybrid-selection" className="text-gray-900">Use Hybrid LLM Selection</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="use-hybrid-selection" className="text-foreground">Use Hybrid LLM Selection</Label>
+                      <p className="text-sm text-muted-foreground">
                         Deterministic code ranks valid setups first, then the AI chooses among the shortlist
                       </p>
                     </div>
@@ -1204,8 +1204,8 @@ export default function SettingsPage() {
                   {/* Red Day Long Block */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="red-day-long-block" className="text-gray-900">Red-Day Long Block Threshold</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.redDayLongBlockPct.toFixed(1)}%</span>
+                      <Label htmlFor="red-day-long-block" className="text-foreground">Red-Day Long Block Threshold</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.redDayLongBlockPct.toFixed(1)}%</span>
                     </div>
                     <Slider
                       id="red-day-long-block"
@@ -1217,14 +1217,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, redDayLongBlockPct: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Block new longs when the session is down by at least this much without recovery</p>
+                    <p className="text-xs text-muted-foreground">Block new longs when the session is down by at least this much without recovery</p>
                   </div>
 
                   {/* Green Day Short Block */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="green-day-short-block" className="text-gray-900">Green-Day Short Block Threshold</Label>
-                      <span className="text-sm text-gray-600 font-mono">+{botConfigData.greenDayShortBlockPct.toFixed(1)}%</span>
+                      <Label htmlFor="green-day-short-block" className="text-foreground">Green-Day Short Block Threshold</Label>
+                      <span className="text-sm text-muted-foreground font-mono">+{botConfigData.greenDayShortBlockPct.toFixed(1)}%</span>
                     </div>
                     <Slider
                       id="green-day-short-block"
@@ -1236,14 +1236,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, greenDayShortBlockPct: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Block new shorts when the session is up by at least this much without rollover</p>
+                    <p className="text-xs text-muted-foreground">Block new shorts when the session is up by at least this much without rollover</p>
                   </div>
 
                   {/* Re-entry Cooldown */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="reentry-cooldown" className="text-gray-900">Re-entry Cooldown</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.reentryCooldownMinutes} min</span>
+                      <Label htmlFor="reentry-cooldown" className="text-foreground">Re-entry Cooldown</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.reentryCooldownMinutes} min</span>
                     </div>
                     <Slider
                       id="reentry-cooldown"
@@ -1255,14 +1255,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, reentryCooldownMinutes: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Minimum wait after any open or close on the same symbol before re-entering</p>
+                    <p className="text-xs text-muted-foreground">Minimum wait after any open or close on the same symbol before re-entering</p>
                   </div>
 
                   {/* Trade Volatile Markets */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="trade-volatile" className="text-gray-900">Trade in Volatile Markets</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="trade-volatile" className="text-foreground">Trade in Volatile Markets</Label>
+                      <p className="text-sm text-muted-foreground">
                         Allow trading when ATR3 {'>'} 1.5x ATR14 (volatile conditions)
                       </p>
                     </div>
@@ -1278,8 +1278,8 @@ export default function SettingsPage() {
                   {/* Volatility Size Reduction */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="volatility-reduction" className="text-gray-900">Volatility Position Size Reduction</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.volatilitySizeReduction}%</span>
+                      <Label htmlFor="volatility-reduction" className="text-foreground">Volatility Position Size Reduction</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.volatilitySizeReduction}%</span>
                     </div>
                     <Slider
                       id="volatility-reduction"
@@ -1291,14 +1291,14 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, volatilitySizeReduction: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Reduce position size by X% in volatile conditions</p>
+                    <p className="text-xs text-muted-foreground">Reduce position size by X% in volatile conditions</p>
                   </div>
 
                   {/* Stop Loss ATR Multiplier */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="atr-multiplier" className="text-gray-900">Stop Loss ATR Multiplier</Label>
-                      <span className="text-sm text-gray-600 font-mono">{botConfigData.stopLossAtrMultiplier.toFixed(1)}x</span>
+                      <Label htmlFor="atr-multiplier" className="text-foreground">Stop Loss ATR Multiplier</Label>
+                      <span className="text-sm text-muted-foreground font-mono">{botConfigData.stopLossAtrMultiplier.toFixed(1)}x</span>
                     </div>
                     <Slider
                       id="atr-multiplier"
@@ -1310,23 +1310,23 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, stopLossAtrMultiplier: value }))
                       }
                     />
-                    <p className="text-xs text-gray-500">Stop loss = Entry +/- (ATR x multiplier)</p>
+                    <p className="text-xs text-muted-foreground">Stop loss = Entry +/- (ATR x multiplier)</p>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="bg-white border border-gray-200">
+              <Card className="bg-background border border-border">
                 <CardHeader>
-                  <CardTitle className="text-gray-900">Managed Scalping Exits</CardTitle>
-                  <CardDescription className="text-gray-600">
+                  <CardTitle className="text-foreground">Managed Scalping Exits</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     When enabled, new trades use a system-managed stop workflow instead of a fixed take-profit.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="managed-exit-enabled" className="text-gray-900">Enable Managed Exits</Label>
-                      <p className="text-sm text-gray-500">
+                      <Label htmlFor="managed-exit-enabled" className="text-foreground">Enable Managed Exits</Label>
+                      <p className="text-sm text-muted-foreground">
                         New positions will use hard stop, break-even, trailing, stale-trade, and max-hold rules.
                       </p>
                     </div>
@@ -1339,7 +1339,7 @@ export default function SettingsPage() {
                     />
                   </div>
 
-                  <Alert className="border-gray-200">
+                  <Alert className="border-border">
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>Behavior</AlertTitle>
                     <AlertDescription>
@@ -1351,7 +1351,7 @@ export default function SettingsPage() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-hard-stop" className="text-gray-900">Hard Stop Loss %</Label>
+                        <Label htmlFor="managed-hard-stop" className="text-foreground">Hard Stop Loss %</Label>
                         <InfoHint text="Initial emergency stop from entry. For longs it sits below entry; for shorts it sits above entry." />
                       </div>
                       <Input
@@ -1364,7 +1364,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-break-even-trigger" className="text-gray-900">Break-Even Trigger %</Label>
+                        <Label htmlFor="managed-break-even-trigger" className="text-foreground">Break-Even Trigger %</Label>
                         <InfoHint text="Profit threshold that arms the break-even promotion. Once reached, the stop can move up to protect the trade." />
                       </div>
                       <Input
@@ -1377,7 +1377,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-break-even-lock" className="text-gray-900">Break-Even Lock Profit %</Label>
+                        <Label htmlFor="managed-break-even-lock" className="text-foreground">Break-Even Lock Profit %</Label>
                         <InfoHint text="Small profit amount to lock in once break-even activates, so the trade exits slightly green instead of flat." />
                       </div>
                       <Input
@@ -1387,11 +1387,11 @@ export default function SettingsPage() {
                         value={botConfigData.managedExitBreakEvenLockProfitPct}
                         onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitBreakEvenLockProfitPct: Number(e.target.value) }))}
                       />
-                      <p className="text-xs text-gray-500">Small profit buffer to cover fees and slippage.</p>
+                      <p className="text-xs text-muted-foreground">Small profit buffer to cover fees and slippage.</p>
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-trailing-trigger" className="text-gray-900">Trailing Trigger %</Label>
+                        <Label htmlFor="managed-trailing-trigger" className="text-foreground">Trailing Trigger %</Label>
                         <InfoHint text="Profit threshold that starts trailing the stop from the best price reached since entry." />
                       </div>
                       <Input
@@ -1404,7 +1404,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-trailing-distance" className="text-gray-900">Trailing Distance %</Label>
+                        <Label htmlFor="managed-trailing-distance" className="text-foreground">Trailing Distance %</Label>
                         <InfoHint text="Gap between the best favorable price and the trailing stop. Smaller values lock profit faster; larger values give more room." />
                       </div>
                       <Input
@@ -1417,7 +1417,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-tighten-trigger" className="text-gray-900">Tighten Trigger %</Label>
+                        <Label htmlFor="managed-tighten-trigger" className="text-foreground">Tighten Trigger %</Label>
                         <InfoHint text="Profit threshold that switches the trade from the base trailing distance to the tighter trailing distance." />
                       </div>
                       <Input
@@ -1430,7 +1430,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-tightened-distance" className="text-gray-900">Tightened Distance %</Label>
+                        <Label htmlFor="managed-tightened-distance" className="text-foreground">Tightened Distance %</Label>
                         <InfoHint text="The smaller trailing gap used after the tighten trigger is reached to protect more of an extended move." />
                       </div>
                       <Input
@@ -1443,7 +1443,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-stale-minutes" className="text-gray-900">Stale Minutes</Label>
+                        <Label htmlFor="managed-stale-minutes" className="text-foreground">Stale Minutes</Label>
                         <InfoHint text="If the trade has been open this long without enough progress, it is closed as stale." />
                       </div>
                       <Input
@@ -1456,7 +1456,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-stale-profit" className="text-gray-900">Stale Min Profit %</Label>
+                        <Label htmlFor="managed-stale-profit" className="text-foreground">Stale Min Profit %</Label>
                         <InfoHint text="Minimum unrealized profit required at the stale-time check. Below this threshold, the trade is closed." />
                       </div>
                       <Input
@@ -1469,7 +1469,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="managed-max-hold" className="text-gray-900">Max Hold Minutes</Label>
+                        <Label htmlFor="managed-max-hold" className="text-foreground">Max Hold Minutes</Label>
                         <InfoHint text="Hard time limit for the trade. Once this age is reached, the position is force-closed regardless of profit or loss." />
                       </div>
                       <Input
@@ -1515,7 +1515,7 @@ export default function SettingsPage() {
         </Tabs>
 
         {/* Sticky Save Bot Configuration Button */}
-        <div className="sticky bottom-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 py-4 -mx-8 px-8">
+        <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t border-border py-4 -mx-8 px-8">
           <div className="flex justify-end">
             <Button
               onClick={handleSaveBotConfig}

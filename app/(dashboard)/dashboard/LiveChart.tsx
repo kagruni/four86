@@ -755,7 +755,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   }, []);
 
   return (
-    <div className="border border-gray-200 bg-white overflow-hidden">
+    <div className="border border-border bg-background overflow-hidden">
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 sm:px-4 py-2 sm:py-2.5">
         {/* Left — symbol selector or label */}
@@ -765,10 +765,10 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             <button
               type="button"
               onClick={() => setSymbolDropdownOpen((v) => !v)}
-              className="flex items-center gap-1 text-sm font-mono font-bold text-gray-900 tracking-tight hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors"
+              className="flex items-center gap-1 text-sm font-mono font-bold text-foreground tracking-tight hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors"
             >
               {selectedSymbol}
-              <ChevronDown className={`h-3 w-3 text-gray-400 transition-transform ${symbolDropdownOpen ? "rotate-180" : ""}`} />
+              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${symbolDropdownOpen ? "rotate-180" : ""}`} />
             </button>
             {symbolDropdownOpen && (
               <>
@@ -777,7 +777,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                   className="fixed inset-0 z-20"
                   onClick={() => setSymbolDropdownOpen(false)}
                 />
-                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 py-1 min-w-[100px]">
+                <div className="absolute top-full left-0 mt-1 z-30 bg-background border border-border py-1 min-w-[100px]">
                   {TRADING_SYMBOLS.map((sym) => (
                     <button
                       key={sym}
@@ -799,12 +799,12 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
               </>
             )}
           </div>
-          <span className="text-xs font-mono text-gray-400">
+          <span className="text-xs font-mono text-muted-foreground">
             {interval.toUpperCase()}
           </span>
           <span
             className={`inline-flex items-center gap-1 text-[10px] font-mono ${
-              wsConnected ? "text-gray-900" : "text-gray-400"
+              wsConnected ? "text-foreground" : "text-muted-foreground"
             }`}
           >
             <span
@@ -819,7 +819,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
         {/* Right — scrollable on mobile */}
         <div className="flex items-center gap-1 overflow-x-auto max-w-full scrollbar-none">
           {/* Timeframes */}
-          <div className="flex items-center bg-gray-50 p-0.5 mr-1 sm:mr-2 shrink-0">
+          <div className="flex items-center bg-muted p-0.5 mr-1 sm:mr-2 shrink-0">
             {INTERVALS.map((tf) => (
               <button
                 key={tf}
@@ -828,7 +828,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                 className={`px-1.5 sm:px-2 py-0.5 text-[11px] font-mono rounded transition-all ${
                   interval === tf
                     ? "bg-gray-900 text-white shadow-sm"
-                    : "text-gray-500 hover:text-gray-900"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {tf}
@@ -837,14 +837,14 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           </div>
 
           {/* Chart type */}
-          <div className="flex items-center bg-gray-50 p-0.5 mr-1 sm:mr-2 shrink-0">
+          <div className="flex items-center bg-muted p-0.5 mr-1 sm:mr-2 shrink-0">
             <button
               type="button"
               onClick={() => setChartType("candles")}
               className={`p-1 rounded transition-all ${
                 chartType === "candles"
                   ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-400 hover:text-gray-900"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
               title="Candlesticks"
             >
@@ -856,7 +856,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
               className={`p-1 rounded transition-all ${
                 chartType === "line"
                   ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-400 hover:text-gray-900"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
               title="Line"
             >
@@ -871,7 +871,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             className={`p-1 rounded transition-all mr-1 sm:mr-2 shrink-0 ${
               showVolume
                 ? "bg-gray-900 text-white shadow-sm"
-                : "text-gray-400 hover:text-gray-900 bg-gray-50"
+                : "text-muted-foreground hover:text-foreground bg-muted"
             }`}
             title="Toggle Volume"
           >
@@ -879,7 +879,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           </button>
 
           {/* Size — hidden on mobile, chart auto-sizes to S */}
-          <div className="hidden sm:flex items-center bg-gray-50 p-0.5 mr-2 shrink-0">
+          <div className="hidden sm:flex items-center bg-muted p-0.5 mr-2 shrink-0">
             {SIZES.map((sz) => (
               <button
                 key={sz}
@@ -888,7 +888,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                 className={`px-1.5 py-0.5 text-[10px] font-mono font-bold rounded transition-all ${
                   chartSize === sz
                     ? "bg-gray-900 text-white shadow-sm"
-                    : "text-gray-400 hover:text-gray-900"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {sz}
@@ -900,7 +900,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           <button
             type="button"
             onClick={handleFit}
-            className="p-1 rounded text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors shrink-0"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-gray-100 transition-colors shrink-0"
             title="Fit to screen"
           >
             <Maximize2 className="h-3.5 w-3.5" />
@@ -913,9 +913,9 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
         {/* Chart */}
         <div className="flex-1 relative min-w-0">
           {initialLoading && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-              <span className="ml-2 text-xs font-mono text-gray-400">
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-xs font-mono text-muted-foreground">
                 Loading {selectedSymbol}...
               </span>
             </div>
@@ -932,11 +932,11 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           <>
             {/* Desktop: vertical sidebar */}
             <div
-              className="hidden md:flex w-48 border-l border-gray-100 bg-gray-50/50 flex-col"
+              className="hidden md:flex w-48 border-l border-gray-100 bg-muted/50 flex-col"
               style={{ height: SIZE_MAP[chartSize] }}
             >
               <div className="px-3 py-2 border-b border-gray-100">
-                <span className="text-[10px] font-mono font-semibold text-gray-400 uppercase tracking-wider">
+                <span className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                   Positions
                 </span>
               </div>
@@ -952,14 +952,14 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       onClick={() => setSelectedSymbol(pos.symbol)}
                       className={`w-full text-left px-3 py-2.5 border-b border-gray-100 transition-all ${
                         isSelected
-                          ? "bg-white shadow-[inset_3px_0_0_#171717]"
-                          : "hover:bg-white/70"
+                          ? "bg-background shadow-[inset_3px_0_0_#171717]"
+                          : "hover:bg-background/70"
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <span
                           className={`text-xs font-mono font-bold ${
-                            isSelected ? "text-gray-900" : "text-gray-600"
+                            isSelected ? "text-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {pos.symbol}
@@ -968,8 +968,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                           variant="outline"
                           className={`text-[9px] px-1 py-0 h-4 ${
                             pos.side === "LONG"
-                              ? "border-gray-900 text-gray-900"
-                              : "border-gray-400 text-gray-500"
+                              ? "border-gray-900 text-foreground"
+                              : "border-gray-400 text-muted-foreground"
                           }`}
                         >
                           {pos.side === "LONG" ? (
@@ -980,20 +980,20 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                           {pos.leverage}x
                         </Badge>
                       </div>
-                      <div className="mt-1 text-[11px] font-mono tabular-nums text-gray-500">
+                      <div className="mt-1 text-[11px] font-mono tabular-nums text-muted-foreground">
                         {fmtPrice(pos.currentPrice)}
                       </div>
                       <div className="mt-0.5 flex items-center justify-between">
                         <span
                           className={`text-[11px] font-mono tabular-nums font-semibold ${
-                            isProfit ? "text-gray-900" : "text-gray-500"
+                            isProfit ? "text-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {fmtPnl(pos.unrealizedPnl)}
                         </span>
                         <span
                           className={`text-[10px] font-mono tabular-nums ${
-                            isProfit ? "text-gray-700" : "text-gray-400"
+                            isProfit ? "text-gray-700" : "text-muted-foreground"
                           }`}
                         >
                           {fmtPct(pos.unrealizedPnlPct)}
@@ -1018,9 +1018,9 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             </div>
 
             {/* Mobile: horizontal scrollable strip below chart */}
-            <div className="md:hidden border-t border-gray-100 bg-gray-50/50">
+            <div className="md:hidden border-t border-gray-100 bg-muted/50">
               <div className="px-3 py-1.5 border-b border-gray-100">
-                <span className="text-[10px] font-mono font-semibold text-gray-400 uppercase tracking-wider">
+                <span className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                   Positions
                 </span>
               </div>
@@ -1036,14 +1036,14 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       onClick={() => setSelectedSymbol(pos.symbol)}
                       className={`shrink-0 text-left px-3 py-2 min-w-[140px] transition-all ${
                         isSelected
-                          ? "bg-white border-2 border-gray-900 shadow-sm"
-                          : "bg-white/70 border border-gray-200 hover:border-gray-300"
+                          ? "bg-background border-2 border-gray-900 shadow-sm"
+                          : "bg-background/70 border border-border hover:border-gray-300"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span
                           className={`text-xs font-mono font-bold ${
-                            isSelected ? "text-gray-900" : "text-gray-600"
+                            isSelected ? "text-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {pos.symbol}
@@ -1052,8 +1052,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                           variant="outline"
                           className={`text-[9px] px-1 py-0 h-4 ${
                             pos.side === "LONG"
-                              ? "border-gray-900 text-gray-900"
-                              : "border-gray-400 text-gray-500"
+                              ? "border-gray-900 text-foreground"
+                              : "border-gray-400 text-muted-foreground"
                           }`}
                         >
                           {pos.side === "LONG" ? (
@@ -1067,14 +1067,14 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <span
                           className={`text-[11px] font-mono tabular-nums font-semibold ${
-                            isProfit ? "text-gray-900" : "text-gray-500"
+                            isProfit ? "text-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {fmtPnl(pos.unrealizedPnl)}
                         </span>
                         <span
                           className={`text-[10px] font-mono tabular-nums ${
-                            isProfit ? "text-gray-700" : "text-gray-400"
+                            isProfit ? "text-gray-700" : "text-muted-foreground"
                           }`}
                         >
                           {fmtPct(pos.unrealizedPnlPct)}

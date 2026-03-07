@@ -184,7 +184,7 @@ function ChartTooltip({ active, payload, label, trades }: any) {
 
   return (
     <div className="rounded border border-gray-200 bg-white px-3 py-2 shadow-sm">
-      <p className="font-mono text-xs tabular-nums text-gray-500">
+      <p className="font-mono text-xs tabular-nums text-muted-foreground">
         {new Date(time).toLocaleString("en-US", {
           month: "short",
           day: "numeric",
@@ -194,14 +194,14 @@ function ChartTooltip({ active, payload, label, trades }: any) {
       </p>
       {d && (
         <div className="mt-0.5 grid grid-cols-4 gap-x-2 font-mono text-xs tabular-nums">
-          <span className="text-gray-400">O</span>
-          <span className="text-gray-400">H</span>
-          <span className="text-gray-400">L</span>
-          <span className="text-gray-400">C</span>
-          <span className="text-gray-900">{fmtPrice(d.open)}</span>
-          <span className="text-gray-900">{fmtPrice(d.high)}</span>
-          <span className="text-gray-900">{fmtPrice(d.low)}</span>
-          <span className="text-gray-900">{fmtPrice(d.close)}</span>
+          <span className="text-muted-foreground">O</span>
+          <span className="text-muted-foreground">H</span>
+          <span className="text-muted-foreground">L</span>
+          <span className="text-muted-foreground">C</span>
+          <span className="text-foreground">{fmtPrice(d.open)}</span>
+          <span className="text-foreground">{fmtPrice(d.high)}</span>
+          <span className="text-foreground">{fmtPrice(d.low)}</span>
+          <span className="text-foreground">{fmtPrice(d.close)}</span>
         </div>
       )}
       {nearTrades.map((t: any, i: number) => (
@@ -210,7 +210,7 @@ function ChartTooltip({ active, payload, label, trades }: any) {
             {t.side}{" "}
             <span
               className={
-                (t.pnl ?? 0) >= 0 ? "text-gray-900" : "text-red-600"
+                (t.pnl ?? 0) >= 0 ? "text-foreground" : "text-red-600"
               }
             >
               {(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(2)}
@@ -242,7 +242,7 @@ function ToggleBtn({
       className={`rounded px-2 py-0.5 text-xs transition-colors ${
         active
           ? "bg-gray-900 text-white"
-          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+          : "bg-gray-100 text-muted-foreground hover:bg-gray-200"
       }`}
     >
       {children}
@@ -354,8 +354,8 @@ export default function BacktestChart({
         className="flex items-center justify-center"
         style={{ height: 360 }}
       >
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-        <span className="ml-2 text-sm text-gray-500">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">
           Loading price data...
         </span>
       </div>
@@ -369,7 +369,7 @@ export default function BacktestChart({
         className="flex items-center justify-center"
         style={{ height: 360 }}
       >
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-muted-foreground">
           {error || "No price data available."}
         </p>
       </div>
@@ -380,7 +380,7 @@ export default function BacktestChart({
     <div className="border-t border-gray-200 pt-3 pb-2">
       {/* View toggles */}
       <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="text-xs text-gray-400 mr-1">View:</span>
+        <span className="text-xs text-muted-foreground mr-1">View:</span>
         <ToggleBtn
           active={showTradeZones}
           onClick={() => setShowTradeZones((v) => !v)}
@@ -543,7 +543,7 @@ export default function BacktestChart({
       </ResponsiveContainer>
 
       {/* Legend */}
-      <div className="mt-1 flex items-center justify-center gap-4 text-xs text-gray-400">
+      <div className="mt-1 flex items-center justify-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <polygon

@@ -134,7 +134,7 @@ export default function TelegramSettings() {
   return (
     <div className="space-y-6 pt-4">
       {/* Connection Status */}
-      <Card className="bg-white border border-gray-200">
+      <Card className="bg-background border border-border">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -142,7 +142,7 @@ export default function TelegramSettings() {
                 <MessageSquare className="h-5 w-5" />
                 Telegram Integration
               </CardTitle>
-              <CardDescription className="text-gray-600">
+              <CardDescription className="text-muted-foreground">
                 Receive trade notifications and control your bot via Telegram
               </CardDescription>
             </div>
@@ -151,7 +151,7 @@ export default function TelegramSettings() {
               className={
                 isLinked
                   ? "bg-green-100 text-green-800 border-green-200"
-                  : "bg-gray-100 text-gray-600 border-gray-200"
+                  : "bg-gray-100 text-muted-foreground border-border"
               }
             >
               {isLinked ? "Connected" : "Not Connected"}
@@ -163,7 +163,7 @@ export default function TelegramSettings() {
             <>
               {!verificationCode ? (
                 <div className="space-y-3">
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     Link your Telegram account to receive real-time trade notifications and send commands to your bot.
                   </p>
                   <Button
@@ -177,10 +177,10 @@ export default function TelegramSettings() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     Send this command to <span className="font-semibold text-gray-900">@Four86Bot</span> on Telegram:
                   </p>
-                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-3">
+                  <div className="flex items-center gap-2 bg-muted border border-border p-3">
                     <code className="flex-1 font-mono text-sm text-gray-900 tabular-nums">
                       /link {verificationCode}
                     </code>
@@ -188,7 +188,7 @@ export default function TelegramSettings() {
                       variant="outline"
                       size="sm"
                       onClick={handleCopyCode}
-                      className="border-gray-200 shrink-0"
+                      className="border-border shrink-0"
                     >
                       {codeCopied ? (
                         <Check className="h-4 w-4 text-green-600" />
@@ -197,7 +197,7 @@ export default function TelegramSettings() {
                       )}
                     </Button>
                   </div>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     Code expires in 15 minutes. After sending the command, this page will update automatically.
                   </p>
                 </div>
@@ -205,12 +205,12 @@ export default function TelegramSettings() {
             </>
           ) : (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Your Telegram is connected and receiving notifications.
               </p>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="border-gray-200 text-gray-600">
+                  <Button variant="outline" size="sm" className="border-border text-muted-foreground">
                     <Unlink className="mr-2 h-4 w-4" />
                     Unlink
                   </Button>
@@ -235,10 +235,10 @@ export default function TelegramSettings() {
 
       {/* Notification Preferences */}
       {isLinked && (
-        <Card className="bg-white border border-gray-200">
+        <Card className="bg-background border border-border">
           <CardHeader>
             <CardTitle className="text-gray-900">Notification Preferences</CardTitle>
-            <CardDescription className="text-gray-600">
+            <CardDescription className="text-muted-foreground">
               Choose which notifications to receive on Telegram
             </CardDescription>
           </CardHeader>
@@ -246,7 +246,7 @@ export default function TelegramSettings() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-gray-900">Trade Opened</Label>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   Get notified when a new position is opened
                 </p>
               </div>
@@ -261,7 +261,7 @@ export default function TelegramSettings() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-gray-900">Trade Closed</Label>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   Get notified when a position is closed with P&L details
                 </p>
               </div>
@@ -276,7 +276,7 @@ export default function TelegramSettings() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-gray-900">Risk Alerts</Label>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   Circuit breaker triggers, emergency closes, and bot errors
                 </p>
               </div>
@@ -291,7 +291,7 @@ export default function TelegramSettings() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-gray-900">Daily Summary</Label>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   Receive a daily performance digest
                 </p>
               </div>
@@ -309,7 +309,7 @@ export default function TelegramSettings() {
                   <Bell className="h-4 w-4" />
                   Position Updates
                 </Label>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   Periodic status updates for open positions
                 </p>
               </div>
@@ -317,7 +317,7 @@ export default function TelegramSettings() {
                 value={String(settings?.positionUpdateInterval ?? 0)}
                 onValueChange={handleIntervalChange}
               >
-                <SelectTrigger className="w-[140px] border-gray-200 text-gray-900">
+                <SelectTrigger className="w-[140px] border-border text-gray-900">
                   <SelectValue placeholder="Off" />
                 </SelectTrigger>
                 <SelectContent>
@@ -337,10 +337,10 @@ export default function TelegramSettings() {
 
       {/* Test & Actions */}
       {isLinked && (
-        <Card className="bg-white border border-gray-200">
+        <Card className="bg-background border border-border">
           <CardHeader>
             <CardTitle className="text-gray-900">Test Connection</CardTitle>
-            <CardDescription className="text-gray-600">
+            <CardDescription className="text-muted-foreground">
               Send a test message to verify your Telegram connection
             </CardDescription>
           </CardHeader>
@@ -349,7 +349,7 @@ export default function TelegramSettings() {
               onClick={handleTestNotification}
               disabled={isTesting}
               variant="outline"
-              className="border-gray-200"
+              className="border-border"
             >
               {isTesting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -460,8 +460,8 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-black">Dashboard</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-500">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Dashboard</h1>
+          <p className="mt-1 sm:mt-2 text-sm text-muted-foreground">
             Monitor your AI trading bot performance
           </p>
         </div>
@@ -470,8 +470,8 @@ export default function DashboardPage() {
             variant={isBotActive ? "default" : "outline"}
             className={
               isBotActive
-                ? "bg-black text-white border-black"
-                : "bg-white text-black border-black"
+                ? "bg-black text-white border-foreground"
+                : "bg-background text-foreground border-foreground"
             }
           >
             {isBotActive ? "ACTIVE" : "INACTIVE"}
@@ -479,7 +479,7 @@ export default function DashboardPage() {
           <Button
             variant="outline"
             size="sm"
-            className="border-black text-black hover:bg-black hover:text-white"
+            className="border-foreground text-foreground hover:bg-black hover:text-white"
             onClick={handleRefreshPositions}
             disabled={isLoadingPositions}
           >
@@ -494,8 +494,8 @@ export default function DashboardPage() {
             size="sm"
             className={
               isBotActive
-                ? "border-black text-black hover:bg-black hover:text-white"
-                : "bg-black text-white hover:bg-gray-800"
+                ? "border-foreground text-foreground hover:bg-black hover:text-white"
+                : "bg-black text-white hover:bg-foreground/80"
             }
             onClick={handleToggleBot}
             disabled={isToggling}
@@ -531,19 +531,19 @@ export default function DashboardPage() {
       >
         <Card className={`border overflow-hidden transition-all duration-300 ${
           cbIsTripped
-            ? "border-gray-900 bg-gray-950 text-white"
+            ? "border-gray-900 bg-foreground text-white"
             : cbIsCooldown
-              ? "border-gray-300 bg-gray-100 text-black"
-              : "border-gray-200 bg-white text-black"
+              ? "border-gray-300 bg-muted text-foreground"
+              : "border-border bg-background text-foreground"
         }`}>
           <CardContent className="flex items-center justify-between py-3 px-5">
             <div className="flex items-center gap-3">
               {cbIsTripped ? (
                 <ShieldAlert className="h-5 w-5 text-white shrink-0" />
               ) : cbIsCooldown ? (
-                <ShieldAlert className="h-5 w-5 text-gray-500 shrink-0" />
+                <ShieldAlert className="h-5 w-5 text-muted-foreground shrink-0" />
               ) : (
-                <ShieldCheck className="h-5 w-5 text-gray-400 shrink-0" />
+                <ShieldCheck className="h-5 w-5 text-muted-foreground shrink-0" />
               )}
               <div>
                 <p className="text-sm font-semibold">
@@ -554,7 +554,7 @@ export default function DashboardPage() {
                       : "Circuit Breaker — OK"}
                 </p>
                 <p className={`text-xs mt-0.5 ${
-                  cbIsTripped ? "text-gray-400" : "text-gray-500"
+                  cbIsTripped ? "text-muted-foreground" : "text-muted-foreground"
                 }`}>
                   {cbIsTripped ? (
                     <>
@@ -583,8 +583,8 @@ export default function DashboardPage() {
                 variant={cbIsTripped ? "secondary" : "outline"}
                 size="sm"
                 className={cbIsTripped
-                  ? "bg-white text-black hover:bg-gray-200 shrink-0"
-                  : "border-gray-400 text-black hover:bg-gray-200 shrink-0"
+                  ? "bg-background text-foreground hover:bg-gray-200 shrink-0"
+                  : "border-gray-400 text-foreground hover:bg-gray-200 shrink-0"
                 }
                 onClick={handleResetCircuitBreaker}
                 disabled={isResettingCB}
@@ -619,27 +619,27 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0 }}
         >
-          <Card className="h-full bg-gray-950 text-white border border-gray-800 overflow-hidden">
+          <Card className="h-full bg-foreground text-white border border-border overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
-                <CardTitle className="text-sm font-medium text-gray-300">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   Current Capital
                 </CardTitle>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Live from Hyperliquid
                 </p>
               </div>
               {isLoadingAccount ? (
-                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : (
-                <DollarSign className="h-4 w-4 text-gray-400" />
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
               )}
             </CardHeader>
             <CardContent>
               <div className="text-4xl font-mono font-bold tracking-tight text-white tabular-nums">
                 {formatCurrency(liveAccountValue)}
               </div>
-              <p className="text-xs text-gray-500 mt-1 font-mono tabular-nums">
+              <p className="text-xs text-muted-foreground mt-1 font-mono tabular-nums">
                 Starting: {formatCurrency(startingCapital)}
               </p>
             </CardContent>
@@ -653,29 +653,29 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
         >
-          <Card className="h-full border border-gray-200 overflow-hidden">
+          <Card className="h-full border border-border overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
-                <CardTitle className="text-sm font-medium text-black">
+                <CardTitle className="text-sm font-medium text-foreground">
                   Total P&L
                 </CardTitle>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Live from Hyperliquid
                 </p>
               </div>
               {isLoadingAccount ? (
-                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : totalPnl >= 0 ? (
-                <TrendingUp className="h-4 w-4 text-black" />
+                <TrendingUp className="h-4 w-4 text-foreground" />
               ) : (
-                <TrendingDown className="h-4 w-4 text-black" />
+                <TrendingDown className="h-4 w-4 text-foreground" />
               )}
             </CardHeader>
             <CardContent>
-              <div className={`text-4xl font-mono font-bold tracking-tight tabular-nums ${totalPnl >= 0 ? 'text-black' : 'text-gray-600'}`}>
+              <div className={`text-4xl font-mono font-bold tracking-tight tabular-nums ${totalPnl >= 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {formatCurrency(totalPnl)}
               </div>
-              <p className={`text-xs font-mono tabular-nums mt-1 ${totalPnlPct >= 0 ? 'text-black' : 'text-gray-500'}`}>
+              <p className={`text-xs font-mono tabular-nums mt-1 ${totalPnlPct >= 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {formatPercent(totalPnlPct)}
               </p>
             </CardContent>
@@ -689,18 +689,18 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <Card className="h-full border border-gray-200 overflow-hidden">
+          <Card className="h-full border border-border overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-black">
+              <CardTitle className="text-sm font-medium text-foreground">
                 Open Positions
               </CardTitle>
-              <Activity className="h-4 w-4 text-gray-500" />
+              <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-mono font-bold tracking-tight text-black tabular-nums">
+              <div className="text-4xl font-mono font-bold tracking-tight text-foreground tabular-nums">
                 {positions?.length || 0}
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Active trades
               </p>
             </CardContent>
@@ -727,23 +727,23 @@ export default function DashboardPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.4 }}
       >
-        <Card className="border border-gray-200 overflow-hidden">
+        <Card className="border border-border overflow-hidden">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-black">Open Positions</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">
+                <CardTitle className="text-foreground">Open Positions</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
                   Live prices from Hyperliquid • Auto-refreshes every 10s
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {isLoadingPositions && (
-                  <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 )}
                 {positions && positions.length > 0 && (
                   closeAllConfirm ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-gray-500 hidden sm:inline">Close all {positions.length}?</span>
+                      <span className="text-xs text-muted-foreground hidden sm:inline">Close all {positions.length}?</span>
                       <Button
                         variant="default"
                         size="sm"
@@ -784,7 +784,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             {!positions || positions.length === 0 ? (
-              <div className="py-8 text-center text-sm font-mono text-gray-500">
+              <div className="py-8 text-center text-sm font-mono text-muted-foreground">
                 No open positions
               </div>
             ) : (
@@ -794,7 +794,7 @@ export default function DashboardPage() {
                   {positions.map((position) => {
                     const isExpanded = expandedPosition === position.symbol;
                     return (
-                      <div key={position._id} className="border border-gray-200 overflow-hidden">
+                      <div key={position._id} className="border border-border overflow-hidden">
                         <button
                           type="button"
                           className={`w-full text-left p-3 transition-colors ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50/50"}`}
@@ -804,19 +804,19 @@ export default function DashboardPage() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`inline-block text-xs text-gray-400 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
+                                className={`inline-block text-xs text-muted-foreground transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
                               >
                                 ▶
                               </span>
-                              <span className="font-mono font-bold text-black text-sm">
+                              <span className="font-mono font-bold text-foreground text-sm">
                                 {position.symbol}
                               </span>
                               <Badge
                                 variant="outline"
                                 className={`text-[10px] px-1.5 py-0 h-5 ${
                                   position.side === "LONG"
-                                    ? "border-black text-black"
-                                    : "border-gray-500 text-gray-600"
+                                    ? "border-foreground text-foreground"
+                                    : "border-gray-500 text-muted-foreground"
                                 }`}
                               >
                                 {position.side === "LONG" ? (
@@ -833,10 +833,10 @@ export default function DashboardPage() {
                               )}
                             </div>
                             <div className="text-right">
-                              <span className={`font-mono font-semibold tabular-nums text-sm ${position.unrealizedPnl >= 0 ? "text-black" : "text-gray-600"}`}>
+                              <span className={`font-mono font-semibold tabular-nums text-sm ${position.unrealizedPnl >= 0 ? "text-foreground" : "text-muted-foreground"}`}>
                                 {formatCurrency(position.unrealizedPnl)}
                               </span>
-                              <span className={`ml-1.5 font-mono tabular-nums text-xs ${position.unrealizedPnlPct >= 0 ? "text-black" : "text-gray-500"}`}>
+                              <span className={`ml-1.5 font-mono tabular-nums text-xs ${position.unrealizedPnlPct >= 0 ? "text-foreground" : "text-muted-foreground"}`}>
                                 {formatPercent(position.unrealizedPnlPct)}
                               </span>
                             </div>
@@ -845,33 +845,33 @@ export default function DashboardPage() {
                           {/* Row 2: Key prices in a compact grid */}
                           <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums">
                             <div>
-                              <span className="text-gray-400">Entry</span>
-                              <div className="text-black">{formatPrice(position.entryPrice)}</div>
+                              <span className="text-muted-foreground">Entry</span>
+                              <div className="text-foreground">{formatPrice(position.entryPrice)}</div>
                             </div>
                             <div>
-                              <span className="text-gray-400">Current</span>
-                              <div className="text-black">{formatPrice(position.currentPrice)}</div>
+                              <span className="text-muted-foreground">Current</span>
+                              <div className="text-foreground">{formatPrice(position.currentPrice)}</div>
                             </div>
                             <div>
-                              <span className="text-gray-400">Size</span>
-                              <div className="text-black">{formatCurrency(position.size)}</div>
+                              <span className="text-muted-foreground">Size</span>
+                              <div className="text-foreground">{formatCurrency(position.size)}</div>
                             </div>
                             {(position.managedStopPrice || position.stopLoss) && (
                               <div>
-                                <span className="text-gray-400">{position.exitMode === "managed_scalp_v2" ? "MS" : "SL"}</span>
+                                <span className="text-muted-foreground">{position.exitMode === "managed_scalp_v2" ? "MS" : "SL"}</span>
                                 <div className="text-red-600">{formatPrice(position.managedStopPrice ?? position.stopLoss)}</div>
                               </div>
                             )}
                             {position.takeProfit && (
                               <div>
-                                <span className="text-gray-400">TP</span>
+                                <span className="text-muted-foreground">TP</span>
                                 <div className="text-green-600">{formatPrice(position.takeProfit)}</div>
                               </div>
                             )}
                             {position.liquidationPrice && (
                               <div>
-                                <span className="text-gray-400">Liq</span>
-                                <div className="text-gray-500">{formatPrice(position.liquidationPrice)}</div>
+                                <span className="text-muted-foreground">Liq</span>
+                                <div className="text-muted-foreground">{formatPrice(position.liquidationPrice)}</div>
                               </div>
                             )}
                           </div>
@@ -939,19 +939,19 @@ export default function DashboardPage() {
                 <div className="hidden md:block overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-black hover:bg-gray-50">
-                        <TableHead className="text-black font-semibold">Symbol</TableHead>
-                        <TableHead className="text-black font-semibold">Side</TableHead>
-                        <TableHead className="text-black font-semibold">Leverage</TableHead>
-                        <TableHead className="text-black font-semibold">Size (USD)</TableHead>
-                        <TableHead className="text-black font-semibold">Entry</TableHead>
-                        <TableHead className="text-black font-semibold">Current</TableHead>
-                        <TableHead className="text-black font-semibold">Stop Loss</TableHead>
-                        <TableHead className="text-black font-semibold">Take Profit</TableHead>
-                        <TableHead className="text-black font-semibold">Liq. Price</TableHead>
-                        <TableHead className="text-black font-semibold">P&L</TableHead>
-                        <TableHead className="text-black font-semibold">P&L %</TableHead>
-                        <TableHead className="text-black font-semibold">Actions</TableHead>
+                      <TableRow className="border-foreground hover:bg-gray-50">
+                        <TableHead className="text-foreground font-semibold">Symbol</TableHead>
+                        <TableHead className="text-foreground font-semibold">Side</TableHead>
+                        <TableHead className="text-foreground font-semibold">Leverage</TableHead>
+                        <TableHead className="text-foreground font-semibold">Size (USD)</TableHead>
+                        <TableHead className="text-foreground font-semibold">Entry</TableHead>
+                        <TableHead className="text-foreground font-semibold">Current</TableHead>
+                        <TableHead className="text-foreground font-semibold">Stop Loss</TableHead>
+                        <TableHead className="text-foreground font-semibold">Take Profit</TableHead>
+                        <TableHead className="text-foreground font-semibold">Liq. Price</TableHead>
+                        <TableHead className="text-foreground font-semibold">P&L</TableHead>
+                        <TableHead className="text-foreground font-semibold">P&L %</TableHead>
+                        <TableHead className="text-foreground font-semibold">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -967,10 +967,10 @@ export default function DashboardPage() {
                                 )
                               }
                             >
-                              <TableCell className="font-mono font-semibold text-black">
+                              <TableCell className="font-mono font-semibold text-foreground">
                                 <span className="flex items-center gap-1.5">
                                   <span
-                                    className={`inline-block text-xs text-gray-400 transition-transform duration-200 ${
+                                    className={`inline-block text-xs text-muted-foreground transition-transform duration-200 ${
                                       isExpanded ? "rotate-90" : ""
                                     }`}
                                   >
@@ -984,8 +984,8 @@ export default function DashboardPage() {
                                   variant="outline"
                                   className={
                                     position.side === "LONG"
-                                      ? "border-black text-black bg-white"
-                                      : "border-gray-600 text-gray-600 bg-white"
+                                      ? "border-foreground text-foreground bg-background"
+                                      : "border-gray-600 text-muted-foreground bg-background"
                                   }
                                 >
                                   {position.side === "LONG" ? (
@@ -996,16 +996,16 @@ export default function DashboardPage() {
                                   {position.side}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="text-black font-mono font-medium tabular-nums">
+                              <TableCell className="text-foreground font-mono font-medium tabular-nums">
                                 {position.leverage}x
                               </TableCell>
-                              <TableCell className="text-black font-mono tabular-nums">
+                              <TableCell className="text-foreground font-mono tabular-nums">
                                 {formatCurrency(position.size)}
                               </TableCell>
-                              <TableCell className="text-black font-mono tabular-nums">
+                              <TableCell className="text-foreground font-mono tabular-nums">
                                 {formatPrice(position.entryPrice)}
                               </TableCell>
-                              <TableCell className="text-black font-mono tabular-nums">
+                              <TableCell className="text-foreground font-mono tabular-nums">
                                 {formatPrice(position.currentPrice)}
                               </TableCell>
                               <TableCell className="text-red-600 font-mono font-medium text-xs tabular-nums">
@@ -1014,13 +1014,13 @@ export default function DashboardPage() {
                               <TableCell className="text-green-600 font-mono font-medium text-xs tabular-nums">
                                 {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
                               </TableCell>
-                              <TableCell className="text-gray-500 font-mono text-xs tabular-nums">
+                              <TableCell className="text-muted-foreground font-mono text-xs tabular-nums">
                                 {position.liquidationPrice ? formatPrice(position.liquidationPrice) : '-'}
                               </TableCell>
-                              <TableCell className={`font-mono tabular-nums ${position.unrealizedPnl >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
+                              <TableCell className={`font-mono tabular-nums ${position.unrealizedPnl >= 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                                 {formatCurrency(position.unrealizedPnl)}
                               </TableCell>
-                              <TableCell className={`font-mono tabular-nums ${position.unrealizedPnlPct >= 0 ? 'text-black font-medium' : 'text-gray-600'}`}>
+                              <TableCell className={`font-mono tabular-nums ${position.unrealizedPnlPct >= 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                                 {formatPercent(position.unrealizedPnlPct)}
                               </TableCell>
                               <TableCell>
@@ -1097,39 +1097,39 @@ export default function DashboardPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.4 }}
       >
-        <Card className="border border-gray-200 overflow-hidden">
+        <Card className="border border-border overflow-hidden">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-black">Open Orders</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">
+                <CardTitle className="text-foreground">Open Orders</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
                   Pending orders on Hyperliquid • Auto-refreshes every 10s
                 </p>
               </div>
               {isLoadingOrders && (
-                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               )}
             </div>
           </CardHeader>
           <CardContent>
             {!openOrders || openOrders.length === 0 ? (
-              <div className="py-8 text-center text-sm font-mono text-gray-500">
+              <div className="py-8 text-center text-sm font-mono text-muted-foreground">
                 No open orders
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-black hover:bg-gray-50">
-                      <TableHead className="text-black font-semibold">Symbol</TableHead>
-                      <TableHead className="text-black font-semibold">Side</TableHead>
-                      <TableHead className="text-black font-semibold">Type</TableHead>
-                      <TableHead className="text-black font-semibold">Size</TableHead>
-                      <TableHead className="text-black font-semibold">Limit Price</TableHead>
-                      <TableHead className="text-black font-semibold">Trigger Price</TableHead>
-                      <TableHead className="text-black font-semibold">Status</TableHead>
-                      <TableHead className="text-black font-semibold">Order ID</TableHead>
-                      <TableHead className="text-black font-semibold">Actions</TableHead>
+                    <TableRow className="border-foreground hover:bg-gray-50">
+                      <TableHead className="text-foreground font-semibold">Symbol</TableHead>
+                      <TableHead className="text-foreground font-semibold">Side</TableHead>
+                      <TableHead className="text-foreground font-semibold">Type</TableHead>
+                      <TableHead className="text-foreground font-semibold">Size</TableHead>
+                      <TableHead className="text-foreground font-semibold">Limit Price</TableHead>
+                      <TableHead className="text-foreground font-semibold">Trigger Price</TableHead>
+                      <TableHead className="text-foreground font-semibold">Status</TableHead>
+                      <TableHead className="text-foreground font-semibold">Order ID</TableHead>
+                      <TableHead className="text-foreground font-semibold">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1167,7 +1167,7 @@ export default function DashboardPage() {
                           key={oid || index}
                           className="border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150"
                         >
-                          <TableCell className="font-mono font-semibold text-black">
+                          <TableCell className="font-mono font-semibold text-foreground">
                             {coin || "-"}
                           </TableCell>
                           <TableCell>
@@ -1175,8 +1175,8 @@ export default function DashboardPage() {
                               variant="outline"
                               className={
                                 isBuy
-                                  ? "border-black text-black bg-white"
-                                  : "border-gray-600 text-gray-600 bg-white"
+                                  ? "border-foreground text-foreground bg-background"
+                                  : "border-gray-600 text-muted-foreground bg-background"
                               }
                             >
                               {isBuy ? (
@@ -1187,19 +1187,19 @@ export default function DashboardPage() {
                               {isBuy ? "BUY" : "SELL"}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-black text-xs">
+                          <TableCell className="text-foreground text-xs">
                             {orderType}
                           </TableCell>
-                          <TableCell className="text-black font-mono tabular-nums">
+                          <TableCell className="text-foreground font-mono tabular-nums">
                             {sz || "-"}
                           </TableCell>
-                          <TableCell className="text-black font-mono tabular-nums">
+                          <TableCell className="text-foreground font-mono tabular-nums">
                             {limitPx ? formatPrice(parseFloat(limitPx)) : "-"}
                           </TableCell>
-                          <TableCell className="text-black text-xs font-mono tabular-nums">
+                          <TableCell className="text-foreground text-xs font-mono tabular-nums">
                             {triggerPx ? (
                               <div>
-                                {triggerCondition && <div className="text-gray-500">{triggerCondition}</div>}
+                                {triggerCondition && <div className="text-muted-foreground">{triggerCondition}</div>}
                                 <div>{formatPrice(parseFloat(triggerPx))}</div>
                               </div>
                             ) : "-"}
@@ -1209,16 +1209,16 @@ export default function DashboardPage() {
                               variant="outline"
                               className={
                                 tpsl === "tp"
-                                  ? "border-green-600 text-green-600 bg-white text-xs"
+                                  ? "border-green-600 text-green-600 bg-background text-xs"
                                   : tpsl === "sl"
-                                  ? "border-red-600 text-red-600 bg-white text-xs"
-                                  : "border-gray-400 text-gray-600 bg-white text-xs"
+                                  ? "border-red-600 text-red-600 bg-background text-xs"
+                                  : "border-gray-400 text-muted-foreground bg-background text-xs"
                               }
                             >
                               {tpsl === "tp" ? "TP" : tpsl === "sl" ? "SL" : "Resting"}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-gray-500 text-xs font-mono tabular-nums">
+                          <TableCell className="text-muted-foreground text-xs font-mono tabular-nums">
                             {oid ? oid.toString().substring(0, 10) + "..." : "-"}
                           </TableCell>
                           <TableCell>
@@ -1258,46 +1258,46 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.5 }}
         >
-          <Card className="border border-gray-200 overflow-hidden">
+          <Card className="border border-border overflow-hidden">
             <CardHeader>
-              <CardTitle className="text-black">Recent Trades</CardTitle>
+              <CardTitle className="text-foreground">Recent Trades</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[400px]">
                 {!recentTrades || recentTrades.length === 0 ? (
-                  <div className="py-8 text-center text-sm font-mono text-gray-500">
+                  <div className="py-8 text-center text-sm font-mono text-muted-foreground">
                     No trades yet
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {recentTrades.map((trade: Doc<"trades">) => (
-                      <div key={trade._id} className="border-b border-gray-200 pb-4 last:border-0">
+                      <div key={trade._id} className="border-b border-border pb-4 last:border-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             <Badge
                               variant="outline"
                               className={
                                 trade.side === "LONG"
-                                  ? "border-black text-black bg-white"
-                                  : "border-gray-600 text-gray-600 bg-white"
+                                  ? "border-foreground text-foreground bg-background"
+                                  : "border-gray-600 text-muted-foreground bg-background"
                               }
                             >
                               {trade.action === "OPEN" ? "OPEN" : "CLOSE"}
                             </Badge>
-                            <span className="font-mono font-semibold text-black">
+                            <span className="font-mono font-semibold text-foreground">
                               {trade.symbol}
                             </span>
-                            <span className="text-sm text-gray-500">
+                            <span className="text-sm text-muted-foreground">
                               {trade.side}
                             </span>
                           </div>
                           {trade.pnl !== undefined && (
-                            <span className={`font-mono font-medium tabular-nums ${trade.pnl >= 0 ? 'text-black' : 'text-gray-600'}`}>
+                            <span className={`font-mono font-medium tabular-nums ${trade.pnl >= 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
                               {formatCurrency(trade.pnl)}
                             </span>
                           )}
                         </div>
-                        <div className="mt-2 text-sm text-gray-500">
+                        <div className="mt-2 text-sm text-muted-foreground">
                           <div className="font-mono tabular-nums">Size: {trade.size.toFixed(4)} @ {formatCurrency(trade.price)}</div>
                           <div className="mt-1">{formatTimestamp(trade.executedAt)}</div>
                         </div>
@@ -1316,14 +1316,14 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.6 }}
         >
-          <Card className="border border-gray-200 overflow-hidden">
+          <Card className="border border-border overflow-hidden">
             <CardHeader>
-              <CardTitle className="text-black">AI Reasoning</CardTitle>
+              <CardTitle className="text-foreground">AI Reasoning</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[400px]">
                 {!aiLogs || aiLogs.length === 0 ? (
-                  <div className="py-8 text-center text-sm font-mono text-gray-500">
+                  <div className="py-8 text-center text-sm font-mono text-muted-foreground">
                     No AI logs yet
                   </div>
                 ) : (
@@ -1350,7 +1350,7 @@ export default function DashboardPage() {
                         ? "AI analysis completed — no high-conviction setups detected."
                         : log.reasoning;
                       return (
-                        <AccordionItem key={log._id} value={`item-${index}`} className="border-b border-gray-200 last:border-0">
+                        <AccordionItem key={log._id} value={`item-${index}`} className="border-b border-border last:border-0">
                           <AccordionTrigger className="hover:no-underline py-3 [&[data-state=open]>div>p]:hidden">
                             <div className="text-left w-full pr-2">
                               <div className="flex items-center justify-between">
@@ -1358,13 +1358,13 @@ export default function DashboardPage() {
                                   variant="outline"
                                   className={
                                     executionBlocked
-                                      ? "border-red-600 text-red-600 bg-white"
-                                      : "border-black text-black bg-white"
+                                      ? "border-red-600 text-red-600 bg-background"
+                                      : "border-foreground text-foreground bg-background"
                                   }
                                 >
                                   {log.decision}
                                 </Badge>
-                                <span className="text-xs text-gray-500">
+                                <span className="text-xs text-muted-foreground">
                                   {formatTimestamp(log.createdAt)}
                                 </span>
                               </div>
@@ -1378,11 +1378,11 @@ export default function DashboardPage() {
                                   </span>
                                 </div>
                               )}
-                              <p className="mt-2 text-sm text-black line-clamp-4">
+                              <p className="mt-2 text-sm text-foreground line-clamp-4">
                                 {reasoningText}
                               </p>
                               {log.confidence !== undefined && (
-                                <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                                <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
                                   {(log.confidence * 100).toFixed(0)}%
                                 </span>
                               )}
@@ -1404,11 +1404,11 @@ export default function DashboardPage() {
                                 )}
                               </div>
                             )}
-                            <p className="text-sm text-black whitespace-pre-wrap leading-relaxed">
+                            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
                               {reasoningText}
                             </p>
                             {log.confidence !== undefined && (
-                              <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                              <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
                                 {(log.confidence * 100).toFixed(0)}%
                               </span>
                             )}
@@ -1423,7 +1423,7 @@ export default function DashboardPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-xs border-gray-200 text-gray-600 hover:text-black"
+                      className="text-xs border-border text-muted-foreground hover:text-foreground"
                       onClick={() => setAiLogsLimit((prev) => prev + 10)}
                     >
                       Load More
