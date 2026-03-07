@@ -70,8 +70,8 @@ export const notifyTradeClosed = internalAction({
     side: v.string(),
     entryPrice: v.number(),
     exitPrice: v.number(),
-    pnl: v.number(),
-    pnlPct: v.number(),
+    pnl: v.optional(v.number()),
+    pnlPct: v.optional(v.number()),
     durationMs: v.number(),
   },
   handler: async (ctx, args) => {

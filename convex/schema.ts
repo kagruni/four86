@@ -140,10 +140,18 @@ export default defineSchema({
     action: v.string(), // "OPEN" or "CLOSE"
     side: v.string(), // "LONG" or "SHORT"
     size: v.number(),
+    sizeInCoins: v.optional(v.number()),
+    tradeValueUsd: v.optional(v.number()),
     leverage: v.number(),
     price: v.number(),
     pnl: v.optional(v.number()), // For closing trades
     pnlPct: v.optional(v.number()),
+    orderId: v.optional(v.number()),
+    fillTime: v.optional(v.number()),
+    fee: v.optional(v.number()),
+    feeToken: v.optional(v.string()),
+    grossPnl: v.optional(v.number()),
+    pnlSource: v.optional(v.string()),
 
     // AI decision context
     aiReasoning: v.string(),

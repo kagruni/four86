@@ -64,6 +64,7 @@ import type * as testing_manualPositionSync from "../testing/manualPositionSync.
 import type * as testing_manualTrigger from "../testing/manualTrigger.js";
 import type * as testing_recoverPositions from "../testing/recoverPositions.js";
 import type * as trading_circuitBreaker from "../trading/circuitBreaker.js";
+import type * as trading_closeSettlement from "../trading/closeSettlement.js";
 import type * as trading_converters_positionConverter from "../trading/converters/positionConverter.js";
 import type * as trading_decisionContext from "../trading/decisionContext.js";
 import type * as trading_executors_tradeExecutor from "../trading/executors/tradeExecutor.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "testing/manualTrigger": typeof testing_manualTrigger;
   "testing/recoverPositions": typeof testing_recoverPositions;
   "trading/circuitBreaker": typeof trading_circuitBreaker;
+  "trading/closeSettlement": typeof trading_closeSettlement;
   "trading/converters/positionConverter": typeof trading_converters_positionConverter;
   "trading/decisionContext": typeof trading_decisionContext;
   "trading/executors/tradeExecutor": typeof trading_executors_tradeExecutor;

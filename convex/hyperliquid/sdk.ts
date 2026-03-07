@@ -715,6 +715,28 @@ export async function getFrontendOpenOrders(
   }
 }
 
+export async function getUserFillsByTime(
+  address: string,
+  startTime: number,
+  testnet: boolean
+): Promise<any[]> {
+  try {
+    return await withRetry(async () => {
+      const infoClient = createInfoClient(testnet);
+      const fills = await infoClient.userFillsByTime({
+        user: address,
+        startTime,
+        aggregateByTime: false,
+      });
+      console.log(`[getUserFillsByTime] Found ${fills.length} fills since ${new Date(startTime).toISOString()}`);
+      return fills;
+    }, "getUserFillsByTime");
+  } catch (error) {
+    console.error("Error fetching user fills by time:", error);
+    throw new Error(`Failed to fetch user fills by time: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /**
  * Verify that TP/SL trigger orders exist on the exchange for a given symbol.
  * Returns the count and details of trigger orders found.

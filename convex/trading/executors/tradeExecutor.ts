@@ -10,6 +10,7 @@ import { recordTradeOutcome } from "../circuitBreaker";
 import { createLogger, withTiming } from "../logger";
 import { recordTradeInMemory } from "../validators/positionValidator";
 import { internal } from "../../fnRefs";
+import { buildCloseTradeFields, resolveCloseSettlement } from "../closeSettlement";
 import {
   MANAGED_EXIT_MODE,
   LEGACY_EXIT_MODE,
@@ -75,6 +76,7 @@ export async function executeClose(
         const entryPrice = positionToClose.entryPrice || exitPrice;
         const estimatedCoinSize =
           entryPrice > 0 ? Math.abs(positionToClose.size || 0) / entryPrice : 0;
+        const tradeValueUsd = exitPrice * estimatedCoinSize;
         const estimatedPnl =
           positionToClose.side === "LONG"
             ? (exitPrice - entryPrice) * estimatedCoinSize
@@ -88,11 +90,15 @@ export async function executeClose(
           symbol: decision.symbol,
           action: "CLOSE",
           side: positionToClose.side,
-          size: Math.abs(positionToClose.size || 0),
+          size: tradeValueUsd,
+          sizeInCoins: estimatedCoinSize,
+          tradeValueUsd,
           leverage: positionToClose.leverage || 1,
           price: exitPrice,
           pnl: Number.isFinite(estimatedPnl) ? estimatedPnl : 0,
           pnlPct: Number.isFinite(estimatedPnlPct) ? estimatedPnlPct : 0,
+          grossPnl: Number.isFinite(estimatedPnl) ? estimatedPnl : 0,
+          pnlSource: "reconciled_estimate",
           aiReasoning: `${decision.reasoning} | reconciled_missing_on_exchange`,
           aiModel: bot.modelName,
           confidence: decision.confidence,
@@ -178,6 +184,7 @@ export async function executeClose(
   }
 
   // Close position (opposite side)
+  const closeSubmittedAt = Date.now();
   const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
     privateKey: credentials.hyperliquidPrivateKey,
     address: credentials.hyperliquidAddress,
@@ -227,49 +234,28 @@ export async function executeClose(
     throw new Error(`Close for ${decision.symbol} did not fully fill; position remains open on the exchange`);
   }
 
-  // Prefer actual fill price from exchange over estimated market price
-  let exitPrice = result.avgPx || result.price || positionToClose.currentPrice || 0;
+  const settlement = await resolveCloseSettlement(ctx, api, {
+    userId: bot.userId,
+    address: credentials.hyperliquidAddress,
+    testnet: credentials.hyperliquidTestnet,
+    symbol: decision.symbol,
+    side: positionToClose.side,
+    entryPrice: positionToClose.entryPrice || result.avgPx || result.price || 0,
+    position: positionToClose,
+    closeResult: result,
+    submittedAt: closeSubmittedAt,
+  });
 
-  // Only fall back to market data if no fill price from exchange
-  if (!result.avgPx) {
-    try {
-      const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
-        symbols: [decision.symbol],
-        testnet: credentials.hyperliquidTestnet,
-      });
-      exitPrice = currentMarket[decision.symbol]?.price || exitPrice;
-    } catch {
-      /* Use existing price as fallback */
-    }
-  }
-
-  // Calculate realized P&L from entry/exit and actual closed size.
-  const entryPrice = positionToClose.entryPrice || exitPrice;
-  const realizedPnlRaw =
-    positionToClose.side === "LONG"
-      ? (exitPrice - entryPrice) * actualSize
-      : (entryPrice - exitPrice) * actualSize;
-  const notionalEntry = entryPrice * actualSize;
-  const realizedPnlPctRaw =
-    notionalEntry > 0 ? (realizedPnlRaw / notionalEntry) * 100 : 0;
-  const realizedPnl = Number.isFinite(realizedPnlRaw) ? realizedPnlRaw : 0;
-  const realizedPnlPct = Number.isFinite(realizedPnlPctRaw) ? realizedPnlPctRaw : 0;
-
-  // Save trade record with actual P&L data
   await ctx.runMutation(api.mutations.saveTrade, {
     userId: bot.userId,
-    symbol: decision.symbol,
-    action: "CLOSE",
-    side: positionToClose.side,
-    size: Math.abs(positionToClose.size || 0),
-    leverage: positionToClose.leverage || 1,
-    price: exitPrice,
-    pnl: realizedPnl,
-    pnlPct: realizedPnlPct,
-    aiReasoning: decision.reasoning,
-    aiModel: bot.modelName,
-    confidence: decision.confidence,
-    txHash: result.txHash,
+    ...buildCloseTradeFields({
+      position: positionToClose,
+      settlement,
+      aiReasoning: decision.reasoning,
+      aiModel: bot.modelName,
+      confidence: decision.confidence,
+      txHash: result.txHash,
+    }),
   });
 
   // Remove position from database
@@ -280,17 +266,15 @@ export async function executeClose(
 
   // Telegram notification (fire-and-forget)
   try {
-    const pnl = realizedPnl;
-    const pnlPct = realizedPnlPct;
     const durationMs = Date.now() - (positionToClose.openedAt ?? Date.now());
     ctx.runAction(internal.telegram.notifier.notifyTradeClosed, {
       userId: bot.userId,
       symbol: decision.symbol,
       side: positionToClose.side,
       entryPrice: positionToClose.entryPrice,
-      exitPrice,
-      pnl,
-      pnlPct,
+      exitPrice: settlement.exitPrice,
+      pnl: settlement.pnl,
+      pnlPct: settlement.pnlPct,
       durationMs,
     });
   } catch (e) {
@@ -298,7 +282,7 @@ export async function executeClose(
   }
 
   // ✅ CIRCUIT BREAKER: Record trade outcome (win/loss)
-  const tradeWon = realizedPnl >= 0;
+  const tradeWon = (settlement.pnl ?? settlement.grossPnl) >= 0;
   const tradeOutcomeState = recordTradeOutcome(
     {
       circuitBreakerState: bot.circuitBreakerState,
@@ -865,7 +849,8 @@ async function emergencyClose(
   });
 
   try {
-    await ctx.runAction(api.hyperliquid.client.closePosition, {
+    const closeSubmittedAt = Date.now();
+    const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
       symbol: decision.symbol!,
@@ -875,18 +860,36 @@ async function emergencyClose(
     });
     console.log(`✅ Position closed safely after SL failure`);
 
+    const emergencyPosition = {
+      symbol: decision.symbol!,
+      side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
+      size: sizeInCoins * entryPrice,
+      leverage: decision.leverage!,
+      entryPrice,
+      currentPrice: result.avgPx || result.price || entryPrice,
+    };
+    const settlement = await resolveCloseSettlement(ctx, api, {
+      userId: bot.userId,
+      address: credentials.hyperliquidAddress,
+      testnet: credentials.hyperliquidTestnet,
+      symbol: decision.symbol!,
+      side: emergencyPosition.side,
+      entryPrice,
+      position: emergencyPosition,
+      closeResult: result,
+      submittedAt: closeSubmittedAt,
+    });
+
     await ctx.runMutation(api.mutations.saveTrade, {
       userId: bot.userId,
-      symbol: decision.symbol!,
-      action: "CLOSE",
-      side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
-      size: decision.size_usd!,
-      leverage: decision.leverage!,
-      price: entryPrice,
-      aiReasoning: "EMERGENCY CLOSE: Stop loss placement failed",
-      aiModel: bot.modelName,
-      confidence: 1.0,
-      txHash: "emergency-close",
+      ...buildCloseTradeFields({
+        position: emergencyPosition,
+        settlement,
+        aiReasoning: "EMERGENCY CLOSE: Stop loss placement failed",
+        aiModel: bot.modelName,
+        confidence: 1.0,
+        txHash: result.txHash || "emergency-close",
+      }),
     });
   } catch (closeError) {
     console.error(`🚨 CRITICAL: Failed to close position after SL failure:`, closeError);

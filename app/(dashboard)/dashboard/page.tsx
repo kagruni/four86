@@ -287,6 +287,24 @@ export default function DashboardPage() {
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
+  const formatCoinSize = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: value < 1 ? 4 : 2,
+      maximumFractionDigits: value < 1 ? 6 : 4,
+    }).format(value);
+  };
+
+  const getRecentTradeSummary = (trade: Doc<"trades">) => {
+    if (trade.action === "CLOSE") {
+      if (trade.sizeInCoins !== undefined && trade.tradeValueUsd !== undefined) {
+        return `Closed: ${formatCoinSize(trade.sizeInCoins)} ${trade.symbol} • Value: ${formatCurrency(trade.tradeValueUsd)} @ ${formatPrice(trade.price)}`;
+      }
+      return `Closed Value: ${formatCurrency(trade.size)} @ ${formatPrice(trade.price)}`;
+    }
+
+    return `Notional: ${formatCurrency(trade.size)} @ ${formatPrice(trade.price)}`;
+  };
+
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleString('en-US', {
       month: 'short',
@@ -1298,7 +1316,7 @@ export default function DashboardPage() {
                           )}
                         </div>
                         <div className="mt-2 text-sm text-muted-foreground">
-                          <div className="font-mono tabular-nums">Size: {trade.size.toFixed(4)} @ {formatCurrency(trade.price)}</div>
+                          <div className="font-mono tabular-nums">{getRecentTradeSummary(trade)}</div>
                           <div className="mt-1">{formatTimestamp(trade.executedAt)}</div>
                         </div>
                       </div>

@@ -508,6 +508,22 @@ export const getFrontendOpenOrders = action({
   },
 });
 
+export const getUserFillsByTime = action({
+  args: {
+    address: v.string(),
+    startTime: v.number(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      return await sdk.getUserFillsByTime(args.address, args.startTime, args.testnet);
+    } catch (error) {
+      console.warn("[getUserFillsByTime] API unavailable:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to fetch user fills by time: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
 // Verify TP/SL trigger orders exist on the exchange for a symbol
 export const verifyTpSlOrders = action({
   args: {

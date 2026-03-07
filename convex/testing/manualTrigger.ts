@@ -2,7 +2,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../fnRefs";
 import { isSymbolSupportedForEnvironment } from "../hyperliquid/candles";
-import { calculatePnl } from "../trading/pnlCalculator";
+import { buildCloseTradeFields, resolveCloseSettlement } from "../trading/closeSettlement";
 
 /**
  * FORCE CLOSE any position directly on Hyperliquid
@@ -546,6 +546,7 @@ export const manualClosePosition = action({
       // Close the position on Hyperliquid
       // To close a LONG position, we SELL (isBuy=false)
       // To close a SHORT position, we BUY (isBuy=true)
+      const closeSubmittedAt = Date.now();
       const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
@@ -561,31 +562,39 @@ export const manualClosePosition = action({
 
       console.log(`[Manual Close] Position closed on Hyperliquid:`, result);
 
-      // Calculate PnL from actual fill data
-      const exitPrice = result.avgPx || result.price || 0;
-      const sizeInCoins = result.totalSz || args.size;
-      const { pnl, pnlPct } = calculatePnl({
+      const settlement = await resolveCloseSettlement(ctx, api, {
+        userId: args.userId,
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
+        symbol: args.symbol,
         side: args.side,
         entryPrice,
-        exitPrice,
-        sizeInCoins,
+        position: {
+          symbol: args.symbol,
+          side: args.side,
+          size: entryPrice * args.size,
+          leverage,
+          entryPrice,
+          currentPrice: result.avgPx || result.price || entryPrice,
+        },
+        closeResult: result,
+        submittedAt: closeSubmittedAt,
       });
 
-      // Save trade record with actual PnL data
       await ctx.runMutation(api.mutations.saveTrade, {
         userId: args.userId,
-        symbol: args.symbol,
-        action: "CLOSE",
-        side: args.side,
-        size: sizeInCoins * exitPrice,
-        leverage,
-        price: exitPrice,
-        pnl,
-        pnlPct,
-        aiReasoning: "Manual close from dashboard",
-        aiModel: "manual",
-        confidence: 1,
-        txHash: result.txHash,
+        ...buildCloseTradeFields({
+          position: {
+            symbol: args.symbol,
+            side: args.side,
+            leverage,
+          },
+          settlement,
+          aiReasoning: "Manual close from dashboard",
+          aiModel: "manual",
+          confidence: 1,
+          txHash: result.txHash,
+        }),
       });
 
       // Remove position from database

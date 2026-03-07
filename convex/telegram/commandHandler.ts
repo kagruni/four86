@@ -8,6 +8,7 @@ import {
   formatOrders,
   formatUsd,
 } from "./messageTemplates";
+import { buildCloseTradeFields, resolveCloseSettlement } from "../trading/closeSettlement";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -494,6 +495,7 @@ async function handleConfirm(
           testnet,
         });
 
+        const closeSubmittedAt = Date.now();
         const closeResult = await ctx.runAction(api.hyperliquid.client.closePosition, {
           privateKey: credentials.hyperliquidPrivateKey,
           address: credentials.hyperliquidAddress,
@@ -507,13 +509,46 @@ async function handleConfirm(
           throw new Error(`Close order was not filled immediately (status: ${closeResult.status})`);
         }
 
+        const settlement = await resolveCloseSettlement(ctx, api, {
+          userId,
+          address: credentials.hyperliquidAddress,
+          testnet,
+          symbol: pos.symbol,
+          side: pos.side || "LONG",
+          entryPrice: pos.entryPrice,
+          position: pos,
+          closeResult,
+          submittedAt: closeSubmittedAt,
+        });
+
+        await ctx.runMutation(api.mutations.saveTrade, {
+          userId,
+          ...buildCloseTradeFields({
+            position: {
+              symbol: pos.symbol,
+              side: pos.side || "LONG",
+              leverage: pos.leverage || 1,
+            },
+            settlement,
+            aiReasoning: "Manual close all via Telegram",
+            aiModel: "manual",
+            confidence: 1,
+            txHash: closeResult.txHash || "telegram-closeall",
+          }),
+        });
+
         // Remove from database
         await ctx.runMutation(api.mutations.closePosition, {
           userId,
           symbol: pos.symbol,
         });
 
-        results.push(`${pos.symbol}: closed`);
+        if (settlement.pnl !== undefined) {
+          const pnlSign = settlement.pnl >= 0 ? "+" : "";
+          results.push(`${pos.symbol}: closed (${pnlSign}$${settlement.pnl.toFixed(2)})`);
+        } else {
+          results.push(`${pos.symbol}: closed (P&L pending settlement sync)`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         results.push(`${pos.symbol}: failed - ${msg}`);
@@ -551,6 +586,7 @@ async function handleConfirm(
       testnet,
     });
 
+    const closeSubmittedAt = Date.now();
     const closeResult = await ctx.runAction(api.hyperliquid.client.closePosition, {
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
@@ -564,13 +600,46 @@ async function handleConfirm(
       throw new Error(`Close order was not filled immediately (status: ${closeResult.status})`);
     }
 
+    const settlement = await resolveCloseSettlement(ctx, api, {
+      userId,
+      address: credentials.hyperliquidAddress,
+      testnet,
+      symbol: position.symbol,
+      side: position.side || "LONG",
+      entryPrice: position.entryPrice,
+      position,
+      closeResult,
+      submittedAt: closeSubmittedAt,
+    });
+
+    await ctx.runMutation(api.mutations.saveTrade, {
+      userId,
+      ...buildCloseTradeFields({
+        position: {
+          symbol: position.symbol,
+          side: position.side || "LONG",
+          leverage: position.leverage || 1,
+        },
+        settlement,
+        aiReasoning: "Manual close via Telegram",
+        aiModel: "manual",
+        confidence: 1,
+        txHash: closeResult.txHash || "telegram-close",
+      }),
+    });
+
     // Remove from database
     await ctx.runMutation(api.mutations.closePosition, {
       userId,
       symbol,
     });
 
-    await reply(ctx, chatId, `*${symbol}* position closed.`);
+    if (settlement.pnl !== undefined && settlement.pnlPct !== undefined) {
+      const pnlSign = settlement.pnl >= 0 ? "+" : "";
+      await reply(ctx, chatId, `*${symbol}* position closed.\nP&L: \`${pnlSign}$${settlement.pnl.toFixed(2)}\` (${settlement.pnlPct.toFixed(2)}%)`);
+    } else {
+      await reply(ctx, chatId, `*${symbol}* position closed.\nP&L is pending exchange settlement sync.`);
+    }
   } else if (action.startsWith("cancelorder_")) {
     // action format: "cancelorder_BTC_12345"
     const actionParts = action.split("_");
@@ -777,6 +846,7 @@ async function handleCloseConfirmCallback(
     testnet,
   });
 
+  const closeSubmittedAt = Date.now();
   const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
     privateKey: credentials.hyperliquidPrivateKey,
     address: credentials.hyperliquidAddress,
@@ -790,32 +860,32 @@ async function handleCloseConfirmCallback(
     throw new Error(`Close order was not filled immediately (status: ${result.status})`);
   }
 
-  // Calculate PnL from actual fill data
-  const exitPrice = result.avgPx || result.price || 0;
-  const sizeInCoins = result.totalSz || (position.size / position.entryPrice);
-  const pnlRaw = position.side === "LONG"
-    ? (exitPrice - position.entryPrice) * sizeInCoins
-    : (position.entryPrice - exitPrice) * sizeInCoins;
-  const notionalEntry = position.entryPrice * sizeInCoins;
-  const pnlPctRaw = notionalEntry > 0 ? (pnlRaw / notionalEntry) * 100 : 0;
-  const pnl = Number.isFinite(pnlRaw) ? pnlRaw : 0;
-  const pnlPct = Number.isFinite(pnlPctRaw) ? pnlPctRaw : 0;
+  const settlement = await resolveCloseSettlement(ctx, api, {
+    userId,
+    address: credentials.hyperliquidAddress,
+    testnet,
+    symbol: position.symbol,
+    side: position.side || "LONG",
+    entryPrice: position.entryPrice,
+    position,
+    closeResult: result,
+    submittedAt: closeSubmittedAt,
+  });
 
-  // Save trade record with PnL BEFORE deleting position
   await ctx.runMutation(api.mutations.saveTrade, {
     userId,
-    symbol: position.symbol,
-    action: "CLOSE",
-    side: position.side || "LONG",
-    size: sizeInCoins * exitPrice,
-    leverage: position.leverage || 1,
-    price: exitPrice,
-    pnl,
-    pnlPct,
-    aiReasoning: "Manual close via Telegram",
-    aiModel: "manual",
-    confidence: 1,
-    txHash: result.txHash || "telegram-close",
+    ...buildCloseTradeFields({
+      position: {
+        symbol: position.symbol,
+        side: position.side || "LONG",
+        leverage: position.leverage || 1,
+      },
+      settlement,
+      aiReasoning: "Manual close via Telegram",
+      aiModel: "manual",
+      confidence: 1,
+      txHash: result.txHash || "telegram-close",
+    }),
   });
 
   await ctx.runMutation(api.mutations.closePosition, {
@@ -823,8 +893,12 @@ async function handleCloseConfirmCallback(
     symbol,
   });
 
-  const pnlSign = pnl >= 0 ? "+" : "";
-  await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.\nP&L: \`${pnlSign}$${pnl.toFixed(2)}\` (${pnlPct.toFixed(2)}%)`);
+  if (settlement.pnl !== undefined && settlement.pnlPct !== undefined) {
+    const pnlSign = settlement.pnl >= 0 ? "+" : "";
+    await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.\nP&L: \`${pnlSign}$${settlement.pnl.toFixed(2)}\` (${settlement.pnlPct.toFixed(2)}%)`);
+  } else {
+    await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.\nP&L is pending exchange settlement sync.`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -880,6 +954,7 @@ async function handleCloseAllConfirmCallback(
         testnet,
       });
 
+      const closeSubmittedAt = Date.now();
       const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
@@ -893,32 +968,32 @@ async function handleCloseAllConfirmCallback(
         throw new Error(`Close order was not filled immediately (status: ${result.status})`);
       }
 
-      // Calculate PnL from actual fill data
-      const exitPrice = result.avgPx || result.price || 0;
-      const sizeInCoins = result.totalSz || (pos.size / pos.entryPrice);
-      const pnlRaw = pos.side === "LONG"
-        ? (exitPrice - pos.entryPrice) * sizeInCoins
-        : (pos.entryPrice - exitPrice) * sizeInCoins;
-      const notionalEntry = pos.entryPrice * sizeInCoins;
-      const pnlPctRaw = notionalEntry > 0 ? (pnlRaw / notionalEntry) * 100 : 0;
-      const pnl = Number.isFinite(pnlRaw) ? pnlRaw : 0;
-      const pnlPct = Number.isFinite(pnlPctRaw) ? pnlPctRaw : 0;
+      const settlement = await resolveCloseSettlement(ctx, api, {
+        userId,
+        address: credentials.hyperliquidAddress,
+        testnet,
+        symbol: pos.symbol,
+        side: pos.side || "LONG",
+        entryPrice: pos.entryPrice,
+        position: pos,
+        closeResult: result,
+        submittedAt: closeSubmittedAt,
+      });
 
-      // Save trade record BEFORE deleting position
       await ctx.runMutation(api.mutations.saveTrade, {
         userId,
-        symbol: pos.symbol,
-        action: "CLOSE",
-        side: pos.side || "LONG",
-        size: sizeInCoins * exitPrice,
-        leverage: pos.leverage || 1,
-        price: exitPrice,
-        pnl,
-        pnlPct,
-        aiReasoning: "Manual close all via Telegram",
-        aiModel: "manual",
-        confidence: 1,
-        txHash: result.txHash || "telegram-closeall",
+        ...buildCloseTradeFields({
+          position: {
+            symbol: pos.symbol,
+            side: pos.side || "LONG",
+            leverage: pos.leverage || 1,
+          },
+          settlement,
+          aiReasoning: "Manual close all via Telegram",
+          aiModel: "manual",
+          confidence: 1,
+          txHash: result.txHash || "telegram-closeall",
+        }),
       });
 
       await ctx.runMutation(api.mutations.closePosition, {
@@ -926,8 +1001,12 @@ async function handleCloseAllConfirmCallback(
         symbol: pos.symbol,
       });
 
-      const pnlSign = pnl >= 0 ? "+" : "";
-      results.push(`\u{2705} ${pos.symbol}: closed (${pnlSign}$${pnl.toFixed(2)})`);
+      if (settlement.pnl !== undefined) {
+        const pnlSign = settlement.pnl >= 0 ? "+" : "";
+        results.push(`\u{2705} ${pos.symbol}: closed (${pnlSign}$${settlement.pnl.toFixed(2)})`);
+      } else {
+        results.push(`\u{2705} ${pos.symbol}: closed (P&L pending settlement sync)`);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       results.push(`\u{274C} ${pos.symbol}: ${msg}`);

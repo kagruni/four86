@@ -56,12 +56,20 @@ const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
 
 function InfoHint({ text }: { text: string }) {
   return (
-    <span
-      className="inline-flex cursor-help items-center text-muted-foreground transition-colors hover:text-muted-foreground"
-      title={text}
-      aria-label={text}
-    >
-      <Info className="h-4 w-4" />
+    <span className="group relative inline-flex items-center">
+      <button
+        type="button"
+        className="inline-flex cursor-help items-center text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+        aria-label={text}
+      >
+        <Info className="h-4 w-4" />
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-2 text-xs leading-relaxed text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {text}
+      </span>
     </span>
   );
 }

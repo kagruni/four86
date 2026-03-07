@@ -94,24 +94,29 @@ interface TradeClosedData {
   side: string;
   entryPrice: number;
   exitPrice: number;
-  pnl: number;
-  pnlPct: number;
+  pnl?: number;
+  pnlPct?: number;
   durationMs: number;
 }
 
 export function formatTradeClosed(data: TradeClosedData): string {
-  const isProfit = data.pnl >= 0;
+  const isProfit = data.pnl !== undefined ? data.pnl >= 0 : true;
   const pnlEmoji = isProfit ? "\u{1F7E2}" : "\u{1F534}";
-  const headerEmoji = isProfit ? "\u{2705}" : "\u{274C}";
+  const headerEmoji = data.pnl === undefined ? "\u{2705}" : isProfit ? "\u{2705}" : "\u{274C}";
 
   const lines: string[] = [
     `${headerEmoji} *Trade Closed*`,
     "",
     `*${data.symbol}* ${data.side.toUpperCase()}`,
     `\`${formatUsd(data.entryPrice)}\` \u{2192} \`${formatUsd(data.exitPrice)}\``,
-    `${pnlEmoji} \`${formatUsd(data.pnl)}\` (\`${formatPct(data.pnlPct)}\`)`,
     `Duration: \`${formatDuration(data.durationMs)}\``,
   ];
+
+  if (data.pnl !== undefined && data.pnlPct !== undefined) {
+    lines.splice(4, 0, `${pnlEmoji} \`${formatUsd(data.pnl)}\` (\`${formatPct(data.pnlPct)}\`)`);
+  } else {
+    lines.splice(4, 0, `\u{2139}\u{FE0F} P&L: \`Pending exchange settlement sync\``);
+  }
 
   return lines.join("\n");
 }
