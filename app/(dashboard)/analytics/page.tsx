@@ -194,7 +194,7 @@ const itemVariants = {
 // ─── Card styling constant ────────────────────────────────────────────────────
 
 const cardClass =
-  "border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md";
+  "border border-gray-200 overflow-hidden";
 
 // ─── Computation Functions ────────────────────────────────────────────────────
 
@@ -333,7 +333,7 @@ function EquityCurveTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="rounded-md border border-gray-200 bg-white px-3 py-2 shadow-md">
+    <div className="border border-gray-200 bg-white px-3 py-2">
       <p className="text-xs text-gray-500">{formatTooltipDate(d.timestamp)}</p>
       <p className="font-mono text-sm font-bold tabular-nums text-gray-900">
         {formatCurrency(d.accountValue)}
@@ -346,7 +346,7 @@ function TradeBarTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="rounded-md border border-gray-200 bg-white px-3 py-2 shadow-md">
+    <div className="border border-gray-200 bg-white px-3 py-2">
       <p className="text-xs font-medium text-gray-900">
         {d.symbol} &middot; {d.side}
       </p>
@@ -365,7 +365,7 @@ function TradeBarTooltip({ active, payload }: any) {
 function ConfidenceTooltip({ active, payload, label }: any) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="rounded border border-gray-200 bg-white px-3 py-2 shadow-md">
+    <div className="border border-gray-200 bg-white px-3 py-2">
       <p className="text-xs font-semibold text-black">{label}</p>
       <p className="text-xs font-mono tabular-nums text-gray-600">
         {payload[0].value} decisions
@@ -651,7 +651,7 @@ export default function AnalyticsPage() {
       <motion.div variants={itemVariants}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {/* Total Return – dark treatment */}
-          <div className="rounded-lg bg-gray-950 px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="bg-gray-950 px-4 py-4">
             <div className="flex items-center gap-1.5">
               <TrendingUp className="h-3.5 w-3.5 text-gray-400" />
               <p className="text-xs text-gray-400">Total Return</p>
@@ -668,7 +668,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Sharpe Ratio */}
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="border border-gray-200 bg-white px-4 py-4">
             <div className="flex items-center gap-1.5">
               <BarChart3 className="h-3.5 w-3.5 text-gray-400" />
               <p className="text-xs text-gray-500">Sharpe Ratio</p>
@@ -681,7 +681,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Win Rate */}
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="border border-gray-200 bg-white px-4 py-4">
             <div className="flex items-center gap-1.5">
               <Target className="h-3.5 w-3.5 text-gray-400" />
               <p className="text-xs text-gray-500">Win Rate</p>
@@ -694,7 +694,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Total Trades */}
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="border border-gray-200 bg-white px-4 py-4">
             <div className="flex items-center gap-1.5">
               <BarChart3 className="h-3.5 w-3.5 text-gray-400" />
               <p className="text-xs text-gray-500">Total Trades</p>
@@ -705,7 +705,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Best Trade */}
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="border border-gray-200 bg-white px-4 py-4">
             <div className="flex items-center gap-1.5">
               <Trophy className="h-3.5 w-3.5 text-gray-400" />
               <p className="text-xs text-gray-500">Best Trade</p>
@@ -718,7 +718,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Worst Trade */}
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="border border-gray-200 bg-white px-4 py-4">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 text-gray-400" />
               <p className="text-xs text-gray-500">Worst Trade</p>
@@ -768,7 +768,7 @@ export default function AnalyticsPage() {
               <div className="relative select-none" ref={chartContainerRef}>
                 {/* Floating P&L measurement label */}
                 {rangeMeasurement && !isDragging && (
-                  <div className="absolute top-2 right-14 z-10 flex items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 shadow-md">
+                  <div className="absolute top-2 right-14 z-10 flex items-start gap-2 border border-gray-200 bg-white px-3 py-2">
                     <div className="text-right">
                       <p
                         className={`font-mono text-sm font-bold tabular-nums ${
@@ -1190,7 +1190,7 @@ export default function AnalyticsPage() {
                   ) : (
                     <div className="space-y-6 pt-2">
                       {/* Winning trades avg confidence */}
-                      <div className="rounded-lg border border-gray-200 p-4">
+                      <div className="border border-gray-200 p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <TrendingUp className="h-4 w-4 text-black" />
                           <span className="text-xs font-semibold text-black uppercase tracking-wider">
@@ -1213,7 +1213,7 @@ export default function AnalyticsPage() {
                       </div>
 
                       {/* Losing trades avg confidence */}
-                      <div className="rounded-lg border border-gray-200 p-4">
+                      <div className="border border-gray-200 p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <TrendingDown className="h-4 w-4 text-gray-500" />
                           <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -1315,7 +1315,7 @@ export default function AnalyticsPage() {
                           />
 
                           {/* Content */}
-                          <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-3 hover:bg-gray-50 transition-colors duration-150">
+                          <div className="border border-gray-100 bg-gray-50/50 p-3 hover:bg-gray-50 transition-colors duration-150">
                             {/* Top row: badge + timestamp */}
                             <div className="flex items-center justify-between mb-2">
                               <Badge

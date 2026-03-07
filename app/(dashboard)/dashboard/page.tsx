@@ -446,10 +446,11 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="flex h-[calc(100vh-200px)] items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="mx-auto h-10 w-10 animate-spin text-black" />
-          <p className="mt-4 text-sm font-mono tracking-wide text-gray-500">Loading dashboard...</p>
-        </div>
+        <img
+          src="/logo-animation-fast.gif"
+          alt="Loading"
+          className="h-16 w-auto"
+        />
       </div>
     );
   }
@@ -618,7 +619,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0 }}
         >
-          <Card className="h-full bg-gray-950 text-white border border-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <Card className="h-full bg-gray-950 text-white border border-gray-800 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
                 <CardTitle className="text-sm font-medium text-gray-300">
@@ -652,7 +653,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
         >
-          <Card className="h-full border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <Card className="h-full border border-gray-200 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
                 <CardTitle className="text-sm font-medium text-black">
@@ -688,7 +689,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <Card className="h-full border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <Card className="h-full border border-gray-200 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-black">
                 Open Positions
@@ -726,7 +727,7 @@ export default function DashboardPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.4 }}
       >
-        <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+        <Card className="border border-gray-200 overflow-hidden">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -793,7 +794,7 @@ export default function DashboardPage() {
                   {positions.map((position) => {
                     const isExpanded = expandedPosition === position.symbol;
                     return (
-                      <div key={position._id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div key={position._id} className="border border-gray-200 overflow-hidden">
                         <button
                           type="button"
                           className={`w-full text-left p-3 transition-colors ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50/50"}`}
@@ -1096,7 +1097,7 @@ export default function DashboardPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.4 }}
       >
-        <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+        <Card className="border border-gray-200 overflow-hidden">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -1257,7 +1258,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.5 }}
         >
-          <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <Card className="border border-gray-200 overflow-hidden">
             <CardHeader>
               <CardTitle className="text-black">Recent Trades</CardTitle>
             </CardHeader>
@@ -1315,7 +1316,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.6 }}
         >
-          <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:shadow-md">
+          <Card className="border border-gray-200 overflow-hidden">
             <CardHeader>
               <CardTitle className="text-black">AI Reasoning</CardTitle>
             </CardHeader>

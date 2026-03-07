@@ -570,7 +570,7 @@ export default function SettingsPage() {
               </Alert>
 
               {/* AI Provider Credentials */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">OpenRouter API Settings</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -622,7 +622,7 @@ export default function SettingsPage() {
               </Card>
 
               {/* Hyperliquid Credentials */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Hyperliquid Settings</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -729,7 +729,7 @@ export default function SettingsPage() {
               className="space-y-6 pt-4"
             >
               {/* AI Model Selection */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">AI Model</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -764,7 +764,7 @@ export default function SettingsPage() {
               </Card>
 
               {/* Trading Prompt Mode */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Trading Prompt Mode</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -797,7 +797,7 @@ export default function SettingsPage() {
               </Card>
 
               {/* Trading Symbols */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Trading Symbols</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -832,7 +832,7 @@ export default function SettingsPage() {
               </Card>
 
               {/* Risk Management */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Risk Management</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -997,7 +997,7 @@ export default function SettingsPage() {
               </Card>
 
               {/* Trading Strategy */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Trading Strategy</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -1098,7 +1098,7 @@ export default function SettingsPage() {
               className="space-y-6 pt-4"
             >
               {/* Advanced Settings */}
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Advanced Settings</CardTitle>
                   <CardDescription className="text-gray-600">
@@ -1315,7 +1315,7 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+              <Card className="bg-white border border-gray-200">
                 <CardHeader>
                   <CardTitle className="text-gray-900">Managed Scalping Exits</CardTitle>
                   <CardDescription className="text-gray-600">

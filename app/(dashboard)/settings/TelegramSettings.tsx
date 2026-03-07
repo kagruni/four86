@@ -134,7 +134,7 @@ export default function TelegramSettings() {
   return (
     <div className="space-y-6 pt-4">
       {/* Connection Status */}
-      <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+      <Card className="bg-white border border-gray-200">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -180,7 +180,7 @@ export default function TelegramSettings() {
                   <p className="text-sm text-gray-600">
                     Send this command to <span className="font-semibold text-gray-900">@Four86Bot</span> on Telegram:
                   </p>
-                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-3">
                     <code className="flex-1 font-mono text-sm text-gray-900 tabular-nums">
                       /link {verificationCode}
                     </code>
@@ -235,7 +235,7 @@ export default function TelegramSettings() {
 
       {/* Notification Preferences */}
       {isLinked && (
-        <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+        <Card className="bg-white border border-gray-200">
           <CardHeader>
             <CardTitle className="text-gray-900">Notification Preferences</CardTitle>
             <CardDescription className="text-gray-600">
@@ -337,7 +337,7 @@ export default function TelegramSettings() {
 
       {/* Test & Actions */}
       {isLinked && (
-        <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+        <Card className="bg-white border border-gray-200">
           <CardHeader>
             <CardTitle className="text-gray-900">Test Connection</CardTitle>
             <CardDescription className="text-gray-600">

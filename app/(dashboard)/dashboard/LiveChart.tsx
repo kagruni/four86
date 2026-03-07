@@ -755,7 +755,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   }, []);
 
   return (
-    <div className="border border-gray-200 rounded-lg shadow-[0_1px_3px_rgba(0,0,0,0.08)] bg-white overflow-hidden">
+    <div className="border border-gray-200 bg-white overflow-hidden">
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 sm:px-4 py-2 sm:py-2.5">
         {/* Left — symbol selector or label */}
@@ -777,7 +777,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                   className="fixed inset-0 z-20"
                   onClick={() => setSymbolDropdownOpen(false)}
                 />
-                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[100px]">
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 py-1 min-w-[100px]">
                   {TRADING_SYMBOLS.map((sym) => (
                     <button
                       key={sym}
@@ -819,7 +819,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
         {/* Right — scrollable on mobile */}
         <div className="flex items-center gap-1 overflow-x-auto max-w-full scrollbar-none">
           {/* Timeframes */}
-          <div className="flex items-center rounded-md bg-gray-50 p-0.5 mr-1 sm:mr-2 shrink-0">
+          <div className="flex items-center bg-gray-50 p-0.5 mr-1 sm:mr-2 shrink-0">
             {INTERVALS.map((tf) => (
               <button
                 key={tf}
@@ -837,7 +837,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           </div>
 
           {/* Chart type */}
-          <div className="flex items-center rounded-md bg-gray-50 p-0.5 mr-1 sm:mr-2 shrink-0">
+          <div className="flex items-center bg-gray-50 p-0.5 mr-1 sm:mr-2 shrink-0">
             <button
               type="button"
               onClick={() => setChartType("candles")}
@@ -879,7 +879,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           </button>
 
           {/* Size — hidden on mobile, chart auto-sizes to S */}
-          <div className="hidden sm:flex items-center rounded-md bg-gray-50 p-0.5 mr-2 shrink-0">
+          <div className="hidden sm:flex items-center bg-gray-50 p-0.5 mr-2 shrink-0">
             {SIZES.map((sz) => (
               <button
                 key={sz}
@@ -1034,7 +1034,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       key={pos._id}
                       type="button"
                       onClick={() => setSelectedSymbol(pos.symbol)}
-                      className={`shrink-0 text-left rounded-md px-3 py-2 min-w-[140px] transition-all ${
+                      className={`shrink-0 text-left px-3 py-2 min-w-[140px] transition-all ${
                         isSelected
                           ? "bg-white border-2 border-gray-900 shadow-sm"
                           : "bg-white/70 border border-gray-200 hover:border-gray-300"

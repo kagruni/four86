@@ -168,7 +168,7 @@ export default function BacktestPage() {
       <h1 className="text-2xl font-bold text-gray-900">Backtesting</h1>
 
       {/* Configuration Form */}
-      <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+      <Card className="border border-gray-200">
         <CardHeader>
           <CardTitle className="text-lg text-gray-900">
             New Backtest
@@ -298,7 +298,7 @@ export default function BacktestPage() {
       </Card>
 
       {/* Results Table */}
-      <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+      <Card className="border border-gray-200">
         <CardHeader>
           <CardTitle className="text-lg text-gray-900">
             Backtest History

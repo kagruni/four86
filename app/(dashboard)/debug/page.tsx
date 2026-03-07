@@ -267,7 +267,7 @@ export default function DebugPage() {
 
             {/* AI Decision Result */}
             {aiDecision && (
-              <div className="rounded-lg border-2 border-black bg-white p-4">
+              <div className="border-2 border-black bg-white p-4">
                 <div className="text-center">
                   <div className="text-sm text-gray-500 mb-1">AI Decision</div>
                   <div className="text-2xl font-bold text-black">{aiDecision}</div>
@@ -306,7 +306,7 @@ export default function DebugPage() {
 
             {/* Test Log */}
             {testLog.length > 0 && (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="border border-gray-200 bg-gray-50 p-4">
                 <h4 className="text-sm font-semibold text-black mb-2">Test Log</h4>
                 <ScrollArea className="h-[300px]">
                   <div className="space-y-1 font-mono text-xs">

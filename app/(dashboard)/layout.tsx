@@ -5,14 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
-import { Activity, Settings, BarChart3, FlaskConical } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const navigation = [
-  { name: "Dashboard", href: "/dashboard", icon: Activity },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Backtest", href: "/backtest", icon: FlaskConical },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Dashboard", href: "/dashboard" },
+  { name: "Analytics", href: "/analytics" },
+  { name: "Backtest", href: "/backtest" },
+  { name: "Settings", href: "/settings" },
 ];
 
 export default function DashboardLayout({
@@ -27,37 +26,35 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.05)] backdrop-blur-sm bg-white/95">
+      <header className="sticky top-0 z-50 border-b border-black/10 backdrop-blur-sm bg-white/95">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-24 items-center justify-between">
+          <div className="flex h-14 items-center justify-between">
             <div className="flex items-center">
               <Link href="/" className="flex items-center">
                 <Image
                   src="/vectorlogo.svg"
                   alt="Four86"
-                  width={120}
-                  height={58}
-                  className="h-10 w-auto"
+                  width={80}
+                  height={38}
+                  className="h-8 w-auto"
                   priority
                 />
               </Link>
             </div>
-            <nav className="hidden md:flex md:items-center md:space-x-2">
+            <nav className="hidden md:flex md:items-center md:gap-6">
               {navigation.map((item) => {
-                const Icon = item.icon;
                 const isActive = pathname === item.href;
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
                     className={cn(
-                      "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium transition-all duration-200",
+                      "font-mono text-xs uppercase tracking-[0.15em] transition-colors",
                       isActive
-                        ? "bg-black text-white"
-                        : "text-gray-500 hover:text-black hover:bg-gray-100"
+                        ? "text-black"
+                        : "text-black/40 hover:text-black"
                     )}
                   >
-                    <Icon className="mr-2 h-4 w-4" />
                     {item.name}
                   </Link>
                 );

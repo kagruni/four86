@@ -14,10 +14,12 @@ export default function Home() {
 
   if (!isLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-black">
-        <p className="font-mono text-sm tracking-[0.2em] text-white/30 uppercase">
-          Four86
-        </p>
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <img
+          src="/logo-animation-fast.gif"
+          alt="Loading"
+          className="h-16 w-auto"
+        />
       </div>
     );
   }
