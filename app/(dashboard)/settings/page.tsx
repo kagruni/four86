@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff, Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { motion } from "framer-motion";
 import TelegramSettings from "./TelegramSettings";
@@ -53,6 +53,18 @@ const AI_MODELS = [
 ] as const;
 
 const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
+
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span
+      className="inline-flex cursor-help items-center text-gray-400 transition-colors hover:text-gray-600"
+      title={text}
+      aria-label={text}
+    >
+      <Info className="h-4 w-4" />
+    </span>
+  );
+}
 
 const botConfigSchema = z.object({
   modelName: z.string().min(1, "AI model is required"),
@@ -1338,7 +1350,10 @@ export default function SettingsPage() {
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="managed-hard-stop" className="text-gray-900">Hard Stop Loss %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-hard-stop" className="text-gray-900">Hard Stop Loss %</Label>
+                        <InfoHint text="Initial emergency stop from entry. For longs it sits below entry; for shorts it sits above entry." />
+                      </div>
                       <Input
                         id="managed-hard-stop"
                         type="number"
@@ -1348,7 +1363,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-break-even-trigger" className="text-gray-900">Break-Even Trigger %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-break-even-trigger" className="text-gray-900">Break-Even Trigger %</Label>
+                        <InfoHint text="Profit threshold that arms the break-even promotion. Once reached, the stop can move up to protect the trade." />
+                      </div>
                       <Input
                         id="managed-break-even-trigger"
                         type="number"
@@ -1358,7 +1376,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-break-even-lock" className="text-gray-900">Break-Even Lock Profit %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-break-even-lock" className="text-gray-900">Break-Even Lock Profit %</Label>
+                        <InfoHint text="Small profit amount to lock in once break-even activates, so the trade exits slightly green instead of flat." />
+                      </div>
                       <Input
                         id="managed-break-even-lock"
                         type="number"
@@ -1369,7 +1390,10 @@ export default function SettingsPage() {
                       <p className="text-xs text-gray-500">Small profit buffer to cover fees and slippage.</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-trailing-trigger" className="text-gray-900">Trailing Trigger %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-trailing-trigger" className="text-gray-900">Trailing Trigger %</Label>
+                        <InfoHint text="Profit threshold that starts trailing the stop from the best price reached since entry." />
+                      </div>
                       <Input
                         id="managed-trailing-trigger"
                         type="number"
@@ -1379,7 +1403,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-trailing-distance" className="text-gray-900">Trailing Distance %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-trailing-distance" className="text-gray-900">Trailing Distance %</Label>
+                        <InfoHint text="Gap between the best favorable price and the trailing stop. Smaller values lock profit faster; larger values give more room." />
+                      </div>
                       <Input
                         id="managed-trailing-distance"
                         type="number"
@@ -1389,7 +1416,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-tighten-trigger" className="text-gray-900">Tighten Trigger %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-tighten-trigger" className="text-gray-900">Tighten Trigger %</Label>
+                        <InfoHint text="Profit threshold that switches the trade from the base trailing distance to the tighter trailing distance." />
+                      </div>
                       <Input
                         id="managed-tighten-trigger"
                         type="number"
@@ -1399,7 +1429,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-tightened-distance" className="text-gray-900">Tightened Distance %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-tightened-distance" className="text-gray-900">Tightened Distance %</Label>
+                        <InfoHint text="The smaller trailing gap used after the tighten trigger is reached to protect more of an extended move." />
+                      </div>
                       <Input
                         id="managed-tightened-distance"
                         type="number"
@@ -1409,7 +1442,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-stale-minutes" className="text-gray-900">Stale Minutes</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-stale-minutes" className="text-gray-900">Stale Minutes</Label>
+                        <InfoHint text="If the trade has been open this long without enough progress, it is closed as stale." />
+                      </div>
                       <Input
                         id="managed-stale-minutes"
                         type="number"
@@ -1419,7 +1455,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-stale-profit" className="text-gray-900">Stale Min Profit %</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-stale-profit" className="text-gray-900">Stale Min Profit %</Label>
+                        <InfoHint text="Minimum unrealized profit required at the stale-time check. Below this threshold, the trade is closed." />
+                      </div>
                       <Input
                         id="managed-stale-profit"
                         type="number"
@@ -1429,7 +1468,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="managed-max-hold" className="text-gray-900">Max Hold Minutes</Label>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="managed-max-hold" className="text-gray-900">Max Hold Minutes</Label>
+                        <InfoHint text="Hard time limit for the trade. Once this age is reached, the position is force-closed regardless of profit or loss." />
+                      </div>
                       <Input
                         id="managed-max-hold"
                         type="number"
