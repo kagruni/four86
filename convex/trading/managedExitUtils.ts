@@ -19,8 +19,8 @@ export interface ManagedExitRules {
 
 export const DEFAULT_MANAGED_EXIT_RULES: ManagedExitRules = {
   managedExitEnabled: false,
-  managedExitHardStopLossPct: 1.0,
-  managedExitBreakEvenTriggerPct: 0.4,
+  managedExitHardStopLossPct: 1.5,
+  managedExitBreakEvenTriggerPct: 0.7,
   managedExitBreakEvenLockProfitPct: 0.08,
   managedExitTrailingTriggerPct: 0.5,
   managedExitTrailingDistancePct: 0.25,
