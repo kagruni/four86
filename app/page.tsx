@@ -1,29 +1,34 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
+import Hero from "./components/landing/Hero";
+import Proof from "./components/landing/Proof";
+import Pricing from "./components/landing/Pricing";
+import CompoundTable from "./components/landing/CompoundTable";
+import HowItWorks from "./components/landing/HowItWorks";
+import Footer from "./components/landing/Footer";
 
 export default function Home() {
-  const router = useRouter();
   const { isLoaded, isSignedIn } = useUser();
 
-  useEffect(() => {
-    if (isLoaded) {
-      if (isSignedIn) {
-        router.push("/dashboard");
-      } else {
-        router.push("/sign-in");
-      }
-    }
-  }, [isLoaded, isSignedIn, router]);
+  if (!isLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <p className="font-mono text-sm tracking-[0.2em] text-white/30 uppercase">
+          Four86
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-black">FOUR86</h1>
-        <p className="mt-2 text-gray-500">Loading...</p>
-      </div>
-    </div>
+    <main className="bg-black">
+      <Hero isSignedIn={!!isSignedIn} />
+      <Proof />
+      <Pricing />
+      <CompoundTable />
+      <HowItWorks />
+      <Footer />
+    </main>
   );
 }

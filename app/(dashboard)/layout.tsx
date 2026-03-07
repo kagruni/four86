@@ -31,13 +31,13 @@ export default function DashboardLayout({
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-24 items-center justify-between">
             <div className="flex items-center">
-              <Link href="/dashboard" className="flex items-center">
+              <Link href="/" className="flex items-center">
                 <Image
                   src="/vectorlogo.svg"
                   alt="Four86"
                   width={120}
                   height={58}
-                  className="h-16 w-auto"
+                  className="h-10 w-auto"
                   priority
                 />
               </Link>
