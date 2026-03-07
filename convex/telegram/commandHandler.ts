@@ -481,6 +481,13 @@ async function handleConfirm(
 
     for (const pos of positions) {
       try {
+        await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+          privateKey: credentials.hyperliquidPrivateKey,
+          address: credentials.hyperliquidAddress,
+          symbol: pos.symbol,
+          testnet,
+        });
+
         await ctx.runAction(api.hyperliquid.client.closePosition, {
           privateKey: credentials.hyperliquidPrivateKey,
           address: credentials.hyperliquidAddress,
@@ -520,6 +527,13 @@ async function handleConfirm(
       await reply(ctx, chatId, `No open position for *${symbol}*.`);
       return;
     }
+
+    await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+      privateKey: credentials.hyperliquidPrivateKey,
+      address: credentials.hyperliquidAddress,
+      symbol: position.symbol,
+      testnet,
+    });
 
     await ctx.runAction(api.hyperliquid.client.closePosition, {
       privateKey: credentials.hyperliquidPrivateKey,
@@ -730,6 +744,13 @@ async function handleCloseConfirmCallback(
     return;
   }
 
+  await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+    privateKey: credentials.hyperliquidPrivateKey,
+    address: credentials.hyperliquidAddress,
+    symbol: position.symbol,
+    testnet,
+  });
+
   const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
     privateKey: credentials.hyperliquidPrivateKey,
     address: credentials.hyperliquidAddress,
@@ -816,6 +837,13 @@ async function handleCloseAllConfirmCallback(
 
   for (const pos of positions) {
     try {
+      await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: pos.symbol,
+        testnet,
+      });
+
       const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,

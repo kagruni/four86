@@ -96,14 +96,17 @@ function formatPositions(positions: any[]): string {
   let formatted = "\n## Current Positions\n";
 
   for (const pos of positions) {
+    const isManagedExit = pos.exitMode === "managed_scalp_v2";
+    const displayedStop = pos.managedStopPrice ?? pos.stopLoss;
     formatted += `
 **${pos.symbol}** - ${pos.side}
 - Size: $${pos.size.toFixed(2)} (${pos.leverage}x leverage)
 - Entry: $${pos.entryPrice.toFixed(2)}
 - Current: $${pos.currentPrice.toFixed(2)}
 - P&L: $${pos.unrealizedPnl.toFixed(2)} (${pos.unrealizedPnlPct.toFixed(2)}%)
-- Stop Loss: $${pos.stopLoss?.toFixed(2) || 'None'}
-- Take Profit: $${pos.takeProfit?.toFixed(2) || 'None'}
+- Exit Mode: ${isManagedExit ? "MANAGED_EXIT" : "LEGACY"}
+- Stop Loss: $${displayedStop?.toFixed(2) || 'None'}
+- Take Profit: ${isManagedExit ? 'System-managed' : `$${pos.takeProfit?.toFixed(2) || 'None'}`}
 `;
   }
 
@@ -291,6 +294,7 @@ export interface CompactBotConfig {
   redDayLongBlockPct?: number;
   greenDayShortBlockPct?: number;
   useHybridSelection?: boolean;
+  managedExitEnabled?: boolean;
 }
 
 /**
@@ -322,6 +326,9 @@ function generateCompactPromptVariables(config: CompactBotConfig) {
   const trend4hRule = require4hAlignment
     ? "MANDATORY: Only trade when intraday and 4h trends are aligned (counter-trend trades forbidden)"
     : "4h alignment recommended but not required — counter-trend trades allowed if intraday signals are strong";
+  const managedExitGuidance = config.managedExitEnabled
+    ? "Managed exits are ENABLED for new positions: provide stop_loss, but no fixed take_profit is required. Any position marked MANAGED_EXIT is controlled by system rules and must be held."
+    : "Managed exits are DISABLED: new positions must include both stop_loss and take_profit, and TP/SL remain exchange-managed.";
 
   return {
     maxLeverage: config.maxLeverage,
@@ -338,6 +345,7 @@ function generateCompactPromptVariables(config: CompactBotConfig) {
     trend4hRule,
     consecutiveLosses: config.consecutiveLosses ?? 0,
     consecutiveLossLimit: config.consecutiveLossLimit ?? 3,
+    managedExitGuidance,
   };
 }
 

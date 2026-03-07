@@ -369,6 +369,7 @@ export const runTradingCycle = internalAction({
                   require1hAlignment: bot.require1hAlignment ?? true,
                   redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
                   greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
+                  managedExitEnabled: bot.managedExitEnabled ?? false,
                 },
               });
               systemPromptName = "Alpha Arena trading system (leverage + TP/SL discipline)";
@@ -395,6 +396,7 @@ export const runTradingCycle = internalAction({
                   maxTotalPositions: bot.maxTotalPositions ?? 3,
                   maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
                   minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+                  managedExitEnabled: bot.managedExitEnabled ?? false,
                 },
               });
               systemPromptName = "Compact signal-based trading system";
@@ -427,6 +429,7 @@ export const runTradingCycle = internalAction({
                   tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
                   volatilitySizeReduction: bot.volatilitySizeReduction ?? 30,
                   stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
+                  managedExitEnabled: bot.managedExitEnabled ?? false,
                 },
               });
               systemPromptName = "Detailed multi-timeframe trading system";
@@ -659,6 +662,23 @@ async function executeTradeDecision(
     const posToCheck = dbPositions.find((p: any) => p.symbol === decision.symbol);
 
     if (posToCheck) {
+      if (posToCheck.exitMode === "managed_scalp_v2") {
+        console.log(`⚠️ CLOSE ignored for ${decision.symbol}: position is using managed exits`);
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "INFO",
+          message: `AI close skipped: ${decision.symbol} is managed by system exits`,
+          data: { symbol: decision.symbol, reasoning: decision.reasoning },
+        });
+        return {
+          executed: false,
+          blockedBy: "managed_exit",
+          regimeValidation: null,
+          trendValidation: null,
+          positionValidation: null,
+        };
+      }
+
       const hasTpSl = Boolean(posToCheck.stopLoss && posToCheck.takeProfit);
       let pnlPct = posToCheck.unrealizedPnlPct ?? 0;
 

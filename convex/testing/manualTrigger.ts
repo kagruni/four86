@@ -530,6 +530,13 @@ export const manualClosePosition = action({
       const entryPrice = dbPosition?.entryPrice || 0;
       const leverage = dbPosition?.leverage || 1;
 
+      await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: args.symbol,
+        testnet: credentials.hyperliquidTestnet,
+      });
+
       // Close the position on Hyperliquid
       // To close a LONG position, we SELL (isBuy=false)
       // To close a SHORT position, we BUY (isBuy=true)

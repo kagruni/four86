@@ -107,6 +107,7 @@ export interface BuildHybridCandidateSetArgs {
     stopLoss?: number | null;
     takeProfit?: number | null;
     unrealizedPnlPct?: number | null;
+    exitMode?: string | null;
   }>;
   openOrders?: Array<{ coin: string }>;
   recentTrades?: Array<{
@@ -326,6 +327,13 @@ function isCloseCandidateEligible(
   position: BuildHybridCandidateSetArgs["positions"][number],
   snapshot: DecisionContext["marketSnapshot"]["symbols"][string]
 ): { allowed: boolean; reason: string } {
+  if (position.exitMode === "managed_scalp_v2") {
+    return {
+      allowed: false,
+      reason: "Managed exit position is controlled by system rules.",
+    };
+  }
+
   const hasTpSl = Boolean(position.stopLoss && position.takeProfit);
   if (!hasTpSl) {
     return {

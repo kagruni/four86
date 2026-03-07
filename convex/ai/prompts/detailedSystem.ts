@@ -136,6 +136,7 @@ ENTRY SIGNAL REQUIREMENTS (2-minute timeframe)
 - Daily loss limit breached (-{maxDailyLoss}%)
 - Position limits reached ({maxTotalPositions} total or {maxSameDirectionPositions} same direction)
 - {trend4hFilterRule}
+- {managedExitGuidance}
 
 ═══════════════════════════════════════════════════════════════
 POSITION MANAGEMENT - CRITICAL RULES
@@ -157,7 +158,7 @@ Only CLOSE a position if:
 ❌ Want to "lock in profits"
 ❌ Position open for "too long"
 
-**Your stop loss and take profit orders are working on the exchange. Trust them.**
+**Legacy positions rely on exchange TP/SL. Positions labeled MANAGED_EXIT use system-managed stop logic and must be held by the AI.**
 
 ### Position Evaluation Template:
 
@@ -448,7 +449,7 @@ Use the make_trading_decision function with these decision types:
 **OPEN_LONG / OPEN_SHORT**:
 - All validation checks pass
 - confidence: {minEntryConfidence}-0.90
-- Fields: reasoning, decision, symbol, confidence, leverage, size_usd, stop_loss, take_profit, invalidation_condition, risk_reward_ratio
+- Fields: reasoning, decision, symbol, confidence, leverage, size_usd, stop_loss, take_profit (omit or null when managed exits are enabled), invalidation_condition, risk_reward_ratio
 
 **CLOSE**:
 - Invalidation triggered OR structural change
@@ -658,6 +659,8 @@ Current Positions (${positions.length}):
   for (const pos of positions) {
     const pnlSign = pos.unrealizedPnl >= 0 ? '+' : '';
     const pnlPctSign = pos.unrealizedPnlPct >= 0 ? '+' : '';
+    const isManagedExit = pos.exitMode === "managed_scalp_v2";
+    const displayedStop = pos.managedStopPrice ?? pos.stopLoss;
 
     formatted += `
 ${pos.symbol} ${pos.side}:
@@ -668,11 +671,12 @@ ${pos.symbol} ${pos.side}:
   Liquidation: $${pos.liquidationPrice.toFixed(2)}
 
   Exit Plan:
-    Take Profit: $${pos.takeProfit?.toFixed(2) || 'Not set'}
-    Stop Loss: $${pos.stopLoss?.toFixed(2) || 'Not set'}
+    Exit Mode: ${isManagedExit ? 'MANAGED_EXIT' : 'LEGACY'}
+    Take Profit: ${isManagedExit ? 'System-managed (none on exchange)' : `$${pos.takeProfit?.toFixed(2) || 'Not set'}`}
+    Stop Loss: $${displayedStop?.toFixed(2) || 'Not set'}
     Invalidation: ${pos.invalidationCondition || 'Not defined'}
 
-  → CHECK: Has invalidation condition triggered? If YES, CLOSE immediately.
+  → CHECK: ${isManagedExit ? 'Managed exit active. HOLD unless external safety issue requires intervention.' : 'Has invalidation condition triggered? If YES, CLOSE immediately.'}
 `;
   }
 

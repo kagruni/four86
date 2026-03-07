@@ -25,6 +25,7 @@ ACCOUNT CONFIG:
 - Max Leverage: {maxLeverage}x | Max Position Size: {maxPositionSize}% of account
 - Per-Trade Risk: {perTradeRiskPct}% | Min Entry Confidence: {minEntryConfidence}
 - Max Positions: {maxTotalPositions} total, {maxSameDirectionPositions} same direction
+- {managedExitGuidance}
 
 POSITION RULES (CHECK FIRST):
 - NEVER open a new position if you already have ANY position on that symbol
@@ -83,7 +84,7 @@ NEVER use "ALL", "NONE", or any other string. Use null for general decisions.
 Required fields by decision:
 - HOLD (general, no positions): {{"decision": "HOLD", "symbol": null, "confidence": 0.99, "reasoning": "..."}}
 - HOLD (specific position): {{"decision": "HOLD", "symbol": "BTC", "confidence": 0.99, "reasoning": "..."}}
-- OPEN_LONG/OPEN_SHORT: {{"decision": "OPEN_LONG", "symbol": "BTC", "confidence": 0.6-0.9, "leverage": N, "size_usd": N, "stop_loss": N, "take_profit": N, "invalidation_condition": "...", "risk_reward_ratio": N, "reasoning": "..."}}
+- OPEN_LONG/OPEN_SHORT: {{"decision": "OPEN_LONG", "symbol": "BTC", "confidence": 0.6-0.9, "leverage": N, "size_usd": N, "stop_loss": N, "take_profit": N or null when managed exits are enabled, "invalidation_condition": "...", "risk_reward_ratio": N, "reasoning": "..."}}
 - CLOSE: {{"decision": "CLOSE", "symbol": "BTC", "confidence": 0.85-0.95, "reasoning": "Invalidation triggered: [condition] is now [current value]"}}
 
 Trust the pre-calculated signals. Your job is to DECIDE, not re-analyze raw data.
@@ -179,6 +180,8 @@ export function formatPositions(positions: any[]): string {
   for (const pos of positions) {
     const pnlSign = pos.unrealizedPnl >= 0 ? "+" : "";
     const pnlPctSign = pos.unrealizedPnlPct >= 0 ? "+" : "";
+    const isManagedExit = pos.exitMode === "managed_scalp_v2";
+    const displayedStop = pos.managedStopPrice ?? pos.stopLoss;
 
     lines.push(`${pos.symbol} ${pos.side} (${pos.leverage}x):`);
     lines.push(
@@ -188,10 +191,16 @@ export function formatPositions(positions: any[]): string {
       `  P&L: ${pnlSign}$${pos.unrealizedPnl.toFixed(2)} (${pnlPctSign}${pos.unrealizedPnlPct.toFixed(2)}%)`
     );
     lines.push(
-      `  Stop: $${pos.stopLoss?.toFixed(2) || "N/A"} | TP: $${pos.takeProfit?.toFixed(2) || "N/A"}`
+      isManagedExit
+        ? `  Exit Mode: MANAGED_EXIT | Active Stop: $${displayedStop?.toFixed(2) || "N/A"} | TP: system-managed`
+        : `  Stop: $${pos.stopLoss?.toFixed(2) || "N/A"} | TP: $${pos.takeProfit?.toFixed(2) || "N/A"}`
     );
     lines.push(`  Invalidation: ${pos.invalidationCondition || "Not defined"}`);
-    lines.push(`  -> Check: Is invalidation triggered? If YES, CLOSE.`);
+    lines.push(
+      isManagedExit
+        ? `  -> Check: Managed exit active. HOLD unless the position is externally unsafe.`
+        : `  -> Check: Is invalidation triggered? If YES, CLOSE.`
+    );
     lines.push("");
   }
 

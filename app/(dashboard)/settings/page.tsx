@@ -26,6 +26,7 @@ import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { motion } from "framer-motion";
 import TelegramSettings from "./TelegramSettings";
+import { DEFAULT_MANAGED_EXIT_RULES } from "@/convex/trading/managedExitUtils";
 
 const AI_MODELS = [
   { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Recommended)" },
@@ -87,6 +88,33 @@ const botConfigSchema = z.object({
   greenDayShortBlockPct: z.number().min(0).max(10),
   reentryCooldownMinutes: z.number().min(1).max(60),
   useHybridSelection: z.boolean(),
+  managedExitEnabled: z.boolean(),
+  managedExitHardStopLossPct: z.number().min(0.1).max(5.0),
+  managedExitBreakEvenTriggerPct: z.number().min(0.1).max(2.0),
+  managedExitBreakEvenLockProfitPct: z.number().min(0).max(0.5),
+  managedExitTrailingTriggerPct: z.number().min(0.1).max(3.0),
+  managedExitTrailingDistancePct: z.number().min(0.05).max(1.5),
+  managedExitTightenTriggerPct: z.number().min(0.1).max(5.0),
+  managedExitTightenedDistancePct: z.number().min(0.02).max(1.0),
+  managedExitStaleMinutes: z.number().int().min(1).max(180),
+  managedExitStaleMinProfitPct: z.number().min(0).max(1.0),
+  managedExitMaxHoldMinutes: z.number().int().min(1).max(720),
+}).superRefine((data, ctx) => {
+  if (data.managedExitTightenTriggerPct < data.managedExitTrailingTriggerPct) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["managedExitTightenTriggerPct"],
+      message: "Tighten trigger must be greater than or equal to trailing trigger",
+    });
+  }
+
+  if (data.managedExitTightenedDistancePct > data.managedExitTrailingDistancePct) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["managedExitTightenedDistancePct"],
+      message: "Tightened trailing distance must be less than or equal to base trailing distance",
+    });
+  }
 });
 
 const credentialsSchema = z.object({
@@ -153,6 +181,17 @@ export default function SettingsPage() {
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
     useHybridSelection: false,
+    managedExitEnabled: DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
+    managedExitHardStopLossPct: DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
+    managedExitBreakEvenTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
+    managedExitBreakEvenLockProfitPct: DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenLockProfitPct,
+    managedExitTrailingTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingTriggerPct,
+    managedExitTrailingDistancePct: DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingDistancePct,
+    managedExitTightenTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitTightenTriggerPct,
+    managedExitTightenedDistancePct: DEFAULT_MANAGED_EXIT_RULES.managedExitTightenedDistancePct,
+    managedExitStaleMinutes: DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinutes,
+    managedExitStaleMinProfitPct: DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinProfitPct,
+    managedExitMaxHoldMinutes: DEFAULT_MANAGED_EXIT_RULES.managedExitMaxHoldMinutes,
   });
 
   // Credentials state
@@ -211,6 +250,17 @@ export default function SettingsPage() {
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
         useHybridSelection: botConfig.useHybridSelection ?? false,
+        managedExitEnabled: botConfig.managedExitEnabled ?? DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
+        managedExitHardStopLossPct: botConfig.managedExitHardStopLossPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
+        managedExitBreakEvenTriggerPct: botConfig.managedExitBreakEvenTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
+        managedExitBreakEvenLockProfitPct: botConfig.managedExitBreakEvenLockProfitPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenLockProfitPct,
+        managedExitTrailingTriggerPct: botConfig.managedExitTrailingTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingTriggerPct,
+        managedExitTrailingDistancePct: botConfig.managedExitTrailingDistancePct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingDistancePct,
+        managedExitTightenTriggerPct: botConfig.managedExitTightenTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTightenTriggerPct,
+        managedExitTightenedDistancePct: botConfig.managedExitTightenedDistancePct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTightenedDistancePct,
+        managedExitStaleMinutes: botConfig.managedExitStaleMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinutes,
+        managedExitStaleMinProfitPct: botConfig.managedExitStaleMinProfitPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinProfitPct,
+        managedExitMaxHoldMinutes: botConfig.managedExitMaxHoldMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitMaxHoldMinutes,
       });
       setTradingPromptMode(botConfig.tradingPromptMode ?? "alpha_arena");
     }
@@ -350,6 +400,17 @@ export default function SettingsPage() {
         greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
         reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
         useHybridSelection: validatedData.useHybridSelection,
+        managedExitEnabled: validatedData.managedExitEnabled,
+        managedExitHardStopLossPct: validatedData.managedExitHardStopLossPct,
+        managedExitBreakEvenTriggerPct: validatedData.managedExitBreakEvenTriggerPct,
+        managedExitBreakEvenLockProfitPct: validatedData.managedExitBreakEvenLockProfitPct,
+        managedExitTrailingTriggerPct: validatedData.managedExitTrailingTriggerPct,
+        managedExitTrailingDistancePct: validatedData.managedExitTrailingDistancePct,
+        managedExitTightenTriggerPct: validatedData.managedExitTightenTriggerPct,
+        managedExitTightenedDistancePct: validatedData.managedExitTightenedDistancePct,
+        managedExitStaleMinutes: validatedData.managedExitStaleMinutes,
+        managedExitStaleMinProfitPct: validatedData.managedExitStaleMinProfitPct,
+        managedExitMaxHoldMinutes: validatedData.managedExitMaxHoldMinutes,
         tradingPromptMode,
       };
 
@@ -1238,6 +1299,145 @@ export default function SettingsPage() {
                       }
                     />
                     <p className="text-xs text-gray-500">Stop loss = Entry +/- (ATR x multiplier)</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-gray-200">
+                <CardHeader>
+                  <CardTitle className="text-gray-900">Managed Scalping Exits</CardTitle>
+                  <CardDescription className="text-gray-600">
+                    When enabled, new trades use a system-managed stop workflow instead of a fixed take-profit.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="managed-exit-enabled" className="text-gray-900">Enable Managed Exits</Label>
+                      <p className="text-sm text-gray-500">
+                        New positions will use hard stop, break-even, trailing, stale-trade, and max-hold rules.
+                      </p>
+                    </div>
+                    <Switch
+                      id="managed-exit-enabled"
+                      checked={botConfigData.managedExitEnabled}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, managedExitEnabled: checked }))
+                      }
+                    />
+                  </div>
+
+                  <Alert className="border-gray-200">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Behavior</AlertTitle>
+                    <AlertDescription>
+                      Managed positions still place a protective stop on the exchange, but they do not place a fixed take-profit.
+                      The bot will exit them mechanically as rules are triggered.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-hard-stop" className="text-gray-900">Hard Stop Loss %</Label>
+                      <Input
+                        id="managed-hard-stop"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitHardStopLossPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitHardStopLossPct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-break-even-trigger" className="text-gray-900">Break-Even Trigger %</Label>
+                      <Input
+                        id="managed-break-even-trigger"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitBreakEvenTriggerPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitBreakEvenTriggerPct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-break-even-lock" className="text-gray-900">Break-Even Lock Profit %</Label>
+                      <Input
+                        id="managed-break-even-lock"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitBreakEvenLockProfitPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitBreakEvenLockProfitPct: Number(e.target.value) }))}
+                      />
+                      <p className="text-xs text-gray-500">Small profit buffer to cover fees and slippage.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-trailing-trigger" className="text-gray-900">Trailing Trigger %</Label>
+                      <Input
+                        id="managed-trailing-trigger"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitTrailingTriggerPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitTrailingTriggerPct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-trailing-distance" className="text-gray-900">Trailing Distance %</Label>
+                      <Input
+                        id="managed-trailing-distance"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitTrailingDistancePct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitTrailingDistancePct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-tighten-trigger" className="text-gray-900">Tighten Trigger %</Label>
+                      <Input
+                        id="managed-tighten-trigger"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitTightenTriggerPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitTightenTriggerPct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-tightened-distance" className="text-gray-900">Tightened Distance %</Label>
+                      <Input
+                        id="managed-tightened-distance"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitTightenedDistancePct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitTightenedDistancePct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-stale-minutes" className="text-gray-900">Stale Minutes</Label>
+                      <Input
+                        id="managed-stale-minutes"
+                        type="number"
+                        step="1"
+                        value={botConfigData.managedExitStaleMinutes}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitStaleMinutes: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-stale-profit" className="text-gray-900">Stale Min Profit %</Label>
+                      <Input
+                        id="managed-stale-profit"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.managedExitStaleMinProfitPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitStaleMinProfitPct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="managed-max-hold" className="text-gray-900">Max Hold Minutes</Label>
+                      <Input
+                        id="managed-max-hold"
+                        type="number"
+                        step="1"
+                        value={botConfigData.managedExitMaxHoldMinutes}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, managedExitMaxHoldMinutes: Number(e.target.value) }))}
+                      />
+                    </div>
                   </div>
                 </CardContent>
               </Card>

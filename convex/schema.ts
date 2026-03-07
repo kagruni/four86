@@ -63,6 +63,19 @@ export default defineSchema({
     reentryCooldownMinutes: v.optional(v.number()), // default 15
     useHybridSelection: v.optional(v.boolean()), // default false
 
+    // Managed exit mode (optional for backward compatibility)
+    managedExitEnabled: v.optional(v.boolean()),
+    managedExitHardStopLossPct: v.optional(v.number()),
+    managedExitBreakEvenTriggerPct: v.optional(v.number()),
+    managedExitBreakEvenLockProfitPct: v.optional(v.number()),
+    managedExitTrailingTriggerPct: v.optional(v.number()),
+    managedExitTrailingDistancePct: v.optional(v.number()),
+    managedExitTightenTriggerPct: v.optional(v.number()),
+    managedExitTightenedDistancePct: v.optional(v.number()),
+    managedExitStaleMinutes: v.optional(v.number()),
+    managedExitStaleMinProfitPct: v.optional(v.number()),
+    managedExitMaxHoldMinutes: v.optional(v.number()),
+
     // Deprecated fields (for backward compatibility, will be removed in migration)
     stopLossEnabled: v.optional(v.boolean()), // DEPRECATED - always enabled for safety
 
@@ -96,6 +109,14 @@ export default defineSchema({
     stopLoss: v.optional(v.number()),
     takeProfit: v.optional(v.number()),
     liquidationPrice: v.number(),
+    exitMode: v.optional(v.string()),
+    managedPeakPrice: v.optional(v.number()),
+    managedStopPrice: v.optional(v.number()),
+    managedStopReason: v.optional(v.string()),
+    breakEvenActivatedAt: v.optional(v.number()),
+    trailingActivatedAt: v.optional(v.number()),
+    trailingTightenedAt: v.optional(v.number()),
+    exitRulesSnapshot: v.optional(v.any()),
 
     // Exit plan and invalidation
     invalidationCondition: v.optional(v.string()), // Description of when position should be closed

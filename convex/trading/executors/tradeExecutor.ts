@@ -10,6 +10,14 @@ import { recordTradeOutcome } from "../circuitBreaker";
 import { createLogger, withTiming } from "../logger";
 import { recordTradeInMemory } from "../validators/positionValidator";
 import { internal } from "../../fnRefs";
+import {
+  MANAGED_EXIT_MODE,
+  LEGACY_EXIT_MODE,
+  type ManagedExitMode,
+  calculateHardStopPrice,
+  clampManagedStop,
+  getManagedExitRules,
+} from "../managedExitUtils";
 
 /**
  * Execute a CLOSE trade decision.
@@ -149,7 +157,7 @@ export async function executeClose(
 
   // Cancel existing TP/SL orders before closing to avoid orphaned trigger orders
   try {
-    const cancelResult = await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+    const cancelResult = await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
       symbol: decision.symbol,
@@ -324,6 +332,9 @@ export async function executeOpen(
   );
 
   const isLongPosition = decision.decision === "OPEN_LONG";
+  const positionSide = isLongPosition ? "LONG" : "SHORT";
+  const managedExitRules = getManagedExitRules(bot);
+  const managedExitEnabled = managedExitRules.managedExitEnabled;
 
   // ═══════════════════════════════════════════════════════════════
   // VALIDATE & FIX TP/SL VALUES
@@ -390,19 +401,44 @@ export async function executeOpen(
   }
 
   // Default to 0.8% take profit if AI didn't specify one
-  if (!decision.take_profit) {
+  if (!managedExitEnabled && !decision.take_profit) {
     decision.take_profit = isLongPosition
       ? entryPrice * 1.008
       : entryPrice * 0.992;
     console.log(`⚠️ No take profit specified, using default 0.8%: $${decision.take_profit.toFixed(2)}`);
   }
 
+  const filledEntryPrice = result.avgPx || result.price;
+  let managedStopPrice: number | undefined;
+  let exitMode: ManagedExitMode = LEGACY_EXIT_MODE;
+  let exitRulesSnapshot: any = undefined;
+
+  if (managedExitEnabled) {
+    const configuredHardStop = calculateHardStopPrice(
+      filledEntryPrice,
+      positionSide,
+      managedExitRules.managedExitHardStopLossPct
+    );
+    decision.stop_loss = clampManagedStop(positionSide, decision.stop_loss, configuredHardStop);
+    decision.take_profit = undefined;
+    managedStopPrice = decision.stop_loss;
+    exitMode = MANAGED_EXIT_MODE;
+    exitRulesSnapshot = {
+      ...managedExitRules,
+      managedExitEnabled: true,
+    };
+    console.log(`⚙️ Managed exit enabled for ${decision.symbol}: initial stop set to $${decision.stop_loss.toFixed(2)}`);
+  }
+
   log.info(`TP/SL values for ${decision.symbol}:`, {
-    entryPrice,
+    entryPrice: filledEntryPrice,
     stopLoss: decision.stop_loss,
     takeProfit: decision.take_profit,
-    slDistancePct: ((Math.abs(entryPrice - decision.stop_loss) / entryPrice) * 100).toFixed(2) + "%",
-    tpDistancePct: ((Math.abs(decision.take_profit - entryPrice) / entryPrice) * 100).toFixed(2) + "%",
+    slDistancePct: ((Math.abs(filledEntryPrice - decision.stop_loss) / filledEntryPrice) * 100).toFixed(2) + "%",
+    tpDistancePct: decision.take_profit
+      ? ((Math.abs(decision.take_profit - filledEntryPrice) / filledEntryPrice) * 100).toFixed(2) + "%"
+      : "managed",
+    exitMode,
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -418,7 +454,7 @@ export async function executeOpen(
     side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
     size: decision.size_usd!,
     leverage: decision.leverage!,
-    price: result.price,
+    price: filledEntryPrice,
     aiReasoning: decision.reasoning,
     aiModel: bot.modelName,
     confidence: decision.confidence,
@@ -428,8 +464,8 @@ export async function executeOpen(
   // Generate invalidation condition
   const invalidationCondition = generateInvalidationCondition(
     decision.symbol!,
-    decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
-    result.price,
+    positionSide,
+    filledEntryPrice,
     decision.stop_loss
   );
 
@@ -437,16 +473,21 @@ export async function executeOpen(
   await ctx.runMutation(api.mutations.savePosition, {
     userId: bot.userId,
     symbol: decision.symbol!,
-    side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
+    side: positionSide,
     size: decision.size_usd!,
     leverage: decision.leverage!,
-    entryPrice: result.price,
-    currentPrice: result.price,
+    entryPrice: filledEntryPrice,
+    currentPrice: filledEntryPrice,
     unrealizedPnl: 0,
     unrealizedPnlPct: 0,
     stopLoss: decision.stop_loss,
     takeProfit: decision.take_profit,
-    liquidationPrice: result.price * (decision.decision === "OPEN_LONG" ? 0.9 : 1.1),
+    liquidationPrice: filledEntryPrice * (decision.decision === "OPEN_LONG" ? 0.9 : 1.1),
+    exitMode,
+    managedPeakPrice: managedExitEnabled ? filledEntryPrice : undefined,
+    managedStopPrice,
+    managedStopReason: managedExitEnabled ? "hard_stop" : undefined,
+    exitRulesSnapshot,
     invalidationCondition,
     entryReasoning: decision.reasoning,
     confidence: decision.confidence,
@@ -463,17 +504,20 @@ export async function executeOpen(
   // ═══════════════════════════════════════════════════════════════
 
   const stopLossPlaced = await placeStopLossWithRetry(
-    ctx, api, credentials, decision, sizeInCoins, isLongPosition, entryPrice, bot
+    ctx, api, credentials, decision, sizeInCoins, isLongPosition, filledEntryPrice, bot
   );
 
-  // Place take-profit regardless of SL result (they're independent)
-  const takeProfitPlaced = await placeTakeProfitWithRetry(
-    ctx, api, credentials, decision, sizeInCoins, isLongPosition, entryPrice, bot
-  );
+  let takeProfitPlaced = false;
+  if (!managedExitEnabled) {
+    // Place take-profit regardless of SL result (they're independent)
+    takeProfitPlaced = await placeTakeProfitWithRetry(
+      ctx, api, credentials, decision, sizeInCoins, isLongPosition, filledEntryPrice, bot
+    );
+  }
 
   // CRITICAL: If stop loss failed after all retries, emergency close
   if (!stopLossPlaced) {
-    await emergencyClose(ctx, api, credentials, decision, bot, sizeInCoins, isLongPosition, entryPrice);
+    await emergencyClose(ctx, api, credentials, decision, bot, sizeInCoins, isLongPosition, filledEntryPrice);
     return;
   }
 
@@ -506,11 +550,13 @@ export async function executeOpen(
       });
     }
 
-    if (!verification.hasTp) {
+    if (!managedExitEnabled && !verification.hasTp) {
       console.warn(`⚠️ VERIFICATION: No take-profit order found on exchange for ${decision.symbol}`);
     }
 
-    if (verification.hasSl && verification.hasTp) {
+    if (managedExitEnabled && verification.hasSl) {
+      console.log(`✅ Managed stop verification passed for ${decision.symbol}: SL confirmed on exchange`);
+    } else if (!managedExitEnabled && verification.hasSl && verification.hasTp) {
       console.log(`✅ TP/SL verification passed for ${decision.symbol}: SL and TP confirmed on exchange`);
     }
   } catch (verifyError) {
@@ -525,9 +571,9 @@ export async function executeOpen(
       side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
       sizeUsd: decision.size_usd!,
       leverage: decision.leverage!,
-      entryPrice: result.price,
+      entryPrice: filledEntryPrice,
       stopLoss: decision.stop_loss,
-      takeProfit: decision.take_profit,
+      takeProfit: managedExitEnabled ? undefined : decision.take_profit,
       confidence: decision.confidence,
       reasoning: decision.reasoning || "",
     });
@@ -538,6 +584,35 @@ export async function executeOpen(
   // Update in-memory tracker
   const side = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
   recordTradeInMemory(decision.symbol!, side);
+}
+
+export async function replaceManagedStopOrder(
+  ctx: any,
+  api: any,
+  credentials: any,
+  position: any,
+  sizeInCoins: number,
+  stopPrice: number
+): Promise<void> {
+  await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+    privateKey: credentials.hyperliquidPrivateKey,
+    address: credentials.hyperliquidAddress,
+    symbol: position.symbol,
+    testnet: credentials.hyperliquidTestnet,
+  });
+
+  const slResult = await ctx.runAction(api.hyperliquid.client.placeStopLoss, {
+    privateKey: credentials.hyperliquidPrivateKey,
+    symbol: position.symbol,
+    size: sizeInCoins,
+    triggerPrice: stopPrice,
+    isLongPosition: position.side === "LONG",
+    testnet: credentials.hyperliquidTestnet,
+  });
+
+  if (!slResult?.success) {
+    throw new Error(`Failed to replace managed stop for ${position.symbol}`);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

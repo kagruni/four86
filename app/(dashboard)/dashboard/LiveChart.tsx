@@ -58,10 +58,12 @@ interface Position {
   leverage: number;
   size: number;
   stopLoss?: number | null;
+  managedStopPrice?: number | null;
   takeProfit?: number | null;
   liquidationPrice?: number | null;
   unrealizedPnl: number;
   unrealizedPnlPct: number;
+  exitMode?: string | null;
 }
 
 interface Trade {
@@ -241,6 +243,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     () => positions.find((p) => p.symbol === selectedSymbol),
     [positions, selectedSymbol]
   );
+  const selectedStop = selectedPosition?.managedStopPrice ?? selectedPosition?.stopLoss;
 
   // Auto-select first position's symbol only when positions list changes
   // (e.g., a new position opens). Does NOT override manual symbol selection.
@@ -288,15 +291,15 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     );
 
     // SL
-    if (selectedPosition.stopLoss) {
+    if (selectedStop) {
       priceLinesRef.current.push(
         seriesRef.current.createPriceLine({
-          price: selectedPosition.stopLoss,
+          price: selectedStop,
           color: "#dc2626",
           lineWidth: 2,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "SL",
+          title: selectedPosition.exitMode === "managed_scalp_v2" ? "Managed Stop" : "SL",
         })
       );
     }
@@ -328,7 +331,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
         })
       );
     }
-  }, [selectedPosition]);
+  }, [selectedPosition, selectedStop]);
 
   // -----------------------------------------------------------------------
   // Build chart + series (imperative, not in a dependency chain)
@@ -996,10 +999,12 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                           {fmtPct(pos.unrealizedPnlPct)}
                         </span>
                       </div>
-                      {(pos.stopLoss || pos.takeProfit) && (
+                      {(pos.stopLoss || pos.managedStopPrice || pos.takeProfit) && (
                         <div className="mt-1 flex items-center gap-2 text-[9px] font-mono tabular-nums">
-                          {pos.stopLoss && (
-                            <span className="text-red-500">SL {fmtPrice(pos.stopLoss)}</span>
+                          {(pos.managedStopPrice || pos.stopLoss) && (
+                            <span className="text-red-500">
+                              {pos.exitMode === "managed_scalp_v2" ? "MS" : "SL"} {fmtPrice(pos.managedStopPrice ?? pos.stopLoss!)}
+                            </span>
                           )}
                           {pos.takeProfit && (
                             <span className="text-green-600">TP {fmtPrice(pos.takeProfit)}</span>

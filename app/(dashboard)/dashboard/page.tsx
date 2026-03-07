@@ -825,6 +825,11 @@ export default function DashboardPage() {
                                 )}
                                 {position.side} {position.leverage}x
                               </Badge>
+                              {position.exitMode === "managed_scalp_v2" && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-amber-500 text-amber-700 bg-amber-50">
+                                  Managed
+                                </Badge>
+                              )}
                             </div>
                             <div className="text-right">
                               <span className={`font-mono font-semibold tabular-nums text-sm ${position.unrealizedPnl >= 0 ? "text-black" : "text-gray-600"}`}>
@@ -850,10 +855,10 @@ export default function DashboardPage() {
                               <span className="text-gray-400">Size</span>
                               <div className="text-black">{formatCurrency(position.size)}</div>
                             </div>
-                            {position.stopLoss && (
+                            {(position.managedStopPrice || position.stopLoss) && (
                               <div>
-                                <span className="text-gray-400">SL</span>
-                                <div className="text-red-600">{formatPrice(position.stopLoss)}</div>
+                                <span className="text-gray-400">{position.exitMode === "managed_scalp_v2" ? "MS" : "SL"}</span>
+                                <div className="text-red-600">{formatPrice(position.managedStopPrice ?? position.stopLoss)}</div>
                               </div>
                             )}
                             {position.takeProfit && (
@@ -913,10 +918,12 @@ export default function DashboardPage() {
                                   entryPrice={position.entryPrice}
                                   currentPrice={position.currentPrice}
                                   stopLoss={position.stopLoss}
+                                  managedStopPrice={position.managedStopPrice}
                                   takeProfit={position.takeProfit}
                                   liquidationPrice={position.liquidationPrice}
                                   side={position.side}
                                   testnet={hyperliquidTestnet}
+                                  exitMode={position.exitMode}
                                 />
                               </div>
                             </motion.div>
@@ -1001,7 +1008,7 @@ export default function DashboardPage() {
                                 {formatPrice(position.currentPrice)}
                               </TableCell>
                               <TableCell className="text-red-600 font-mono font-medium text-xs tabular-nums">
-                                {position.stopLoss ? formatPrice(position.stopLoss) : '-'}
+                                {position.managedStopPrice || position.stopLoss ? formatPrice(position.managedStopPrice ?? position.stopLoss) : '-'}
                               </TableCell>
                               <TableCell className="text-green-600 font-mono font-medium text-xs tabular-nums">
                                 {position.takeProfit ? formatPrice(position.takeProfit) : '-'}
@@ -1058,10 +1065,12 @@ export default function DashboardPage() {
                                           entryPrice={position.entryPrice}
                                           currentPrice={position.currentPrice}
                                           stopLoss={position.stopLoss}
+                                          managedStopPrice={position.managedStopPrice}
                                           takeProfit={position.takeProfit}
                                           liquidationPrice={position.liquidationPrice}
                                           side={position.side}
                                           testnet={hyperliquidTestnet}
+                                          exitMode={position.exitMode}
                                         />
                                       </div>
                                     </motion.div>

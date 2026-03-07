@@ -20,6 +20,7 @@ export interface BotConfig {
   tradeVolatileMarkets: boolean;
   volatilitySizeReduction: number;
   stopLossAtrMultiplier: number;
+  managedExitEnabled?: boolean;
 }
 
 /**
@@ -77,6 +78,9 @@ export function generatePromptVariables(config: BotConfig) {
     : "-0.10: Counter to 4h trend (requires stronger 2m signals)";
 
   const confidenceSizingRule = ""; // Placeholder for future confidence-based sizing
+  const managedExitGuidance = config.managedExitEnabled
+    ? "Managed exits are ENABLED for new positions: provide stop_loss, but do not require a fixed take_profit. Positions marked MANAGED_EXIT are controlled by system rules and must be held."
+    : "Managed exits are DISABLED: every new position must include both stop_loss and take_profit, and existing positions rely on exchange TP/SL.";
 
   return {
     // Core config
@@ -113,5 +117,6 @@ export function generatePromptVariables(config: BotConfig) {
     trend4hPrinciple,
     confidence4hPenalty,
     confidenceSizingRule,
+    managedExitGuidance,
   };
 }

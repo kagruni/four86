@@ -611,6 +611,23 @@ export async function getMarketPrice(
   }, `getMarketPrice(${symbol})`);
 }
 
+export async function getCurrentPrices(
+  symbols: string[],
+  testnet: boolean
+): Promise<Record<string, number>> {
+  return withRetry(async () => {
+    const infoClient = createInfoClient(testnet);
+    const allMids = await infoClient.allMids();
+    return symbols.reduce<Record<string, number>>((acc, symbol) => {
+      const price = allMids[symbol];
+      if (price !== undefined) {
+        acc[symbol] = parseFloat(price);
+      }
+      return acc;
+    }, {});
+  }, "getCurrentPrices");
+}
+
 /**
  * Get user's current positions
  */
@@ -704,6 +721,46 @@ export async function verifyTpSlOrders(
   } catch (error) {
     console.error(`[verifyTpSlOrders] Error verifying TP/SL for ${symbol}:`, error);
     return { hasSl: false, hasTp: false, orders: [] };
+  }
+}
+
+/**
+ * Cancel only trigger orders (TP/SL) for a symbol.
+ * Falls back to broad symbol cancellation if targeted cancellation fails.
+ */
+export async function cancelTriggerOrdersForSymbol(
+  privateKey: string,
+  address: string,
+  symbol: string,
+  testnet: boolean
+): Promise<{ success: boolean; cancelledCount: number; usedFallback: boolean }> {
+  const triggerOrders = (await getFrontendOpenOrders(address, testnet)).filter((order: any) =>
+    order.coin === symbol && order.isTrigger === true
+  );
+
+  if (triggerOrders.length === 0) {
+    console.log(`[cancelTriggerOrdersForSymbol] No trigger orders for ${symbol}`);
+    return { success: true, cancelledCount: 0, usedFallback: false };
+  }
+
+  console.log(`[cancelTriggerOrdersForSymbol] Cancelling ${triggerOrders.length} trigger order(s) for ${symbol}`);
+
+  let cancelledCount = 0;
+  try {
+    for (const order of triggerOrders) {
+      await cancelOrder(privateKey, address, symbol, order.oid, testnet);
+      cancelledCount += 1;
+    }
+
+    return { success: true, cancelledCount, usedFallback: false };
+  } catch (error) {
+    console.warn(`[cancelTriggerOrdersForSymbol] Targeted cancellation failed for ${symbol}, falling back to cancelAllOrdersForSymbol:`, error);
+    const fallback = await cancelAllOrdersForSymbol(privateKey, address, symbol, testnet);
+    return {
+      success: fallback.success,
+      cancelledCount: fallback.cancelledCount,
+      usedFallback: true,
+    };
   }
 }
 

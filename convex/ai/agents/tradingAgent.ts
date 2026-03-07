@@ -26,6 +26,7 @@ export const makeTradingDecision = action({
     config: v.object({
       maxLeverage: v.number(),
       maxPositionSize: v.number(),
+      managedExitEnabled: v.optional(v.boolean()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {
@@ -116,6 +117,7 @@ export const makeDetailedTradingDecision = action({
       tradeVolatileMarkets: v.optional(v.boolean()),
       volatilitySizeReduction: v.optional(v.number()),
       stopLossAtrMultiplier: v.optional(v.number()),
+      managedExitEnabled: v.optional(v.boolean()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {
@@ -162,10 +164,11 @@ export const makeDetailedTradingDecision = action({
         stopOutCooldownHours: args.config.stopOutCooldownHours ?? 1,
         minEntrySignals: args.config.minEntrySignals ?? 2,
         require4hAlignment: args.config.require4hAlignment ?? true,
-        tradeVolatileMarkets: args.config.tradeVolatileMarkets ?? true,
-        volatilitySizeReduction: args.config.volatilitySizeReduction ?? 0.5,
-        stopLossAtrMultiplier: args.config.stopLossAtrMultiplier ?? 1.5,
-      };
+      tradeVolatileMarkets: args.config.tradeVolatileMarkets ?? true,
+      volatilitySizeReduction: args.config.volatilitySizeReduction ?? 0.5,
+      stopLossAtrMultiplier: args.config.stopLossAtrMultiplier ?? 1.5,
+      managedExitEnabled: args.config.managedExitEnabled ?? false,
+    };
       const chain = createDetailedTradingChain(
         args.modelType,
         args.modelName,
@@ -224,6 +227,7 @@ export const makeCompactTradingDecision = action({
       maxTotalPositions: v.optional(v.number()),
       maxSameDirectionPositions: v.optional(v.number()),
       minEntryConfidence: v.optional(v.number()),
+      managedExitEnabled: v.optional(v.boolean()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {
@@ -324,6 +328,7 @@ export const makeAlphaArenaTradingDecision = action({
       require1hAlignment: v.optional(v.boolean()),
       redDayLongBlockPct: v.optional(v.number()),
       greenDayShortBlockPct: v.optional(v.number()),
+      managedExitEnabled: v.optional(v.boolean()),
     }),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {

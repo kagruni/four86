@@ -183,6 +183,21 @@ export const getMarketData = action({
   },
 });
 
+export const getCurrentPrices = action({
+  args: {
+    symbols: v.array(v.string()),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      return await sdk.getCurrentPrices(args.symbols, args.testnet);
+    } catch (error) {
+      console.warn("[getCurrentPrices] API unavailable:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to fetch current prices: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
 // Get account state
 export const getAccountState = action({
   args: {
@@ -522,6 +537,28 @@ export const cancelAllOrdersForSymbol = action({
     } catch (error) {
       console.log("Error cancelling orders:", error instanceof Error ? error.message : String(error));
       throw new Error(`Failed to cancel orders: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+export const cancelTriggerOrdersForSymbol = action({
+  args: {
+    privateKey: v.string(),
+    address: v.string(),
+    symbol: v.string(),
+    testnet: v.boolean(),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      return await sdk.cancelTriggerOrdersForSymbol(
+        args.privateKey,
+        args.address,
+        args.symbol,
+        args.testnet
+      );
+    } catch (error) {
+      console.log("Error cancelling trigger orders:", error instanceof Error ? error.message : String(error));
+      throw new Error(`Failed to cancel trigger orders: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
 });

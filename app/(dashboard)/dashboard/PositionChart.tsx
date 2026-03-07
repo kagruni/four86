@@ -24,10 +24,12 @@ interface PositionChartProps {
   entryPrice: number;
   currentPrice: number;
   stopLoss?: number | null;
+  managedStopPrice?: number | null;
   takeProfit?: number | null;
   liquidationPrice?: number | null;
   side: "LONG" | "SHORT";
   testnet: boolean;
+  exitMode?: string | null;
 }
 
 interface CandleData {
@@ -154,10 +156,12 @@ export default function PositionChart({
   entryPrice,
   currentPrice,
   stopLoss,
+  managedStopPrice,
   takeProfit,
   liquidationPrice,
   side,
   testnet,
+  exitMode,
 }: PositionChartProps) {
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,6 +174,8 @@ export default function PositionChart({
   const fetchCandlesAction = useAction(
     api.hyperliquid.candles.fetchCandles
   );
+  const effectiveStop = managedStopPrice ?? stopLoss;
+  const stopLabel = exitMode === "managed_scalp_v2" ? "Managed Stop" : "SL";
 
   // Fetch initial historical candles
   const loadInitialCandles = useCallback(async () => {
@@ -333,7 +339,7 @@ export default function PositionChart({
     const prices = candles.flatMap((c) => [c.high, c.low]);
     // Also consider key price levels
     prices.push(entryPrice);
-    if (stopLoss) prices.push(stopLoss);
+    if (effectiveStop) prices.push(effectiveStop);
     if (takeProfit) prices.push(takeProfit);
     if (liquidationPrice) prices.push(liquidationPrice);
 
@@ -341,7 +347,7 @@ export default function PositionChart({
     const max = Math.max(...prices);
     const pad = (max - min) * 0.08 || max * 0.02;
     return [min - pad, max + pad];
-  }, [candles, entryPrice, stopLoss, takeProfit, liquidationPrice]);
+  }, [candles, entryPrice, effectiveStop, takeProfit, liquidationPrice]);
 
   // Loading state
   if (loading) {
@@ -389,8 +395,8 @@ export default function PositionChart({
         </div>
         <div className="flex items-center gap-4 text-xs font-mono tabular-nums text-gray-500">
           <span>Entry: {fmtPrice(entryPrice)}</span>
-          {stopLoss && (
-            <span className="text-red-600">SL: {fmtPrice(stopLoss)}</span>
+          {effectiveStop && (
+            <span className="text-red-600">{stopLabel}: {fmtPrice(effectiveStop)}</span>
           )}
           {takeProfit && (
             <span className="text-green-600">TP: {fmtPrice(takeProfit)}</span>
@@ -469,14 +475,14 @@ export default function PositionChart({
           />
 
           {/* Stop Loss Reference Line */}
-          {stopLoss && (
+          {effectiveStop && (
             <ReferenceLine
-              y={stopLoss}
+              y={effectiveStop}
               stroke="#dc2626"
               strokeDasharray="4 2"
               strokeWidth={1.5}
               label={{
-                value: `SL ${fmtPrice(stopLoss)}`,
+                value: `${stopLabel} ${fmtPrice(effectiveStop)}`,
                 position: "right",
                 fill: "#dc2626",
                 fontSize: 10,
@@ -529,10 +535,10 @@ export default function PositionChart({
           <span className="inline-block h-px w-4 bg-black" style={{ borderTop: "2px dashed #000" }} />
           Entry
         </span>
-        {stopLoss && (
+        {effectiveStop && (
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-px w-4" style={{ borderTop: "2px dashed #dc2626" }} />
-            Stop Loss
+            {exitMode === "managed_scalp_v2" ? "Managed Stop" : "Stop Loss"}
           </span>
         )}
         {takeProfit && (

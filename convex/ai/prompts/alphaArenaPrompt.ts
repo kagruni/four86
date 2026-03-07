@@ -164,10 +164,11 @@ ACCOUNT CONFIG:
 - Max Leverage: {maxLeverage}x | Max Position Size: {maxPositionSize}% of account
 - Per-Trade Risk: {perTradeRiskPct}% | Min Entry Confidence: {minEntryConfidence}
 - Max Positions: {maxTotalPositions} total | Trading Mode: {tradingModeDescription}
+- {managedExitGuidance}
 
 TP/SL REQUIREMENTS (ATR-BASED — MANDATORY):
 - stop_loss: {stopLossAtrMultiplier}x ATR(14,4h) from entry
-- take_profit: {takeProfitAtrMultiplier}x ATR(14,4h) from entry
+- take_profit: {takeProfitAtrMultiplier}x ATR(14,4h) from entry when managed exits are disabled
 - Minimum R:R ratio: {minRiskRewardRatio}:1 (NEVER trade below this)
 - Each coin's [SUGGESTED ZONES] shows pre-calculated $ levels — USE THEM
 - invalidation_condition: Clear technical level that invalidates the thesis
@@ -206,6 +207,7 @@ The winning strategies let TP/SL handle most exits. Only close manually to PROTE
 
 1. EXISTING POSITIONS — DEFAULT IS ALWAYS "hold":
    - TP and SL are already placed on the exchange as trigger orders
+   - If a position shows MANAGED_EXIT, the system controls the stop mechanically and you must never close it manually
    - The exchange will automatically close the position when TP or SL is hit
    - Your default action is "hold" unless rule 2 applies.
    - Intraday momentum shifts (RISING/FALLING) are NOISE at breakeven — they flip every few minutes.
@@ -216,7 +218,7 @@ The winning strategies let TP/SL handle most exits. Only close manually to PROTE
    c) Momentum is now clearly reversing against the position (e.g., RISING -> FALLING for longs)
    → In this case, closing to LOCK IN GAINS is smart. Don't let a winner turn into a loser.
 
-   OR: The position has NO stop-loss or take-profit orders (shown as "Not set" in position data)
+   OR: The LEGACY position has NO stop-loss or take-profit orders (shown as "Not set" in position data)
    → Close to protect capital.
 
 3. DO NOT CLOSE for any of these reasons:
@@ -295,6 +297,7 @@ RULES:
 - If a symbol says ONLY HOLD OR SHORT, then OPEN_LONG is invalid. If it says ONLY HOLD OR LONG, then OPEN_SHORT is invalid.
 - If all candidate entries are forbidden by runtime constraints, return HOLD.
 - symbol must be null for HOLD when no specific position is targeted
+- When managed exits are enabled, OPEN decisions may omit take_profit or set it to null
 - For HOLD or CLOSE, omit leverage/size_usd/stop_loss/take_profit unless needed
 
 If regime is mixed or you are choosing between a weak long and a weak short, return HOLD.
@@ -460,6 +463,8 @@ export function formatPositionsAlphaArena(positions: any[]): string {
   for (const pos of positions) {
     const pnlSign = pos.unrealizedPnl >= 0 ? "+" : "";
     const pnlPctSign = pos.unrealizedPnlPct >= 0 ? "+" : "";
+    const isManagedExit = pos.exitMode === "managed_scalp_v2";
+    const displayedStop = pos.managedStopPrice ?? pos.stopLoss;
 
     // Calculate hold duration
     let holdDurationStr = "Unknown";
@@ -472,9 +477,11 @@ export function formatPositionsAlphaArena(positions: any[]): string {
 
     // Check if TP/SL are set
     const hasTpSl = pos.takeProfit && pos.stopLoss;
-    const tpSlStatus = hasTpSl
-      ? "TP/SL SET ON EXCHANGE → output 'hold'"
-      : "⚠️ TP/SL MISSING — consider closing to protect capital";
+    const tpSlStatus = isManagedExit
+      ? "MANAGED_EXIT ACTIVE → output 'hold'"
+      : hasTpSl
+        ? "TP/SL SET ON EXCHANGE → output 'hold'"
+        : "⚠️ TP/SL MISSING — consider closing to protect capital";
 
     lines.push(`═══ ${pos.symbol} - ${pos.side} POSITION ═══`);
     lines.push(`⚡ Action Required: ${tpSlStatus}`);
@@ -486,22 +493,27 @@ export function formatPositionsAlphaArena(positions: any[]): string {
     lines.push(`Unrealized PnL: ${pnlSign}$${pos.unrealizedPnl?.toFixed(2) || "0.00"} (${pnlPctSign}${pos.unrealizedPnlPct?.toFixed(2) || "0.00"}%)`);
     lines.push(`Liquidation Price: $${pos.liquidationPrice?.toFixed(2) || "N/A"}`);
     // Calculate distance to TP/SL as percentage from current price
-    let tpLine = `  take_profit: ${pos.takeProfit ? `$${pos.takeProfit.toFixed(2)}` : "Not set"}`;
-    let slLine = `  stop_loss: ${pos.stopLoss ? `$${pos.stopLoss.toFixed(2)}` : "Not set"}`;
+    let tpLine = isManagedExit
+      ? `  take_profit: System-managed exit (no fixed TP)`
+      : `  take_profit: ${pos.takeProfit ? `$${pos.takeProfit.toFixed(2)}` : "Not set"}`;
+    let slLine = `  stop_loss: ${displayedStop ? `$${displayedStop.toFixed(2)}` : "Not set"}`;
 
-    if (pos.takeProfit && pos.currentPrice) {
+    if (!isManagedExit && pos.takeProfit && pos.currentPrice) {
       const tpDistPct = ((pos.takeProfit - pos.currentPrice) / pos.currentPrice * 100);
       const tpProgressPct = pos.entryPrice
         ? Math.abs((pos.currentPrice - pos.entryPrice) / (pos.takeProfit - pos.entryPrice)) * 100
         : 0;
       tpLine += ` (${tpDistPct >= 0 ? "+" : ""}${tpDistPct.toFixed(2)}% away, ${tpProgressPct.toFixed(0)}% of the way to TP)`;
     }
-    if (pos.stopLoss && pos.currentPrice) {
-      const slDistPct = ((pos.stopLoss - pos.currentPrice) / pos.currentPrice * 100);
+    if (displayedStop && pos.currentPrice) {
+      const slDistPct = ((displayedStop - pos.currentPrice) / pos.currentPrice * 100);
       slLine += ` (${slDistPct >= 0 ? "+" : ""}${slDistPct.toFixed(2)}% away)`;
     }
 
     lines.push(`Exit Plan:`);
+    if (isManagedExit) {
+      lines.push(`  exit_mode: MANAGED_EXIT`);
+    }
     lines.push(tpLine);
     lines.push(slLine);
     if (pos.entryReasoning) {

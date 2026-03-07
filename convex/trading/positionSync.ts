@@ -22,6 +22,16 @@ export const syncAllPositions = internalAction({
       console.log(`[positionSync] Syncing positions for ${userIds.length} user(s)`);
 
       for (const userId of userIds) {
+        const lockId = `position-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const lock = await ctx.runMutation(api.mutations.acquireTradingLock, {
+          userId,
+          lockId,
+        });
+        if (!lock.success) {
+          console.log(`[positionSync] Skipping user ${userId} - trading lock held (${lock.lockId})`);
+          continue;
+        }
+
         try {
           // Get user credentials
           const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
@@ -63,6 +73,11 @@ export const syncAllPositions = internalAction({
         } catch (error) {
           console.error(`[positionSync] Error syncing user ${userId}:`, error);
           // Continue with next user instead of failing entire sync
+        } finally {
+          await ctx.runMutation(api.mutations.releaseTradingLock, {
+            userId,
+            lockId,
+          });
         }
       }
 

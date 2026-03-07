@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { DEFAULT_MANAGED_EXIT_RULES } from "./trading/managedExitUtils";
 
 // Save or update user credentials
 export const saveUserCredentials = mutation({
@@ -92,6 +93,17 @@ export const upsertBotConfig = mutation({
     reentryCooldownMinutes: v.optional(v.number()),
     useHybridSelection: v.optional(v.boolean()),
     tradingPromptMode: v.optional(v.string()),
+    managedExitEnabled: v.optional(v.boolean()),
+    managedExitHardStopLossPct: v.optional(v.number()),
+    managedExitBreakEvenTriggerPct: v.optional(v.number()),
+    managedExitBreakEvenLockProfitPct: v.optional(v.number()),
+    managedExitTrailingTriggerPct: v.optional(v.number()),
+    managedExitTrailingDistancePct: v.optional(v.number()),
+    managedExitTightenTriggerPct: v.optional(v.number()),
+    managedExitTightenedDistancePct: v.optional(v.number()),
+    managedExitStaleMinutes: v.optional(v.number()),
+    managedExitStaleMinProfitPct: v.optional(v.number()),
+    managedExitMaxHoldMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -111,6 +123,17 @@ export const upsertBotConfig = mutation({
       return await ctx.db.insert("botConfig", {
         ...args,
         currentCapital: args.startingCapital,
+        managedExitEnabled: args.managedExitEnabled ?? DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
+        managedExitHardStopLossPct: args.managedExitHardStopLossPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
+        managedExitBreakEvenTriggerPct: args.managedExitBreakEvenTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
+        managedExitBreakEvenLockProfitPct: args.managedExitBreakEvenLockProfitPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenLockProfitPct,
+        managedExitTrailingTriggerPct: args.managedExitTrailingTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingTriggerPct,
+        managedExitTrailingDistancePct: args.managedExitTrailingDistancePct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingDistancePct,
+        managedExitTightenTriggerPct: args.managedExitTightenTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTightenTriggerPct,
+        managedExitTightenedDistancePct: args.managedExitTightenedDistancePct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitTightenedDistancePct,
+        managedExitStaleMinutes: args.managedExitStaleMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinutes,
+        managedExitStaleMinProfitPct: args.managedExitStaleMinProfitPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinProfitPct,
+        managedExitMaxHoldMinutes: args.managedExitMaxHoldMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitMaxHoldMinutes,
         createdAt: now,
         updatedAt: now,
       });
@@ -160,6 +183,17 @@ export const toggleBot = mutation({
         greenDayShortBlockPct: 1.5,
         reentryCooldownMinutes: 15,
         useHybridSelection: false,
+        managedExitEnabled: DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
+        managedExitHardStopLossPct: DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
+        managedExitBreakEvenTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
+        managedExitBreakEvenLockProfitPct: DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenLockProfitPct,
+        managedExitTrailingTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingTriggerPct,
+        managedExitTrailingDistancePct: DEFAULT_MANAGED_EXIT_RULES.managedExitTrailingDistancePct,
+        managedExitTightenTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitTightenTriggerPct,
+        managedExitTightenedDistancePct: DEFAULT_MANAGED_EXIT_RULES.managedExitTightenedDistancePct,
+        managedExitStaleMinutes: DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinutes,
+        managedExitStaleMinProfitPct: DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinProfitPct,
+        managedExitMaxHoldMinutes: DEFAULT_MANAGED_EXIT_RULES.managedExitMaxHoldMinutes,
         createdAt: now,
         updatedAt: now,
       });
@@ -231,6 +265,14 @@ export const savePosition = mutation({
     stopLoss: v.optional(v.number()),
     takeProfit: v.optional(v.number()),
     liquidationPrice: v.number(),
+    exitMode: v.optional(v.string()),
+    managedPeakPrice: v.optional(v.number()),
+    managedStopPrice: v.optional(v.number()),
+    managedStopReason: v.optional(v.string()),
+    breakEvenActivatedAt: v.optional(v.number()),
+    trailingActivatedAt: v.optional(v.number()),
+    trailingTightenedAt: v.optional(v.number()),
+    exitRulesSnapshot: v.optional(v.any()),
 
     // Exit plan and invalidation
     invalidationCondition: v.optional(v.string()),
@@ -285,6 +327,51 @@ export const closePosition = mutation({
     if (position) {
       await ctx.db.delete(position._id);
     }
+  },
+});
+
+export const updatePositionRuntime = mutation({
+  args: {
+    userId: v.string(),
+    symbol: v.string(),
+    currentPrice: v.optional(v.number()),
+    unrealizedPnl: v.optional(v.number()),
+    unrealizedPnlPct: v.optional(v.number()),
+    stopLoss: v.optional(v.number()),
+    takeProfit: v.optional(v.number()),
+    managedPeakPrice: v.optional(v.number()),
+    managedStopPrice: v.optional(v.number()),
+    managedStopReason: v.optional(v.string()),
+    breakEvenActivatedAt: v.optional(v.number()),
+    trailingActivatedAt: v.optional(v.number()),
+    trailingTightenedAt: v.optional(v.number()),
+    exitRulesSnapshot: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const position = await ctx.db
+      .query("positions")
+      .withIndex("by_symbol", (q) =>
+        q.eq("userId", args.userId).eq("symbol", args.symbol)
+      )
+      .first();
+
+    if (!position) {
+      return { updated: false };
+    }
+
+    const patch: Record<string, any> = {
+      lastUpdated: Date.now(),
+    };
+
+    for (const [key, value] of Object.entries(args)) {
+      if (key === "userId" || key === "symbol" || value === undefined) {
+        continue;
+      }
+      patch[key] = value;
+    }
+
+    await ctx.db.patch(position._id, patch);
+    return { updated: true };
   },
 });
 

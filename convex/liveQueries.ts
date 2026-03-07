@@ -48,6 +48,10 @@ function buildPositionsFromHyperliquid(
       unrealizedPnlPct,
       stopLoss: undefined,
       takeProfit: undefined,
+      exitMode: undefined,
+      managedPeakPrice: undefined,
+      managedStopPrice: undefined,
+      managedStopReason: undefined,
       liquidationPrice: pos.liquidationPx ? parseFloat(pos.liquidationPx) : 0,
       openedAt: Date.now(),
       lastUpdated: Date.now(),
@@ -208,6 +212,14 @@ export const getLivePositions = action({
             currentPrice: livePrice,
             unrealizedPnl,
             unrealizedPnlPct,
+            exitMode: position.exitMode,
+            managedPeakPrice: position.managedPeakPrice,
+            managedStopPrice: position.managedStopPrice,
+            managedStopReason: position.managedStopReason,
+            breakEvenActivatedAt: position.breakEvenActivatedAt,
+            trailingActivatedAt: position.trailingActivatedAt,
+            trailingTightenedAt: position.trailingTightenedAt,
+            exitRulesSnapshot: position.exitRulesSnapshot,
           };
         });
 

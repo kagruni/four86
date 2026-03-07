@@ -69,6 +69,8 @@ import type * as trading_decisionContext from "../trading/decisionContext.js";
 import type * as trading_executors_tradeExecutor from "../trading/executors/tradeExecutor.js";
 import type * as trading_hybridSelection from "../trading/hybridSelection.js";
 import type * as trading_logger from "../trading/logger.js";
+import type * as trading_managedExitMonitor from "../trading/managedExitMonitor.js";
+import type * as trading_managedExitUtils from "../trading/managedExitUtils.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
 import type * as trading_pnlCalculator from "../trading/pnlCalculator.js";
 import type * as trading_positionSync from "../trading/positionSync.js";
@@ -153,6 +155,8 @@ declare const fullApi: ApiFromModules<{
   "trading/executors/tradeExecutor": typeof trading_executors_tradeExecutor;
   "trading/hybridSelection": typeof trading_hybridSelection;
   "trading/logger": typeof trading_logger;
+  "trading/managedExitMonitor": typeof trading_managedExitMonitor;
+  "trading/managedExitUtils": typeof trading_managedExitUtils;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
   "trading/pnlCalculator": typeof trading_pnlCalculator;
   "trading/positionSync": typeof trading_positionSync;

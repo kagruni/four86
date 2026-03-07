@@ -17,6 +17,13 @@ crons.interval(
   internal.trading.positionSync.syncAllPositions
 );
 
+// Managed exit monitor - runs every 1 minute for system-managed stop updates
+crons.interval(
+  "managed-exit-monitor",
+  { minutes: 1 },
+  internal.trading.managedExitMonitor.runManagedExitCycle
+);
+
 // Cleanup expired locks - runs every 5 minutes
 crons.interval(
   "cleanup-locks",
