@@ -1,10 +1,11 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
+import Nav from "./components/landing/Nav";
 import Hero from "./components/landing/Hero";
 import Proof from "./components/landing/Proof";
 import Pricing from "./components/landing/Pricing";
-import CompoundTable from "./components/landing/CompoundTable";
+import CompoundEffect from "./components/landing/CompoundEffect";
 import HowItWorks from "./components/landing/HowItWorks";
 import Footer from "./components/landing/Footer";
 
@@ -22,13 +23,16 @@ export default function Home() {
   }
 
   return (
-    <main className="bg-black">
-      <Hero isSignedIn={!!isSignedIn} />
-      <Proof />
-      <Pricing />
-      <CompoundTable />
-      <HowItWorks />
-      <Footer />
-    </main>
+    <>
+      <Nav isSignedIn={!!isSignedIn} />
+      <main className="bg-black">
+        <Hero />
+        <Proof />
+        <Pricing />
+        <CompoundEffect />
+        <HowItWorks />
+        <Footer />
+      </main>
+    </>
   );
 }

@@ -36,7 +36,7 @@ export default function HowItWorks() {
               <p className="mt-4 text-xl font-black uppercase tracking-[0.15em] text-white">
                 {step.word}
               </p>
-              <p className="mt-3 text-sm font-light text-white/40 font-mono max-w-xs mx-auto leading-relaxed">
+              <p className="mt-3 text-base font-normal text-white/60 font-mono max-w-xs mx-auto leading-relaxed">
                 {step.sentence}
               </p>
             </div>

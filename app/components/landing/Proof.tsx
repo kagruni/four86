@@ -1,4 +1,12 @@
-export default function Proof() {
+interface ProofProps {
+  walletAddress?: string;
+  balance?: string;
+}
+
+export default function Proof({
+  walletAddress = "0xAb3f...9e1D",
+  balance = "$1,000.00",
+}: ProofProps) {
   return (
     <section id="proof" className="bg-white py-24 md:py-32 px-6">
       <div className="max-w-3xl mx-auto">
@@ -15,17 +23,29 @@ export default function Proof() {
         {/* Wallet display */}
         <div className="mt-14 mx-auto max-w-md border border-black p-8 md:p-10 text-center">
           <p className="text-xs tracking-[0.3em] text-gray-400 font-mono uppercase">
-            Live balance
+            Bot wallet
           </p>
           <p className="mt-2 text-sm font-mono text-gray-400">
-            0x1a2B...9f4E
+            {walletAddress}
           </p>
-          <p
-            className="mt-4 text-5xl md:text-6xl font-black font-mono text-black"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            $1,000.00
-          </p>
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <p
+              className="text-5xl md:text-6xl font-black font-mono text-black"
+              style={{ fontVariantNumeric: "tabular-nums" }}
+            >
+              {balance}
+            </p>
+          </div>
+          {/* LIVE badge */}
+          <div className="mt-3 inline-flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+            </span>
+            <span className="text-xs font-mono tracking-[0.2em] text-green-600 uppercase">
+              Live
+            </span>
+          </div>
         </div>
 
         {/* Verification links */}
