@@ -46,6 +46,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import PositionChart from "./PositionChart";
 import LiveChart from "./LiveChart";
+import TradeDebugExportCard from "./TradeDebugExportCard";
 import PreFlightPanel from "@/components/preflight/PreFlightPanel";
 
 export default function DashboardPage() {
@@ -1453,6 +1454,14 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
       </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.7 }}
+      >
+        <TradeDebugExportCard userId={userId} />
+      </motion.div>
     </div>
   );
 }

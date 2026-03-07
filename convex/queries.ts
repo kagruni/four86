@@ -1,6 +1,112 @@
 import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
+const AI_LOG_MATCH_WINDOW_MS = 10 * 60 * 1000;
+
+function getExpectedDecisionForTrade(trade: {
+  action: string;
+  side: string;
+}) {
+  if (trade.action === "OPEN") {
+    return trade.side === "SHORT" ? "OPEN_SHORT" : "OPEN_LONG";
+  }
+
+  if (trade.action === "CLOSE") {
+    return "CLOSE";
+  }
+
+  return null;
+}
+
+function getAiLogSymbol(log: any) {
+  const parsedResponse = log?.parsedResponse as any;
+  return parsedResponse?.symbol ?? parsedResponse?.close_symbol ?? null;
+}
+
+function getStoredCandidateSet(log: any) {
+  const parsedResponse = log?.parsedResponse as any;
+  return parsedResponse?.candidateSet ?? log?.marketData?.candidateSet ?? null;
+}
+
+function getMatchedCandidate(candidateSet: any, selectedCandidateId: string | null) {
+  if (!candidateSet || !selectedCandidateId) {
+    return null;
+  }
+
+  const allCandidates = [
+    ...(Array.isArray(candidateSet.topCandidates) ? candidateSet.topCandidates : []),
+    ...(Array.isArray(candidateSet.candidates) ? candidateSet.candidates : []),
+  ];
+
+  return allCandidates.find((candidate: any) => candidate?.id === selectedCandidateId) ?? null;
+}
+
+function findBestMatchingAiLog(trade: any, aiLogs: any[]) {
+  const expectedDecision = getExpectedDecisionForTrade(trade);
+  let bestMatch: { log: any; score: number; deltaMs: number; matchReason: string } | null = null;
+
+  for (const log of aiLogs) {
+    const deltaMs = Math.abs((log?.createdAt ?? 0) - trade.executedAt);
+    if (deltaMs > AI_LOG_MATCH_WINDOW_MS) {
+      continue;
+    }
+
+    const parsedResponse = log?.parsedResponse as any;
+    const logSymbol = getAiLogSymbol(log);
+    let score = 0;
+    let matchReason = "time_window";
+
+    score -= deltaMs / 60_000;
+
+    if (expectedDecision && log.decision === expectedDecision) {
+      score += 6;
+      matchReason = "decision_and_time";
+    } else if (expectedDecision) {
+      score -= 4;
+    }
+
+    if (logSymbol === trade.symbol) {
+      score += 5;
+      matchReason = expectedDecision && log.decision === expectedDecision
+        ? "decision_symbol_time"
+        : "symbol_and_time";
+    } else if (logSymbol) {
+      score -= 3;
+    }
+
+    if (log.reasoning && trade.aiReasoning && log.reasoning === trade.aiReasoning) {
+      score += 12;
+      matchReason = "exact_reasoning";
+    }
+
+    if (typeof log.confidence === "number" && typeof trade.confidence === "number") {
+      const confidenceDelta = Math.abs(log.confidence - trade.confidence);
+      if (confidenceDelta < 0.001) {
+        score += 2;
+      }
+    }
+
+    if (parsedResponse?.selectedCandidateId) {
+      score += 0.5;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        log,
+        score,
+        deltaMs,
+        matchReason,
+      };
+    }
+  }
+
+  if (!bestMatch || bestMatch.score < 2) {
+    return null;
+  }
+
+  return bestMatch;
+}
+
 // Get user credentials (NEVER return private keys to frontend - use internal queries)
 export const getUserCredentials = query({
   args: { userId: v.string() },
@@ -103,6 +209,93 @@ export const getRecentAILogs = query({
       .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
       .order("desc")
       .take(limit);
+  },
+});
+
+// Get recent filled/recorded trades with linked AI context for dashboard export/debugging
+export const getRecentTradeDebugExport = query({
+  args: {
+    userId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 100;
+
+    const trades = await ctx.db
+      .query("trades")
+      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(limit);
+
+    const aiLogs = await ctx.db
+      .query("aiLogs")
+      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(Math.max(limit * 6, 120));
+
+    return trades.map((trade) => {
+      const matched = findBestMatchingAiLog(trade, aiLogs);
+      const matchedLog = matched?.log ?? null;
+      const parsedResponse = (matchedLog?.parsedResponse ?? null) as any;
+      const candidateSet = getStoredCandidateSet(matchedLog);
+      const selectedCandidateId = parsedResponse?.selectedCandidateId ?? null;
+      const selectedCandidate = getMatchedCandidate(candidateSet, selectedCandidateId);
+
+      return {
+        trade: {
+          _id: trade._id,
+          symbol: trade.symbol,
+          action: trade.action,
+          side: trade.side,
+          size: trade.size,
+          sizeInCoins: trade.sizeInCoins ?? null,
+          tradeValueUsd: trade.tradeValueUsd ?? null,
+          leverage: trade.leverage,
+          price: trade.price,
+          pnl: trade.pnl ?? null,
+          pnlPct: trade.pnlPct ?? null,
+          orderId: trade.orderId ?? null,
+          fillTime: trade.fillTime ?? null,
+          fee: trade.fee ?? null,
+          feeToken: trade.feeToken ?? null,
+          grossPnl: trade.grossPnl ?? null,
+          pnlSource: trade.pnlSource ?? null,
+          txHash: trade.txHash ?? null,
+          aiReasoning: trade.aiReasoning,
+          aiModel: trade.aiModel,
+          confidence: trade.confidence ?? null,
+          executedAt: trade.executedAt,
+        },
+        aiLog: matchedLog ? {
+          _id: matchedLog._id,
+          createdAt: matchedLog.createdAt,
+          decision: matchedLog.decision,
+          reasoning: matchedLog.reasoning,
+          confidence: matchedLog.confidence ?? null,
+          modelName: matchedLog.modelName,
+          selectionMode: parsedResponse?.selectionMode ?? null,
+          selectedCandidateId,
+          executionResult: parsedResponse?.executionResult ?? null,
+          marketSnapshotSummary: parsedResponse?.marketSnapshotSummary ?? null,
+          match: {
+            deltaMs: matched?.deltaMs ?? null,
+            score: matched?.score ?? null,
+            reason: matched?.matchReason ?? null,
+          },
+        } : null,
+        deterministicFilters: candidateSet ? {
+          stored: true,
+          scoreFloor: candidateSet.scoreFloor ?? null,
+          forcedHold: candidateSet.forcedHold ?? null,
+          holdReason: candidateSet.holdReason ?? null,
+          topCandidates: candidateSet.topCandidates ?? [],
+          blockedCandidates: candidateSet.blockedCandidates ?? [],
+          closeCandidates: candidateSet.closeCandidates ?? [],
+          selectedCandidate,
+          candidateScoreBreakdown: parsedResponse?.candidateScoreBreakdown ?? null,
+        } : null,
+      };
+    });
   },
 });
 
