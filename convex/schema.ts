@@ -62,6 +62,11 @@ export default defineSchema({
     greenDayShortBlockPct: v.optional(v.number()), // default 1.5
     reentryCooldownMinutes: v.optional(v.number()), // default 15
     useHybridSelection: v.optional(v.boolean()), // default false
+    hybridScoreFloor: v.optional(v.number()),
+    hybridFourHourTrendThresholdPct: v.optional(v.number()),
+    hybridExtremeRsi7Block: v.optional(v.number()),
+    hybridMinChopVolumeRatio: v.optional(v.number()),
+    hybridChopDistanceFromEmaPct: v.optional(v.number()),
 
     // Managed exit mode (optional for backward compatibility)
     managedExitEnabled: v.optional(v.boolean()),
@@ -275,6 +280,11 @@ export default defineSchema({
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
     useHybridSelection: v.optional(v.boolean()),
+    hybridScoreFloor: v.optional(v.number()),
+    hybridFourHourTrendThresholdPct: v.optional(v.number()),
+    hybridExtremeRsi7Block: v.optional(v.number()),
+    hybridMinChopVolumeRatio: v.optional(v.number()),
+    hybridChopDistanceFromEmaPct: v.optional(v.number()),
 
     // Results (populated on completion)
     totalPnl: v.optional(v.number()),

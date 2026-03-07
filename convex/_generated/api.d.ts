@@ -69,6 +69,7 @@ import type * as trading_converters_positionConverter from "../trading/converter
 import type * as trading_decisionContext from "../trading/decisionContext.js";
 import type * as trading_executors_tradeExecutor from "../trading/executors/tradeExecutor.js";
 import type * as trading_hybridSelection from "../trading/hybridSelection.js";
+import type * as trading_hybridSelectionConfig from "../trading/hybridSelectionConfig.js";
 import type * as trading_logger from "../trading/logger.js";
 import type * as trading_managedExitMonitor from "../trading/managedExitMonitor.js";
 import type * as trading_managedExitUtils from "../trading/managedExitUtils.js";
@@ -156,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   "trading/decisionContext": typeof trading_decisionContext;
   "trading/executors/tradeExecutor": typeof trading_executors_tradeExecutor;
   "trading/hybridSelection": typeof trading_hybridSelection;
+  "trading/hybridSelectionConfig": typeof trading_hybridSelectionConfig;
   "trading/logger": typeof trading_logger;
   "trading/managedExitMonitor": typeof trading_managedExitMonitor;
   "trading/managedExitUtils": typeof trading_managedExitUtils;

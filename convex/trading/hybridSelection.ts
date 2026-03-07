@@ -1,6 +1,11 @@
 import type { DecisionContext } from "./decisionContext";
 import { validateDecisionAgainstRegime } from "./validators/regimeValidator";
 import { lastTradeBySymbol } from "./validators/positionValidator";
+import {
+  DEFAULT_HYBRID_SELECTION_RULES,
+  resolveHybridSelectionRules,
+  type HybridSelectionRules,
+} from "./hybridSelectionConfig";
 
 type HybridDirectionDecision = "OPEN_LONG" | "OPEN_SHORT";
 type HybridSide = "LONG" | "SHORT";
@@ -93,6 +98,11 @@ export interface HybridSelectionConfig {
   require1hAlignment?: boolean;
   redDayLongBlockPct?: number;
   greenDayShortBlockPct?: number;
+  hybridScoreFloor?: number;
+  hybridFourHourTrendThresholdPct?: number;
+  hybridExtremeRsi7Block?: number;
+  hybridMinChopVolumeRatio?: number;
+  hybridChopDistanceFromEmaPct?: number;
 }
 
 export interface BuildHybridCandidateSetArgs {
@@ -121,8 +131,6 @@ export interface BuildHybridCandidateSetArgs {
   now?: number;
   scoreFloor?: number;
 }
-
-const DEFAULT_SCORE_FLOOR = 58;
 
 function isSymbolSupported(symbol: string, testnet: boolean): boolean {
   if (!testnet) return true;
@@ -153,6 +161,67 @@ function buildSnapshotSummary(snapshot: DecisionContext["marketSnapshot"]["symbo
     ema20VsEma50Pct4h: snapshot.fourHour.ema20VsEma50Pct,
     rsi7: snapshot.intraday.rsi7,
     volumeRatio: snapshot.fourHour.volumeRatio,
+  };
+}
+
+function getHourlyEmaGapPct(snapshot: DecisionContext["marketSnapshot"]["symbols"][string]): number {
+  const hourlyEma50 = snapshot.hourly.ema50;
+  if (!hourlyEma50) return 0;
+  return ((snapshot.hourly.ema20 - hourlyEma50) / hourlyEma50) * 100;
+}
+
+export function validateHybridCandidateContext(
+  snapshot: DecisionContext["marketSnapshot"]["symbols"][string],
+  decision: HybridDirectionDecision,
+  rules: HybridSelectionRules
+): { allowed: boolean; reason: string } {
+  const isLong = decision === "OPEN_LONG";
+  const hourlyEmaGapPct = getHourlyEmaGapPct(snapshot);
+  const fourHourTrendPct = snapshot.fourHour.ema20VsEma50Pct;
+  const priceVsEma20Pct = snapshot.intraday.priceVsEma20Pct;
+  const volumeRatio = snapshot.fourHour.volumeRatio;
+  const momentum = snapshot.intraday.momentum;
+  const rsi7 = snapshot.intraday.rsi7;
+  const notDirectionallyAligned = isLong ? hourlyEmaGapPct <= 0 : hourlyEmaGapPct >= 0;
+  const fourHourCounterTrend = isLong
+    ? fourHourTrendPct <= -rules.hybridFourHourTrendThresholdPct
+    : fourHourTrendPct >= rules.hybridFourHourTrendThresholdPct;
+
+  if (fourHourCounterTrend && notDirectionallyAligned) {
+    return {
+      allowed: false,
+      reason: isLong
+        ? `Hybrid long blocked: 4h EMA gap is ${fourHourTrendPct.toFixed(2)}% bearish and 1h is not bullish.`
+        : `Hybrid short blocked: 4h EMA gap is ${fourHourTrendPct.toFixed(2)}% bullish and 1h is not bearish.`,
+    };
+  }
+
+  if (momentum === "FLAT" &&
+    Math.abs(priceVsEma20Pct) < rules.hybridChopDistanceFromEmaPct &&
+    volumeRatio < rules.hybridMinChopVolumeRatio) {
+    return {
+      allowed: false,
+      reason: `Hybrid ${isLong ? "long" : "short"} blocked: flat low-volume chop (${volumeRatio.toFixed(2)}x volume, ${priceVsEma20Pct.toFixed(2)}% from EMA20).`,
+    };
+  }
+
+  if (isLong && rsi7 >= 100 - rules.hybridExtremeRsi7Block) {
+    return {
+      allowed: false,
+      reason: `Hybrid long blocked: RSI7 ${rsi7.toFixed(1)} is too overbought.`,
+    };
+  }
+
+  if (!isLong && rsi7 <= rules.hybridExtremeRsi7Block) {
+    return {
+      allowed: false,
+      reason: `Hybrid short blocked: RSI7 ${rsi7.toFixed(1)} is too oversold.`,
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: "Hybrid context checks passed.",
   };
 }
 
@@ -220,7 +289,7 @@ function buildExecutionPlan(
   };
 }
 
-function calculateCandidateScore(
+export function calculateCandidateScore(
   snapshot: DecisionContext["marketSnapshot"]["symbols"][string],
   decision: HybridDirectionDecision
 ): HybridScoreBreakdown {
@@ -228,28 +297,23 @@ function calculateCandidateScore(
   const priceVsEma20Pct = snapshot.intraday.priceVsEma20Pct;
   const ema20VsEma50Pct4h = snapshot.fourHour.ema20VsEma50Pct;
   const momentum = snapshot.intraday.momentum;
-  const hourlyBullish = snapshot.hourly.ema20 >= snapshot.hourly.ema50;
-  const fourHourBullish = snapshot.fourHour.ema20 >= snapshot.fourHour.ema50;
+  const hourlyEmaGapPct = getHourlyEmaGapPct(snapshot);
   const dayChangePct = snapshot.dayChangePct;
   const atrPct = snapshot.currentPrice > 0 ? (snapshot.fourHour.atr14 / snapshot.currentPrice) * 100 : 0;
   const rsi7 = snapshot.intraday.rsi7;
   const volumeRatio = snapshot.fourHour.volumeRatio;
+  const directionalPriceVsEma = (isLong ? 1 : -1) * priceVsEma20Pct;
+  const directionalHourlyGapPct = (isLong ? 1 : -1) * hourlyEmaGapPct;
+  const directionalFourHourGapPct = (isLong ? 1 : -1) * ema20VsEma50Pct4h;
+  const directionalSessionPct = (isLong ? 1 : -1) * dayChangePct;
 
-  const intradayAlignment = isLong
-    ? clamp(12 + priceVsEma20Pct * 6, 0, 18) + (momentum === "RISING" ? 12 : momentum === "FLAT" ? 6 : 0)
-    : clamp(12 + (-priceVsEma20Pct) * 6, 0, 18) + (momentum === "FALLING" ? 12 : momentum === "FLAT" ? 6 : 0);
+  const intradayAlignment = clamp(directionalPriceVsEma * 18, -12, 12);
 
-  const hourlyAlignment = isLong
-    ? hourlyBullish ? 20 : 0
-    : hourlyBullish ? 0 : 20;
+  const hourlyAlignment = clamp(directionalHourlyGapPct * 20, -10, 20);
 
-  const fourHourAlignment = isLong
-    ? clamp(10 + ema20VsEma50Pct4h * 4, 0, 20)
-    : clamp(10 + (-ema20VsEma50Pct4h) * 4, 0, 20);
+  const fourHourAlignment = clamp(directionalFourHourGapPct * 12, -12, 18);
 
-  const sessionAlignment = isLong
-    ? clamp(10 + dayChangePct * 2, 0, 10)
-    : clamp(10 + (-dayChangePct) * 2, 0, 10);
+  const sessionAlignment = clamp(directionalSessionPct * 4, -6, 6);
 
   const volatilityQuality = atrPct < 1
     ? 6
@@ -257,15 +321,19 @@ function calculateCandidateScore(
       ? 10
       : 7;
 
-  const rsiContext = isLong
-    ? rsi7 >= 45 && rsi7 <= 72 ? 5 : rsi7 > 72 ? 3 : 1
-    : rsi7 <= 55 && rsi7 >= 28 ? 5 : rsi7 < 28 ? 3 : 1;
+  const rsiContext = rsi7 >= 40 && rsi7 <= 60
+    ? 5
+    : (rsi7 >= 35 && rsi7 < 40) || (rsi7 > 60 && rsi7 <= 65)
+      ? 2
+      : (rsi7 >= 25 && rsi7 < 35) || (rsi7 > 65 && rsi7 <= 75)
+        ? -2
+        : -8;
 
-  const volumeQuality = clamp(volumeRatio * 3, 0, 5);
+  const volumeQuality = clamp((volumeRatio - 0.9) * 10, -6, 6);
 
   const momentumPenalty = isLong
-    ? momentum === "FALLING" ? -12 : 0
-    : momentum === "RISING" ? -12 : 0;
+    ? momentum === "RISING" ? 0 : momentum === "FLAT" ? -4 : -12
+    : momentum === "FALLING" ? 0 : momentum === "FLAT" ? -4 : -12;
 
   const total = clamp(
     intradayAlignment +
@@ -364,7 +432,8 @@ function isCloseCandidateEligible(
 export function buildHybridCandidateSet(args: BuildHybridCandidateSetArgs): HybridCandidateSet {
   const generatedAt = new Date().toISOString();
   const now = args.now ?? Date.now();
-  const scoreFloor = args.scoreFloor ?? DEFAULT_SCORE_FLOOR;
+  const hybridRules = resolveHybridSelectionRules(args.config);
+  const scoreFloor = args.scoreFloor ?? hybridRules.hybridScoreFloor ?? DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor;
   const recentTrades = args.recentTrades ?? [];
   const openOrderSymbols = new Set((args.openOrders ?? []).map((order) => order.coin));
   const positionsBySymbol = new Map(args.positions.map((position) => [position.symbol, position]));
@@ -448,6 +517,14 @@ export function buildHybridCandidateSet(args: BuildHybridCandidateSetArgs): Hybr
       if (!regimeValidation.allowed) {
         blockedCandidates.push(
           buildBlockedCandidate(symbol, decision, snapshot, executionPlan, regimeValidation.reason)
+        );
+        continue;
+      }
+
+      const hybridValidation = validateHybridCandidateContext(snapshot, decision, hybridRules);
+      if (!hybridValidation.allowed) {
+        blockedCandidates.push(
+          buildBlockedCandidate(symbol, decision, snapshot, executionPlan, hybridValidation.reason)
         );
         continue;
       }

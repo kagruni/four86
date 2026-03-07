@@ -27,6 +27,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { motion } from "framer-motion";
 import TelegramSettings from "./TelegramSettings";
 import { DEFAULT_MANAGED_EXIT_RULES } from "@/convex/trading/managedExitUtils";
+import { DEFAULT_HYBRID_SELECTION_RULES } from "@/convex/trading/hybridSelectionConfig";
 
 const AI_MODELS = [
   { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Recommended)" },
@@ -108,6 +109,11 @@ const botConfigSchema = z.object({
   greenDayShortBlockPct: z.number().min(0).max(10),
   reentryCooldownMinutes: z.number().min(1).max(60),
   useHybridSelection: z.boolean(),
+  hybridScoreFloor: z.number().min(50).max(90),
+  hybridFourHourTrendThresholdPct: z.number().min(0.1).max(3.0),
+  hybridExtremeRsi7Block: z.number().min(10).max(40),
+  hybridMinChopVolumeRatio: z.number().min(0.1).max(2.0),
+  hybridChopDistanceFromEmaPct: z.number().min(0.05).max(1.0),
   managedExitEnabled: z.boolean(),
   managedExitHardStopLossPct: z.number().min(0.1).max(5.0),
   managedExitBreakEvenTriggerPct: z.number().min(0.1).max(2.0),
@@ -201,6 +207,11 @@ export default function SettingsPage() {
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
     useHybridSelection: false,
+    hybridScoreFloor: DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
+    hybridFourHourTrendThresholdPct: DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
+    hybridExtremeRsi7Block: DEFAULT_HYBRID_SELECTION_RULES.hybridExtremeRsi7Block,
+    hybridMinChopVolumeRatio: DEFAULT_HYBRID_SELECTION_RULES.hybridMinChopVolumeRatio,
+    hybridChopDistanceFromEmaPct: DEFAULT_HYBRID_SELECTION_RULES.hybridChopDistanceFromEmaPct,
     managedExitEnabled: DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
     managedExitHardStopLossPct: DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
     managedExitBreakEvenTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
@@ -270,6 +281,11 @@ export default function SettingsPage() {
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
         useHybridSelection: botConfig.useHybridSelection ?? false,
+        hybridScoreFloor: botConfig.hybridScoreFloor ?? DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
+        hybridFourHourTrendThresholdPct: botConfig.hybridFourHourTrendThresholdPct ?? DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
+        hybridExtremeRsi7Block: botConfig.hybridExtremeRsi7Block ?? DEFAULT_HYBRID_SELECTION_RULES.hybridExtremeRsi7Block,
+        hybridMinChopVolumeRatio: botConfig.hybridMinChopVolumeRatio ?? DEFAULT_HYBRID_SELECTION_RULES.hybridMinChopVolumeRatio,
+        hybridChopDistanceFromEmaPct: botConfig.hybridChopDistanceFromEmaPct ?? DEFAULT_HYBRID_SELECTION_RULES.hybridChopDistanceFromEmaPct,
         managedExitEnabled: botConfig.managedExitEnabled ?? DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
         managedExitHardStopLossPct: botConfig.managedExitHardStopLossPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
         managedExitBreakEvenTriggerPct: botConfig.managedExitBreakEvenTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
@@ -420,6 +436,11 @@ export default function SettingsPage() {
         greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
         reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
         useHybridSelection: validatedData.useHybridSelection,
+        hybridScoreFloor: validatedData.hybridScoreFloor,
+        hybridFourHourTrendThresholdPct: validatedData.hybridFourHourTrendThresholdPct,
+        hybridExtremeRsi7Block: validatedData.hybridExtremeRsi7Block,
+        hybridMinChopVolumeRatio: validatedData.hybridMinChopVolumeRatio,
+        hybridChopDistanceFromEmaPct: validatedData.hybridChopDistanceFromEmaPct,
         managedExitEnabled: validatedData.managedExitEnabled,
         managedExitHardStopLossPct: validatedData.managedExitHardStopLossPct,
         managedExitBreakEvenTriggerPct: validatedData.managedExitBreakEvenTriggerPct,
@@ -1207,6 +1228,74 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, useHybridSelection: checked }))
                       }
                     />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="hybrid-score-floor" className="text-foreground">Hybrid Score Floor</Label>
+                        <InfoHint text="Minimum deterministic score required before the hybrid selector should consider an entry setup strong enough to trade." />
+                      </div>
+                      <Input
+                        id="hybrid-score-floor"
+                        type="number"
+                        step="1"
+                        value={botConfigData.hybridScoreFloor}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, hybridScoreFloor: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="hybrid-4h-threshold" className="text-foreground">Hybrid 4H Trend Threshold %</Label>
+                        <InfoHint text="Absolute 4-hour EMA20 vs EMA50 gap that counts as a meaningful higher-timeframe trend for the hybrid filter. Applied symmetrically to longs and shorts." />
+                      </div>
+                      <Input
+                        id="hybrid-4h-threshold"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.hybridFourHourTrendThresholdPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, hybridFourHourTrendThresholdPct: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="hybrid-extreme-rsi" className="text-foreground">Hybrid Extreme RSI7 Block</Label>
+                        <InfoHint text="Mirror threshold for blocking extremes: shorts are blocked at or below this RSI7 level, longs at or above 100 minus this value." />
+                      </div>
+                      <Input
+                        id="hybrid-extreme-rsi"
+                        type="number"
+                        step="1"
+                        value={botConfigData.hybridExtremeRsi7Block}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, hybridExtremeRsi7Block: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="hybrid-min-chop-volume" className="text-foreground">Hybrid Min Chop Volume Ratio</Label>
+                        <InfoHint text="Minimum 4-hour volume ratio required to trade flat, near-EMA setups. Below this, the hybrid engine treats the market as low-quality chop." />
+                      </div>
+                      <Input
+                        id="hybrid-min-chop-volume"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.hybridMinChopVolumeRatio}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, hybridMinChopVolumeRatio: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="hybrid-chop-distance" className="text-foreground">Hybrid Chop Distance From EMA %</Label>
+                        <InfoHint text="Maximum absolute distance from the intraday EMA20 that still counts as near-EMA chop for the hybrid pre-filter." />
+                      </div>
+                      <Input
+                        id="hybrid-chop-distance"
+                        type="number"
+                        step="0.01"
+                        value={botConfigData.hybridChopDistanceFromEmaPct}
+                        onChange={(e) => setBotConfigData((prev) => ({ ...prev, hybridChopDistanceFromEmaPct: Number(e.target.value) }))}
+                      />
+                    </div>
                   </div>
 
                   {/* Red Day Long Block */}

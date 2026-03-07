@@ -50,6 +50,11 @@ export const startBacktest = action({
         redDayLongBlockPct: botConfig?.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig?.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig?.reentryCooldownMinutes ?? 15,
+        hybridScoreFloor: botConfig?.hybridScoreFloor,
+        hybridFourHourTrendThresholdPct: botConfig?.hybridFourHourTrendThresholdPct,
+        hybridExtremeRsi7Block: botConfig?.hybridExtremeRsi7Block,
+        hybridMinChopVolumeRatio: botConfig?.hybridMinChopVolumeRatio,
+        hybridChopDistanceFromEmaPct: botConfig?.hybridChopDistanceFromEmaPct,
       }
     );
 
@@ -73,6 +78,11 @@ export const startBacktest = action({
         redDayLongBlockPct: botConfig?.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig?.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig?.reentryCooldownMinutes ?? 15,
+        hybridScoreFloor: botConfig?.hybridScoreFloor,
+        hybridFourHourTrendThresholdPct: botConfig?.hybridFourHourTrendThresholdPct,
+        hybridExtremeRsi7Block: botConfig?.hybridExtremeRsi7Block,
+        hybridMinChopVolumeRatio: botConfig?.hybridMinChopVolumeRatio,
+        hybridChopDistanceFromEmaPct: botConfig?.hybridChopDistanceFromEmaPct,
         openrouterApiKey: credentials.openrouterApiKey,
         testnet: credentials.hyperliquidTestnet,
       }
@@ -101,6 +111,11 @@ export const createBacktestRun = internalMutation({
     redDayLongBlockPct: v.optional(v.number()),
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
+    hybridScoreFloor: v.optional(v.number()),
+    hybridFourHourTrendThresholdPct: v.optional(v.number()),
+    hybridExtremeRsi7Block: v.optional(v.number()),
+    hybridMinChopVolumeRatio: v.optional(v.number()),
+    hybridChopDistanceFromEmaPct: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("backtestRuns", {

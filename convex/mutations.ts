@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { DEFAULT_MANAGED_EXIT_RULES } from "./trading/managedExitUtils";
+import { DEFAULT_HYBRID_SELECTION_RULES } from "./trading/hybridSelectionConfig";
 
 // Save or update user credentials
 export const saveUserCredentials = mutation({
@@ -92,6 +93,11 @@ export const upsertBotConfig = mutation({
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
     useHybridSelection: v.optional(v.boolean()),
+    hybridScoreFloor: v.optional(v.number()),
+    hybridFourHourTrendThresholdPct: v.optional(v.number()),
+    hybridExtremeRsi7Block: v.optional(v.number()),
+    hybridMinChopVolumeRatio: v.optional(v.number()),
+    hybridChopDistanceFromEmaPct: v.optional(v.number()),
     tradingPromptMode: v.optional(v.string()),
     managedExitEnabled: v.optional(v.boolean()),
     managedExitHardStopLossPct: v.optional(v.number()),
@@ -134,6 +140,11 @@ export const upsertBotConfig = mutation({
         managedExitStaleMinutes: args.managedExitStaleMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinutes,
         managedExitStaleMinProfitPct: args.managedExitStaleMinProfitPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinProfitPct,
         managedExitMaxHoldMinutes: args.managedExitMaxHoldMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitMaxHoldMinutes,
+        hybridScoreFloor: args.hybridScoreFloor ?? DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
+        hybridFourHourTrendThresholdPct: args.hybridFourHourTrendThresholdPct ?? DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
+        hybridExtremeRsi7Block: args.hybridExtremeRsi7Block ?? DEFAULT_HYBRID_SELECTION_RULES.hybridExtremeRsi7Block,
+        hybridMinChopVolumeRatio: args.hybridMinChopVolumeRatio ?? DEFAULT_HYBRID_SELECTION_RULES.hybridMinChopVolumeRatio,
+        hybridChopDistanceFromEmaPct: args.hybridChopDistanceFromEmaPct ?? DEFAULT_HYBRID_SELECTION_RULES.hybridChopDistanceFromEmaPct,
         createdAt: now,
         updatedAt: now,
       });
@@ -183,6 +194,11 @@ export const toggleBot = mutation({
         greenDayShortBlockPct: 1.5,
         reentryCooldownMinutes: 15,
         useHybridSelection: false,
+        hybridScoreFloor: DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
+        hybridFourHourTrendThresholdPct: DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
+        hybridExtremeRsi7Block: DEFAULT_HYBRID_SELECTION_RULES.hybridExtremeRsi7Block,
+        hybridMinChopVolumeRatio: DEFAULT_HYBRID_SELECTION_RULES.hybridMinChopVolumeRatio,
+        hybridChopDistanceFromEmaPct: DEFAULT_HYBRID_SELECTION_RULES.hybridChopDistanceFromEmaPct,
         managedExitEnabled: DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
         managedExitHardStopLossPct: DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
         managedExitBreakEvenTriggerPct: DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,

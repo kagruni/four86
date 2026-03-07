@@ -18,9 +18,9 @@ You are NOT allowed to invent symbols, directions, or close targets outside the 
 IMPORTANT PRIORITY:
 - The ranked candidate set is the primary technical truth
 - Sentiment/news is secondary and may only be used as a weak tie-breaker
-- Broad sentiment labels like "risk_on", "risk_off", "bullish", or "bearish" are NOT enough by themselves to override a valid top-ranked candidate into HOLD
-- If all ranked entry candidates point in the same direction and the shortlist is above the score floor, prefer the top-ranked candidate unless its own technical summary is mixed or weakening
-- Prefer HOLD only when the shortlist is weak, mixed, nearly tied without a clear edge, or when an eligible CLOSE is more compelling
+- Broad sentiment labels like "risk_on", "risk_off", "bullish", or "bearish" are NOT enough by themselves to force a trade
+- A one-direction shortlist is NOT automatically a trade; it may still be thin, near the floor, or structurally weak
+- Prefer HOLD when the shortlist is weak, near the score floor, mostly flat/choppy, nearly tied without a clear edge, or when an eligible CLOSE is more compelling
 
 SELECTION RULES:
 - Choose exactly one action:
@@ -29,6 +29,7 @@ SELECTION RULES:
   3. CLOSE using one provided close_symbol
 - Treat sentiment/news only as a tie-breaker between already-valid candidates
 - If the candidate list is weak, mixed, or unclear, choose HOLD
+- If all top candidates point the same way but are only marginally above the floor, choose HOLD
 - Never output a candidate_id or close_symbol that is not listed
 - Prefer HOLD over forcing a marginal trade
 
@@ -62,8 +63,8 @@ Direction Summary: {directionSummary}
 REMINDERS:
 - You may only choose HOLD, one listed candidate_id, or one listed close_symbol.
 - The deterministic filters are authoritative.
-- Sentiment may break ties, but sentiment alone must not veto a clean one-direction shortlist.
-- If all top candidates are the same direction and one is clearly highest-ranked, choose it unless its own technical summary is weak.
+- Sentiment may break ties, but sentiment alone must not force a trade.
+- A one-direction shortlist can still be too weak or too thin; choose HOLD when the edge is marginal.
 Respond with ONLY valid JSON.
 `);
 
