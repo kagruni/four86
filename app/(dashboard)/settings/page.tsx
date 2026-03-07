@@ -524,28 +524,28 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="credentials" className="w-full">
-          <TabsList className="bg-gray-100 p-1 w-full grid grid-cols-4">
+          <TabsList className="bg-muted p-1 w-full grid grid-cols-4">
             <TabsTrigger
               value="credentials"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
+              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
             >
               Credentials
             </TabsTrigger>
             <TabsTrigger
               value="risk-strategy"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
+              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
             >
               Risk & Strategy
             </TabsTrigger>
             <TabsTrigger
               value="advanced"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
+              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
             >
               Advanced
             </TabsTrigger>
             <TabsTrigger
               value="telegram"
-              className="data-[state=active]:bg-black data-[state=active]:text-white text-muted-foreground"
+              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
             >
               Telegram
             </TabsTrigger>

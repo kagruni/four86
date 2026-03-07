@@ -38,8 +38,8 @@ export const syncAllPositions = internalAction({
             userId,
           });
 
-          if (!credentials || !credentials.hyperliquidAddress) {
-            console.log(`[positionSync] Skipping user ${userId} - no credentials`);
+          if (!credentials || !credentials.hyperliquidAddress || !credentials.hyperliquidPrivateKey) {
+            console.log(`[positionSync] Skipping user ${userId} - missing credentials`);
             continue;
           }
 
@@ -63,6 +63,38 @@ export const syncAllPositions = internalAction({
             .filter((s: string | null): s is string => s !== null);
 
           console.log(`[positionSync] User ${userId}: Hyperliquid has [${hyperliquidSymbols.join(", ") || "none"}]`);
+
+          const dbPositions = await ctx.runQuery(api.queries.getPositions, {
+            userId,
+          });
+          const now = Date.now();
+          const GRACE_PERIOD_MS = 3 * 60 * 1000;
+          const staleSymbols = (dbPositions || [])
+            .filter((dbPos: any) => !hyperliquidSymbols.includes(dbPos.symbol) && now - dbPos.openedAt > GRACE_PERIOD_MS)
+            .map((dbPos: any) => dbPos.symbol);
+
+          for (const symbol of staleSymbols) {
+            try {
+              const regularCancelResult = await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+                privateKey: credentials.hyperliquidPrivateKey,
+                address: credentials.hyperliquidAddress,
+                symbol,
+                testnet: credentials.hyperliquidTestnet,
+              });
+              const triggerCancelResult = await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+                privateKey: credentials.hyperliquidPrivateKey,
+                address: credentials.hyperliquidAddress,
+                symbol,
+                testnet: credentials.hyperliquidTestnet,
+              });
+              const cancelledCount = regularCancelResult.cancelledCount + triggerCancelResult.cancelledCount;
+              if (cancelledCount > 0) {
+                console.log(`[positionSync] Cancelled ${cancelledCount} stale order(s) for ${symbol} before DB reconciliation`);
+              }
+            } catch (cancelError) {
+              console.warn(`[positionSync] Failed to cancel stale orders for ${symbol}:`, cancelError instanceof Error ? cancelError.message : String(cancelError));
+            }
+          }
 
           // Sync database with Hyperliquid reality
           await ctx.runMutation(api.mutations.syncPositions, {

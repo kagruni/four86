@@ -481,6 +481,12 @@ async function handleConfirm(
 
     for (const pos of positions) {
       try {
+        await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+          privateKey: credentials.hyperliquidPrivateKey,
+          address: credentials.hyperliquidAddress,
+          symbol: pos.symbol,
+          testnet,
+        });
         await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
           privateKey: credentials.hyperliquidPrivateKey,
           address: credentials.hyperliquidAddress,
@@ -488,7 +494,7 @@ async function handleConfirm(
           testnet,
         });
 
-        await ctx.runAction(api.hyperliquid.client.closePosition, {
+        const closeResult = await ctx.runAction(api.hyperliquid.client.closePosition, {
           privateKey: credentials.hyperliquidPrivateKey,
           address: credentials.hyperliquidAddress,
           symbol: pos.symbol,
@@ -496,6 +502,10 @@ async function handleConfirm(
           isBuy: pos.side === "SHORT", // Opposite side to close
           testnet,
         });
+
+        if (closeResult.status !== "filled") {
+          throw new Error(`Close order was not filled immediately (status: ${closeResult.status})`);
+        }
 
         // Remove from database
         await ctx.runMutation(api.mutations.closePosition, {
@@ -528,6 +538,12 @@ async function handleConfirm(
       return;
     }
 
+    await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+      privateKey: credentials.hyperliquidPrivateKey,
+      address: credentials.hyperliquidAddress,
+      symbol: position.symbol,
+      testnet,
+    });
     await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
@@ -535,7 +551,7 @@ async function handleConfirm(
       testnet,
     });
 
-    await ctx.runAction(api.hyperliquid.client.closePosition, {
+    const closeResult = await ctx.runAction(api.hyperliquid.client.closePosition, {
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
       symbol: position.symbol,
@@ -543,6 +559,10 @@ async function handleConfirm(
       isBuy: position.side === "SHORT",
       testnet,
     });
+
+    if (closeResult.status !== "filled") {
+      throw new Error(`Close order was not filled immediately (status: ${closeResult.status})`);
+    }
 
     // Remove from database
     await ctx.runMutation(api.mutations.closePosition, {
@@ -744,6 +764,12 @@ async function handleCloseConfirmCallback(
     return;
   }
 
+  await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+    privateKey: credentials.hyperliquidPrivateKey,
+    address: credentials.hyperliquidAddress,
+    symbol: position.symbol,
+    testnet,
+  });
   await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
     privateKey: credentials.hyperliquidPrivateKey,
     address: credentials.hyperliquidAddress,
@@ -759,6 +785,10 @@ async function handleCloseConfirmCallback(
     isBuy: position.side === "SHORT",
     testnet,
   });
+
+  if (result.status !== "filled") {
+    throw new Error(`Close order was not filled immediately (status: ${result.status})`);
+  }
 
   // Calculate PnL from actual fill data
   const exitPrice = result.avgPx || result.price || 0;
@@ -837,6 +867,12 @@ async function handleCloseAllConfirmCallback(
 
   for (const pos of positions) {
     try {
+      await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: pos.symbol,
+        testnet,
+      });
       await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
@@ -852,6 +888,10 @@ async function handleCloseAllConfirmCallback(
         isBuy: pos.side === "SHORT",
         testnet,
       });
+
+      if (result.status !== "filled") {
+        throw new Error(`Close order was not filled immediately (status: ${result.status})`);
+      }
 
       // Calculate PnL from actual fill data
       const exitPrice = result.avgPx || result.price || 0;

@@ -155,16 +155,23 @@ export async function executeClose(
     side: positionToClose.side,
   });
 
-  // Cancel existing TP/SL orders before closing to avoid orphaned trigger orders
+  // Cancel all open orders for the symbol before closing so stale entry/close limits do not survive.
   try {
-    const cancelResult = await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+    const regularCancelResult = await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
       symbol: decision.symbol,
       testnet: credentials.hyperliquidTestnet,
     });
-    if (cancelResult.cancelledCount > 0) {
-      log.info(`Cancelled ${cancelResult.cancelledCount} existing TP/SL orders for ${decision.symbol} before closing`);
+    const triggerCancelResult = await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+      privateKey: credentials.hyperliquidPrivateKey,
+      address: credentials.hyperliquidAddress,
+      symbol: decision.symbol,
+      testnet: credentials.hyperliquidTestnet,
+    });
+    const cancelledCount = regularCancelResult.cancelledCount + triggerCancelResult.cancelledCount;
+    if (cancelledCount > 0) {
+      log.info(`Cancelled ${cancelledCount} existing orders for ${decision.symbol} before closing`);
     }
   } catch (cancelError) {
     log.warn(`Failed to cancel existing orders for ${decision.symbol} (proceeding with close): ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
@@ -179,6 +186,46 @@ export async function executeClose(
     isBuy: positionToClose.side === "SHORT",
     testnet: credentials.hyperliquidTestnet,
   });
+
+  if (result.status === "resting" && result.orderId) {
+    try {
+      await ctx.runAction(api.hyperliquid.client.cancelOrder, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: decision.symbol,
+        orderId: result.orderId,
+        testnet: credentials.hyperliquidTestnet,
+      });
+    } catch (cancelError) {
+      log.warn(`Failed to cancel resting close order for ${decision.symbol}: ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
+    }
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const postClosePositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+    address: credentials.hyperliquidAddress,
+    testnet: credentials.hyperliquidTestnet,
+  });
+  const remainingPosition = (postClosePositions || []).find((p: any) => {
+    const pos = p.position || p;
+    const szi = parseFloat(pos.szi || "0");
+    return pos.coin === decision.symbol && szi !== 0;
+  });
+
+  if (remainingPosition) {
+    await ctx.runMutation(api.mutations.saveSystemLog, {
+      userId: bot.userId,
+      level: "WARN",
+      message: `Close attempt for ${decision.symbol} did not fully exit the position`,
+      data: {
+        symbol: decision.symbol,
+        txHash: result.txHash,
+        status: result.status,
+        remainingPosition,
+      },
+    });
+    throw new Error(`Close for ${decision.symbol} did not fully fill; position remains open on the exchange`);
+  }
 
   // Prefer actual fill price from exchange over estimated market price
   let exitPrice = result.avgPx || result.price || positionToClose.currentPrice || 0;
@@ -302,8 +349,14 @@ export async function executeOpen(
     throw new Error(`Cannot get market price for ${decision.symbol}`);
   }
 
+  const isLongPosition = decision.decision === "OPEN_LONG";
+
   // Convert USD size to coin size
   const sizeInCoins = decision.size_usd! / entryPrice;
+  const entrySlippagePct = 0.01;
+  const submittedEntryPrice = isLongPosition
+    ? entryPrice * (1 + entrySlippagePct)
+    : entryPrice * (1 - entrySlippagePct);
 
   log.info(`Opening position: ${decision.symbol} ${decision.decision}`, {
     sizeUsd: decision.size_usd,
@@ -322,16 +375,34 @@ export async function executeOpen(
       privateKey: credentials.hyperliquidPrivateKey,
       address: credentials.hyperliquidAddress,
       symbol: decision.symbol!,
-      isBuy: decision.decision === "OPEN_LONG",
+      isBuy: isLongPosition,
       size: sizeInCoins,
       leverage: decision.leverage!,
-      price: entryPrice,
+      price: submittedEntryPrice,
+      timeInForce: "Ioc",
       testnet: credentials.hyperliquidTestnet,
     }),
     log
   );
 
-  const isLongPosition = decision.decision === "OPEN_LONG";
+  if (result.status === "resting" && result.orderId) {
+    try {
+      await ctx.runAction(api.hyperliquid.client.cancelOrder, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: decision.symbol!,
+        orderId: result.orderId,
+        testnet: credentials.hyperliquidTestnet,
+      });
+    } catch (cancelError) {
+      log.warn(`Failed to cancel resting entry order for ${decision.symbol}: ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
+    }
+  }
+
+  if (result.status !== "filled" || !result.avgPx) {
+    throw new Error(`Entry order for ${decision.symbol} did not fill immediately (status: ${result.status})`);
+  }
+
   const positionSide = isLongPosition ? "LONG" : "SHORT";
   const managedExitRules = getManagedExitRules(bot);
   const managedExitEnabled = managedExitRules.managedExitEnabled;
@@ -408,7 +479,9 @@ export async function executeOpen(
     console.log(`⚠️ No take profit specified, using default 0.8%: $${decision.take_profit.toFixed(2)}`);
   }
 
-  const filledEntryPrice = result.avgPx || result.price;
+  const filledEntryPrice = result.avgPx;
+  const filledSizeInCoins = result.totalSz || sizeInCoins;
+  const executedSizeUsd = filledEntryPrice * filledSizeInCoins;
   let managedStopPrice: number | undefined;
   let exitMode: ManagedExitMode = LEGACY_EXIT_MODE;
   let exitRulesSnapshot: any = undefined;
@@ -452,7 +525,7 @@ export async function executeOpen(
     symbol: decision.symbol!,
     action: "OPEN",
     side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
-    size: decision.size_usd!,
+    size: executedSizeUsd,
     leverage: decision.leverage!,
     price: filledEntryPrice,
     aiReasoning: decision.reasoning,
@@ -474,7 +547,7 @@ export async function executeOpen(
     userId: bot.userId,
     symbol: decision.symbol!,
     side: positionSide,
-    size: decision.size_usd!,
+    size: executedSizeUsd,
     leverage: decision.leverage!,
     entryPrice: filledEntryPrice,
     currentPrice: filledEntryPrice,
@@ -494,9 +567,11 @@ export async function executeOpen(
     entryOrderId: result.txHash,
   });
 
-  log.info(`Successfully executed ${decision.decision} for ${decision.symbol} at $${result.price}`, {
+  log.info(`Successfully executed ${decision.decision} for ${decision.symbol} at $${filledEntryPrice}`, {
     orderDurationMs,
     txHash: result.txHash,
+    executedSizeUsd,
+    filledSizeInCoins,
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -504,20 +579,20 @@ export async function executeOpen(
   // ═══════════════════════════════════════════════════════════════
 
   const stopLossPlaced = await placeStopLossWithRetry(
-    ctx, api, credentials, decision, sizeInCoins, isLongPosition, filledEntryPrice, bot
+    ctx, api, credentials, decision, filledSizeInCoins, isLongPosition, filledEntryPrice, bot
   );
 
   let takeProfitPlaced = false;
   if (!managedExitEnabled) {
     // Place take-profit regardless of SL result (they're independent)
     takeProfitPlaced = await placeTakeProfitWithRetry(
-      ctx, api, credentials, decision, sizeInCoins, isLongPosition, filledEntryPrice, bot
+      ctx, api, credentials, decision, filledSizeInCoins, isLongPosition, filledEntryPrice, bot
     );
   }
 
   // CRITICAL: If stop loss failed after all retries, emergency close
   if (!stopLossPlaced) {
-    await emergencyClose(ctx, api, credentials, decision, bot, sizeInCoins, isLongPosition, filledEntryPrice);
+    await emergencyClose(ctx, api, credentials, decision, bot, filledSizeInCoins, isLongPosition, filledEntryPrice);
     return;
   }
 
@@ -569,7 +644,7 @@ export async function executeOpen(
       userId: bot.userId,
       symbol: decision.symbol!,
       side: decision.decision === "OPEN_LONG" ? "LONG" : "SHORT",
-      sizeUsd: decision.size_usd!,
+      sizeUsd: executedSizeUsd,
       leverage: decision.leverage!,
       entryPrice: filledEntryPrice,
       stopLoss: decision.stop_loss,

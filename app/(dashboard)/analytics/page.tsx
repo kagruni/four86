@@ -292,7 +292,7 @@ const decisionConfig: Record<
 > = {
   OPEN_LONG: {
     label: "OPEN LONG",
-    borderClass: "border-foreground",
+    borderClass: "border-border",
     textClass: "text-foreground",
     icon: ArrowUpRight,
   },
@@ -335,7 +335,7 @@ function EquityCurveTooltip({ active, payload }: any) {
   return (
     <div className="border border-border bg-background px-3 py-2">
       <p className="text-xs text-muted-foreground">{formatTooltipDate(d.timestamp)}</p>
-      <p className="font-mono text-sm font-bold tabular-nums text-gray-900">
+      <p className="font-mono text-sm font-bold tabular-nums text-foreground">
         {formatCurrency(d.accountValue)}
       </p>
     </div>
@@ -347,13 +347,13 @@ function TradeBarTooltip({ active, payload }: any) {
   const d = payload[0].payload;
   return (
     <div className="border border-border bg-background px-3 py-2">
-      <p className="text-xs font-medium text-gray-900">
+      <p className="text-xs font-medium text-foreground">
         {d.symbol} &middot; {d.side}
       </p>
       <p className="text-xs text-muted-foreground">{formatTooltipDate(d.executedAt)}</p>
       <p
         className={`font-mono text-sm font-bold tabular-nums ${
-          d.pnl >= 0 ? "text-gray-900" : "text-muted-foreground"
+          d.pnl >= 0 ? "text-foreground" : "text-muted-foreground"
         }`}
       >
         {formatCurrency(d.pnl)}
@@ -651,7 +651,7 @@ export default function AnalyticsPage() {
       <motion.div variants={itemVariants}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {/* Total Return – dark treatment */}
-          <div className="bg-foreground px-4 py-4">
+          <div className="bg-gray-950 dark:bg-gray-900 px-4 py-4">
             <div className="flex items-center gap-1.5">
               <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Total Return</p>
@@ -673,7 +673,7 @@ export default function AnalyticsPage() {
               <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Sharpe Ratio</p>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-foreground">
               {heroMetrics.sharpeRatio !== null
                 ? heroMetrics.sharpeRatio.toFixed(2)
                 : "--"}
@@ -686,7 +686,7 @@ export default function AnalyticsPage() {
               <Target className="h-3.5 w-3.5 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Win Rate</p>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-foreground">
               {heroMetrics.totalTrades > 0
                 ? `${heroMetrics.winRate.toFixed(1)}%`
                 : "--"}
@@ -699,7 +699,7 @@ export default function AnalyticsPage() {
               <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Total Trades</p>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-foreground">
               {heroMetrics.totalTrades}
             </p>
           </div>
@@ -710,7 +710,7 @@ export default function AnalyticsPage() {
               <Trophy className="h-3.5 w-3.5 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Best Trade</p>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-gray-900">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-foreground">
               {heroMetrics.totalTrades > 0
                 ? formatCurrency(heroMetrics.bestTrade)
                 : "--"}
@@ -750,7 +750,7 @@ export default function AnalyticsPage() {
                     className={`h-7 px-2.5 font-mono text-xs ${
                       timeframe === tf
                         ? "bg-gray-900 text-white hover:bg-gray-800 hover:text-white"
-                        : "text-muted-foreground hover:bg-muted hover:text-gray-900"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
                     {tf}
@@ -773,7 +773,7 @@ export default function AnalyticsPage() {
                       <p
                         className={`font-mono text-sm font-bold tabular-nums ${
                           rangeMeasurement.pnlPct >= 0
-                            ? "text-gray-900"
+                            ? "text-foreground"
                             : "text-muted-foreground"
                         }`}
                       >
@@ -1007,7 +1007,7 @@ export default function AnalyticsPage() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-foreground hover:bg-muted">
+                    <TableRow className="border-border hover:bg-muted">
                       <TableHead className="text-foreground font-semibold">
                         Symbol
                       </TableHead>
@@ -1035,7 +1035,7 @@ export default function AnalyticsPage() {
                     {symbolData.map((row) => (
                       <TableRow
                         key={row.symbol}
-                        className="border-gray-300 even:bg-muted/50 hover:bg-black/[0.02] transition-colors duration-150"
+                        className="border-border even:bg-muted/50 hover:bg-muted/30 transition-colors duration-150"
                       >
                         <TableCell className="font-mono font-semibold text-foreground">
                           {row.symbol}

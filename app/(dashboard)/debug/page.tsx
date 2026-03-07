@@ -77,27 +77,27 @@ export default function DebugPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-black">Debug & Testing</h1>
-        <p className="mt-2 text-sm text-gray-500">
+        <h1 className="text-3xl font-bold text-foreground">Debug & Testing</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           Manually test the trading loop and view system diagnostics
         </p>
       </div>
 
       {/* Credentials Check */}
-      <Card className="border-black">
+      <Card className="border-foreground">
         <CardHeader>
-          <CardTitle className="text-black">Credentials Status</CardTitle>
+          <CardTitle className="text-foreground">Credentials Status</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-black">ZhipuAI API Key</span>
+              <span className="text-sm text-foreground">ZhipuAI API Key</span>
               <Badge
                 variant={credentials?.hasZhipuaiApiKey ? "default" : "outline"}
                 className={
                   credentials?.hasZhipuaiApiKey
-                    ? "bg-black text-white"
-                    : "border-gray-300 text-gray-500"
+                    ? "bg-foreground text-background"
+                    : "border-gray-300 text-muted-foreground"
                 }
               >
                 {credentials?.hasZhipuaiApiKey ? (
@@ -115,13 +115,13 @@ export default function DebugPage() {
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-sm text-black">OpenRouter API Key</span>
+              <span className="text-sm text-foreground">OpenRouter API Key</span>
               <Badge
                 variant={credentials?.hasOpenrouterApiKey ? "default" : "outline"}
                 className={
                   credentials?.hasOpenrouterApiKey
-                    ? "bg-black text-white"
-                    : "border-gray-300 text-gray-500"
+                    ? "bg-foreground text-background"
+                    : "border-gray-300 text-muted-foreground"
                 }
               >
                 {credentials?.hasOpenrouterApiKey ? (
@@ -139,13 +139,13 @@ export default function DebugPage() {
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-sm text-black">Hyperliquid Wallet</span>
+              <span className="text-sm text-foreground">Hyperliquid Wallet</span>
               <Badge
                 variant={credentials?.hasHyperliquidPrivateKey ? "default" : "outline"}
                 className={
                   credentials?.hasHyperliquidPrivateKey
-                    ? "bg-black text-white"
-                    : "border-gray-300 text-gray-500"
+                    ? "bg-foreground text-background"
+                    : "border-gray-300 text-muted-foreground"
                 }
               >
                 {credentials?.hasHyperliquidPrivateKey ? (
@@ -163,17 +163,17 @@ export default function DebugPage() {
             </div>
 
             {credentials?.hyperliquidAddress && (
-              <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-                <span className="text-sm text-black">Wallet Address</span>
-                <span className="text-xs text-gray-500 font-mono">
+              <div className="flex items-center justify-between pt-2 border-t border-border">
+                <span className="text-sm text-foreground">Wallet Address</span>
+                <span className="text-xs text-muted-foreground font-mono">
                   {credentials.hyperliquidAddress.slice(0, 6)}...{credentials.hyperliquidAddress.slice(-4)}
                 </span>
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-              <span className="text-sm text-black">Network</span>
-              <Badge variant="outline" className="border-black text-black">
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <span className="text-sm text-foreground">Network</span>
+              <Badge variant="outline" className="border-foreground text-foreground">
                 {credentials?.hyperliquidTestnet ? "Testnet" : "Mainnet"}
               </Badge>
             </div>
@@ -182,25 +182,25 @@ export default function DebugPage() {
       </Card>
 
       {/* Bot Configuration */}
-      <Card className="border-black">
+      <Card className="border-foreground">
         <CardHeader>
-          <CardTitle className="text-black">Bot Configuration</CardTitle>
+          <CardTitle className="text-foreground">Bot Configuration</CardTitle>
         </CardHeader>
         <CardContent>
           {!botConfig ? (
-            <div className="py-4 text-center text-sm text-gray-500">
+            <div className="py-4 text-center text-sm text-muted-foreground">
               No bot configuration found. Please configure in Settings.
             </div>
           ) : (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-black">Status</span>
+                <span className="text-sm text-foreground">Status</span>
                 <Badge
                   variant={botConfig.isActive ? "default" : "outline"}
                   className={
                     botConfig.isActive
-                      ? "bg-black text-white"
-                      : "border-gray-300 text-gray-500"
+                      ? "bg-foreground text-background"
+                      : "border-gray-300 text-muted-foreground"
                   }
                 >
                   {botConfig.isActive ? "ACTIVE" : "INACTIVE"}
@@ -208,23 +208,23 @@ export default function DebugPage() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-black">AI Model</span>
-                <span className="text-sm text-gray-600">{botConfig.modelName}</span>
+                <span className="text-sm text-foreground">AI Model</span>
+                <span className="text-sm text-muted-foreground">{botConfig.modelName}</span>
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-black">Trading Symbols</span>
-                <span className="text-sm text-gray-600">{botConfig.symbols.join(", ")}</span>
+                <span className="text-sm text-foreground">Trading Symbols</span>
+                <span className="text-sm text-muted-foreground">{botConfig.symbols.join(", ")}</span>
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-black">Max Leverage</span>
-                <span className="text-sm text-gray-600">{botConfig.maxLeverage}x</span>
+                <span className="text-sm text-foreground">Max Leverage</span>
+                <span className="text-sm text-muted-foreground">{botConfig.maxLeverage}x</span>
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-black">Max Position Size</span>
-                <span className="text-sm text-gray-600">{(botConfig.maxPositionSize * 100).toFixed(0)}%</span>
+                <span className="text-sm text-foreground">Max Position Size</span>
+                <span className="text-sm text-muted-foreground">{(botConfig.maxPositionSize * 100).toFixed(0)}%</span>
               </div>
             </div>
           )}
@@ -232,13 +232,13 @@ export default function DebugPage() {
       </Card>
 
       {/* Manual Test */}
-      <Card className="border-black">
+      <Card className="border-foreground">
         <CardHeader>
-          <CardTitle className="text-black">Manual Trading Loop Test</CardTitle>
+          <CardTitle className="text-foreground">Manual Trading Loop Test</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <Alert className="border-gray-200">
+            <Alert className="border-border">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Test Mode</AlertTitle>
               <AlertDescription>
@@ -250,7 +250,7 @@ export default function DebugPage() {
             <Button
               onClick={runManualTest}
               disabled={isRunning || !credentials?.hasHyperliquidPrivateKey}
-              className="w-full bg-black text-white hover:bg-gray-800"
+              className="w-full bg-foreground text-background hover:bg-foreground/80"
             >
               {isRunning ? (
                 <>
@@ -267,10 +267,10 @@ export default function DebugPage() {
 
             {/* AI Decision Result */}
             {aiDecision && (
-              <div className="border-2 border-black bg-white p-4">
+              <div className="border-2 border-foreground bg-background p-4">
                 <div className="text-center">
-                  <div className="text-sm text-gray-500 mb-1">AI Decision</div>
-                  <div className="text-2xl font-bold text-black">{aiDecision}</div>
+                  <div className="text-sm text-muted-foreground mb-1">AI Decision</div>
+                  <div className="text-2xl font-bold text-foreground">{aiDecision}</div>
                 </div>
               </div>
             )}
@@ -280,15 +280,15 @@ export default function DebugPage() {
               <Alert
                 className={
                   testResult === "success"
-                    ? "border-black bg-white"
+                    ? "border-foreground bg-background"
                     : "border-red-300 bg-red-50"
                 }
               >
                 {testResult === "success" ? (
                   <>
-                    <CheckCircle className="h-4 w-4 text-black" />
-                    <AlertTitle className="text-black">Test Passed</AlertTitle>
-                    <AlertDescription className="text-gray-600">
+                    <CheckCircle className="h-4 w-4 text-foreground" />
+                    <AlertTitle className="text-foreground">Test Passed</AlertTitle>
+                    <AlertDescription className="text-muted-foreground">
                       Trading loop completed successfully. Check the logs below.
                     </AlertDescription>
                   </>
@@ -306,8 +306,8 @@ export default function DebugPage() {
 
             {/* Test Log */}
             {testLog.length > 0 && (
-              <div className="border border-gray-200 bg-gray-50 p-4">
-                <h4 className="text-sm font-semibold text-black mb-2">Test Log</h4>
+              <div className="border border-border bg-muted p-4">
+                <h4 className="text-sm font-semibold text-foreground mb-2">Test Log</h4>
                 <ScrollArea className="h-[300px]">
                   <div className="space-y-1 font-mono text-xs">
                     {testLog.map((log, i) => (
@@ -317,8 +317,8 @@ export default function DebugPage() {
                           log.includes("❌")
                             ? "text-red-600"
                             : log.includes("✅")
-                            ? "text-black"
-                            : "text-gray-600"
+                            ? "text-foreground"
+                            : "text-muted-foreground"
                         }
                       >
                         {log}

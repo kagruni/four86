@@ -81,6 +81,8 @@ interface ClosePositionParams {
   testnet: boolean;
 }
 
+type OrderExecutionStatus = "filled" | "resting" | "unknown";
+
 /**
  * Get the Hyperliquid API URL based on testnet flag
  */
@@ -252,7 +254,15 @@ export async function setLeverage(
  */
 export async function placeOrder(
   params: PlaceOrderParams
-): Promise<{ success: boolean; txHash: string; price: number; avgPx?: number; totalSz?: number }> {
+): Promise<{
+  success: boolean;
+  txHash: string;
+  price: number;
+  avgPx?: number;
+  totalSz?: number;
+  status: OrderExecutionStatus;
+  orderId?: number;
+}> {
   const { privateKey, symbol, isBuy, size, price, testnet, reduceOnly = false, timeInForce = "Gtc" } = params;
 
   try {
@@ -318,6 +328,8 @@ export async function placeOrder(
 
     let avgPx: number | undefined;
     let totalSz: number | undefined;
+    let statusType: OrderExecutionStatus = "unknown";
+    let orderId: number | undefined;
 
     if (status) {
       if ("error" in status) {
@@ -328,9 +340,13 @@ export async function placeOrder(
         txHash = `filled_${status.filled.oid}`;
         avgPx = parseFloat(status.filled.avgPx);
         totalSz = parseFloat(status.filled.totalSz);
+        statusType = "filled";
+        orderId = status.filled.oid;
         console.log(`[placeOrder] Order FILLED: oid=${status.filled.oid}, totalSz=${totalSz}, avgPx=${avgPx}`);
       } else if ("resting" in status) {
         txHash = `resting_${status.resting.oid}`;
+        statusType = "resting";
+        orderId = status.resting.oid;
         console.log(`[placeOrder] Order RESTING: oid=${status.resting.oid}`);
       }
     } else {
@@ -343,6 +359,8 @@ export async function placeOrder(
       price,
       avgPx,
       totalSz,
+      status: statusType,
+      orderId,
     };
   } catch (error) {
     console.error("Error placing order on Hyperliquid:", error);
@@ -542,11 +560,18 @@ export async function placeTakeProfit(
 
 /**
  * Close a position by placing a reduce-only order in the opposite direction
- * Uses aggressive slippage (3%) to ensure immediate fill at market price
+ * Uses aggressive slippage (3%) and IOC so reduce-only closes do not rest on the book.
  */
 export async function closePosition(
   params: ClosePositionParams
-): Promise<{ success: boolean; txHash: string; avgPx?: number; totalSz?: number }> {
+): Promise<{
+  success: boolean;
+  txHash: string;
+  avgPx?: number;
+  totalSz?: number;
+  status: OrderExecutionStatus;
+  orderId?: number;
+}> {
   const { privateKey, symbol, size, price, isBuy, testnet } = params;
 
   try {
@@ -574,7 +599,7 @@ export async function closePosition(
       price: priceWithSlippage,
       testnet,
       reduceOnly: true, // Important: this ensures we only close, not open a reverse position
-      timeInForce: "Gtc", // Good-Till-Cancel: keep trying until filled (safer for closes)
+      timeInForce: "Ioc", // Immediate-Or-Cancel: either fill now or cancel the remainder
     });
 
     console.log(`[closePosition] Close order result:`, result);
@@ -584,6 +609,8 @@ export async function closePosition(
       txHash: result.txHash,
       avgPx: result.avgPx,
       totalSz: result.totalSz,
+      status: result.status,
+      orderId: result.orderId,
     };
   } catch (error) {
     console.error("Error closing position on Hyperliquid:", error);

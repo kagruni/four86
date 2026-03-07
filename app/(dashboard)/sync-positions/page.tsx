@@ -47,16 +47,16 @@ export default function SyncPositionsPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Manual Position Sync</h1>
-        <p className="text-gray-600 mt-2">
+        <h1 className="text-3xl font-bold text-foreground">Manual Position Sync</h1>
+        <p className="text-muted-foreground mt-2">
           Manually trigger position synchronization with Hyperliquid
         </p>
       </div>
 
-      <Card className="bg-white border-gray-200">
+      <Card className="bg-background border-border">
         <CardHeader>
-          <CardTitle className="text-gray-900">Position Sync</CardTitle>
-          <CardDescription className="text-gray-600">
+          <CardTitle className="text-foreground">Position Sync</CardTitle>
+          <CardDescription className="text-muted-foreground">
             Click the button below to manually sync your positions with Hyperliquid.
             This will remove any positions from the database that are no longer on the exchange.
           </CardDescription>

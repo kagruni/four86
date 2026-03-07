@@ -272,6 +272,7 @@ export const placeOrder = action({
     size: v.number(),
     leverage: v.number(),
     price: v.optional(v.number()),
+    timeInForce: v.optional(v.union(v.literal("Gtc"), v.literal("Ioc"), v.literal("Alo"))),
     testnet: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -298,6 +299,7 @@ export const placeOrder = action({
         isBuy: args.isBuy,
         size: args.size,
         price: orderPrice,
+        timeInForce: args.timeInForce,
         testnet: args.testnet,
       });
 
@@ -313,6 +315,10 @@ export const placeOrder = action({
         success: result.success,
         price: orderPrice,
         txHash: result.txHash,
+        avgPx: result.avgPx,
+        totalSz: result.totalSz,
+        status: result.status,
+        orderId: result.orderId,
       };
     } catch (error) {
       console.error("Error placing order:", error);
@@ -437,6 +443,8 @@ export const closePosition = action({
         price: closePrice,
         avgPx: result.avgPx,
         totalSz: result.totalSz,
+        status: result.status,
+        orderId: result.orderId,
       };
     } catch (error) {
       console.error("Error closing position:", error);

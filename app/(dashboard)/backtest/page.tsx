@@ -392,7 +392,7 @@ function BacktestRow({
   return (
     <>
       <TableRow
-        className="cursor-pointer hover:bg-gray-50"
+        className="cursor-pointer hover:bg-muted"
         onClick={onToggle}
       >
         <TableCell>
@@ -493,7 +493,7 @@ function BacktestRow({
       {/* Expanded trade details */}
       {isExpanded && (
         <TableRow>
-          <TableCell colSpan={11} className="bg-gray-50 p-0">
+          <TableCell colSpan={11} className="bg-muted p-0">
             <TradeDetails
               run={run}
               results={expandedResults}
@@ -516,7 +516,7 @@ function TradeRow({ trade }: { trade: any }) {
   return (
     <>
       <TableRow
-        className={isLong ? "cursor-pointer hover:bg-gray-50/50" : ""}
+        className={isLong ? "cursor-pointer hover:bg-muted/50" : ""}
         onClick={() => isLong && setExpanded(!expanded)}
       >
         <TableCell className="text-xs">
@@ -569,9 +569,9 @@ function TradeRow({ trade }: { trade: any }) {
       </TableRow>
       {expanded && (
         <TableRow>
-          <TableCell colSpan={8} className="bg-gray-50/70 px-4 py-3">
+          <TableCell colSpan={8} className="bg-muted/70 px-4 py-3">
             <div className="space-y-1">
-              <p className="text-xs font-medium text-gray-700">AI Reasoning</p>
+              <p className="text-xs font-medium text-muted-foreground">AI Reasoning</p>
               <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
                 {reasoning}
               </p>

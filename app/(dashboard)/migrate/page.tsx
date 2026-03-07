@@ -51,13 +51,13 @@ export default function MigrationPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Database Migration</h1>
-        <p className="text-gray-600 mt-2">
+        <h1 className="text-3xl font-bold text-foreground">Database Migration</h1>
+        <p className="text-muted-foreground mt-2">
           Run database migrations to update schema
         </p>
       </div>
 
-      <Alert className="border-yellow-400 bg-yellow-50">
+      <Alert className="border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 dark:border-yellow-800">
         <AlertCircle className="h-4 w-4 text-yellow-600" />
         <AlertTitle className="text-yellow-800">Warning</AlertTitle>
         <AlertDescription className="text-yellow-700">
@@ -66,10 +66,10 @@ export default function MigrationPage() {
         </AlertDescription>
       </Alert>
 
-      <Card className="bg-white border-gray-200">
+      <Card className="bg-background border-border">
         <CardHeader>
-          <CardTitle className="text-gray-900">Remove stopLossEnabled Field</CardTitle>
-          <CardDescription className="text-gray-600">
+          <CardTitle className="text-foreground">Remove stopLossEnabled Field</CardTitle>
+          <CardDescription className="text-muted-foreground">
             Click the button below to run the migration that removes the deprecated field from your bot configuration.
           </CardDescription>
         </CardHeader>

@@ -470,7 +470,7 @@ export default function DashboardPage() {
             variant={isBotActive ? "default" : "outline"}
             className={
               isBotActive
-                ? "bg-black text-white border-foreground"
+                ? "bg-foreground text-background border-foreground"
                 : "bg-background text-foreground border-foreground"
             }
           >
@@ -479,7 +479,7 @@ export default function DashboardPage() {
           <Button
             variant="outline"
             size="sm"
-            className="border-foreground text-foreground hover:bg-black hover:text-white"
+            className="border-foreground text-foreground hover:bg-foreground hover:text-background"
             onClick={handleRefreshPositions}
             disabled={isLoadingPositions}
           >
@@ -494,8 +494,8 @@ export default function DashboardPage() {
             size="sm"
             className={
               isBotActive
-                ? "border-foreground text-foreground hover:bg-black hover:text-white"
-                : "bg-black text-white hover:bg-foreground/80"
+                ? "border-foreground text-foreground hover:bg-foreground hover:text-background"
+                : "bg-foreground text-background hover:bg-foreground/80"
             }
             onClick={handleToggleBot}
             disabled={isToggling}
@@ -531,7 +531,7 @@ export default function DashboardPage() {
       >
         <Card className={`border overflow-hidden transition-all duration-300 ${
           cbIsTripped
-            ? "border-gray-900 bg-foreground text-white"
+            ? "border-foreground bg-gray-950 dark:bg-gray-900 text-white"
             : cbIsCooldown
               ? "border-gray-300 bg-muted text-foreground"
               : "border-border bg-background text-foreground"
@@ -619,7 +619,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0 }}
         >
-          <Card className="h-full bg-foreground text-white border border-border overflow-hidden">
+          <Card className="h-full bg-gray-950 dark:bg-gray-900 text-white border border-border overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
                 <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -797,7 +797,7 @@ export default function DashboardPage() {
                       <div key={position._id} className="border border-border overflow-hidden">
                         <button
                           type="button"
-                          className={`w-full text-left p-3 transition-colors ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50/50"}`}
+                          className={`w-full text-left p-3 transition-colors ${isExpanded ? "bg-muted" : "hover:bg-muted/50"}`}
                           onClick={() => setExpandedPosition(isExpanded ? null : position.symbol)}
                         >
                           {/* Row 1: Symbol, Side badge, P&L */}
@@ -878,7 +878,7 @@ export default function DashboardPage() {
                         </button>
 
                         {/* Sell button — always visible on mobile */}
-                        <div className="flex items-center justify-end border-t border-gray-100 px-3 py-2 bg-gray-50/30">
+                        <div className="flex items-center justify-end border-t border-border px-3 py-2 bg-muted/30">
                           <Button
                             variant="outline"
                             size="sm"
@@ -911,7 +911,7 @@ export default function DashboardPage() {
                                 height: { duration: 0.3, ease: "easeOut" as const },
                                 opacity: { duration: 0.2, ease: "easeOut" as const },
                               }}
-                              className="overflow-hidden border-t border-gray-100 bg-gray-50/50"
+                              className="overflow-hidden border-t border-border bg-muted/50"
                             >
                               <div className="px-2 py-3">
                                 <PositionChart
@@ -939,7 +939,7 @@ export default function DashboardPage() {
                 <div className="hidden md:block overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-foreground hover:bg-gray-50">
+                      <TableRow className="border-border hover:bg-muted">
                         <TableHead className="text-foreground font-semibold">Symbol</TableHead>
                         <TableHead className="text-foreground font-semibold">Side</TableHead>
                         <TableHead className="text-foreground font-semibold">Leverage</TableHead>
@@ -960,7 +960,7 @@ export default function DashboardPage() {
                         return (
                           <React.Fragment key={position._id}>
                             <TableRow
-                              className={`border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150 cursor-pointer ${isExpanded ? "bg-gray-50" : ""}`}
+                              className={`border-border even:bg-muted/50 hover:bg-muted/30 transition-colors duration-150 cursor-pointer ${isExpanded ? "bg-muted" : ""}`}
                               onClick={() =>
                                 setExpandedPosition(
                                   isExpanded ? null : position.symbol
@@ -1058,7 +1058,7 @@ export default function DashboardPage() {
                                         height: { duration: 0.3, ease: "easeOut" as const },
                                         opacity: { duration: 0.2, ease: "easeOut" as const },
                                       }}
-                                      className="overflow-hidden border-t border-gray-100 bg-gray-50/50"
+                                      className="overflow-hidden border-t border-border bg-muted/50"
                                     >
                                       <div className="px-6 py-3">
                                         <PositionChart
@@ -1120,7 +1120,7 @@ export default function DashboardPage() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-foreground hover:bg-gray-50">
+                    <TableRow className="border-border hover:bg-muted">
                       <TableHead className="text-foreground font-semibold">Symbol</TableHead>
                       <TableHead className="text-foreground font-semibold">Side</TableHead>
                       <TableHead className="text-foreground font-semibold">Type</TableHead>
@@ -1165,7 +1165,7 @@ export default function DashboardPage() {
                       return (
                         <TableRow
                           key={oid || index}
-                          className="border-gray-300 even:bg-gray-50/50 hover:bg-black/[0.02] transition-colors duration-150"
+                          className="border-border even:bg-muted/50 hover:bg-muted/30 transition-colors duration-150"
                         >
                           <TableCell className="font-mono font-semibold text-foreground">
                             {coin || "-"}

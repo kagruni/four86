@@ -530,6 +530,12 @@ export const manualClosePosition = action({
       const entryPrice = dbPosition?.entryPrice || 0;
       const leverage = dbPosition?.leverage || 1;
 
+      await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+        privateKey: credentials.hyperliquidPrivateKey,
+        address: credentials.hyperliquidAddress,
+        symbol: args.symbol,
+        testnet: credentials.hyperliquidTestnet,
+      });
       await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
         privateKey: credentials.hyperliquidPrivateKey,
         address: credentials.hyperliquidAddress,
@@ -548,6 +554,10 @@ export const manualClosePosition = action({
         isBuy: args.side === "SHORT", // Opposite of position side
         testnet: credentials.hyperliquidTestnet,
       });
+
+      if (result.status !== "filled") {
+        throw new Error(`Close order was not filled immediately (status: ${result.status})`);
+      }
 
       console.log(`[Manual Close] Position closed on Hyperliquid:`, result);
 

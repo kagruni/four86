@@ -104,8 +104,8 @@ function LongEntryShape(props: any) {
     <g>
       <polygon
         points={`${cx},${cy - 10} ${cx - 8},${cy + 4} ${cx + 8},${cy + 4}`}
-        fill="#000"
-        stroke="#fff"
+        fill="currentColor"
+        stroke="hsl(var(--background))"
         strokeWidth={1.5}
       />
     </g>
@@ -129,7 +129,7 @@ function ShortEntryShape(props: any) {
 function ProfitExitShape(props: any) {
   const { cx = 0, cy = 0 } = props;
   return (
-    <circle cx={cx} cy={cy} r={6} fill="#000" stroke="#fff" strokeWidth={1.5} />
+    <circle cx={cx} cy={cy} r={6} fill="currentColor" stroke="hsl(var(--background))" strokeWidth={1.5} />
   );
 }
 
@@ -183,7 +183,7 @@ function ChartTooltip({ active, payload, label, trades }: any) {
   });
 
   return (
-    <div className="rounded border border-gray-200 bg-white px-3 py-2 shadow-sm">
+    <div className="rounded border border-border bg-background px-3 py-2 shadow-sm">
       <p className="font-mono text-xs tabular-nums text-muted-foreground">
         {new Date(time).toLocaleString("en-US", {
           month: "short",
@@ -377,7 +377,7 @@ export default function BacktestChart({
   }
 
   return (
-    <div className="border-t border-gray-200 pt-3 pb-2">
+    <div className="border-t border-border pt-3 pb-2">
       {/* View toggles */}
       <div className="mb-2 flex items-center gap-2 px-1">
         <span className="text-xs text-muted-foreground mr-1">View:</span>
@@ -464,11 +464,11 @@ export default function BacktestChart({
           <Area
             type="monotone"
             dataKey="close"
-            stroke="#000"
+            stroke="currentColor"
             strokeWidth={1.5}
             fill="url(#priceGrad)"
             dot={false}
-            activeDot={{ r: 3, fill: "#000", stroke: "#fff", strokeWidth: 1 }}
+            activeDot={{ r: 3, fill: "currentColor", stroke: "hsl(var(--background))", strokeWidth: 1 }}
             isAnimationActive={false}
           />
 
@@ -530,7 +530,7 @@ export default function BacktestChart({
                   ? {
                       value: `${m.pnl >= 0 ? "+" : ""}$${m.pnl.toFixed(2)}`,
                       position: "right",
-                      fill: m.pnl >= 0 ? "#000" : "#dc2626",
+                      fill: m.pnl >= 0 ? "currentColor" : "#dc2626",
                       fontSize: 10,
                       fontFamily: "monospace",
                       offset: 8,
@@ -548,8 +548,8 @@ export default function BacktestChart({
           <svg width="12" height="12" viewBox="0 0 12 12">
             <polygon
               points="6,1 1,10 11,10"
-              fill="#000"
-              stroke="#fff"
+              fill="currentColor"
+              stroke="hsl(var(--background))"
               strokeWidth="0.5"
             />
           </svg>
@@ -568,7 +568,7 @@ export default function BacktestChart({
         </span>
         <span className="flex items-center gap-1">
           <svg width="12" height="12" viewBox="0 0 12 12">
-            <circle cx="6" cy="6" r="4" fill="#000" stroke="#fff" strokeWidth="1" />
+            <circle cx="6" cy="6" r="4" fill="currentColor" stroke="hsl(var(--background))" strokeWidth="1" />
           </svg>
           Profit Exit
         </span>

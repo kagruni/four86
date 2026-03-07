@@ -138,7 +138,7 @@ export default function TelegramSettings() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-gray-900 flex items-center gap-2">
+              <CardTitle className="text-foreground flex items-center gap-2">
                 <MessageSquare className="h-5 w-5" />
                 Telegram Integration
               </CardTitle>
@@ -150,8 +150,8 @@ export default function TelegramSettings() {
               variant={isLinked ? "default" : "secondary"}
               className={
                 isLinked
-                  ? "bg-green-100 text-green-800 border-green-200"
-                  : "bg-gray-100 text-muted-foreground border-border"
+                  ? "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
+                  : "bg-muted text-muted-foreground border-border"
               }
             >
               {isLinked ? "Connected" : "Not Connected"}
@@ -169,7 +169,7 @@ export default function TelegramSettings() {
                   <Button
                     onClick={handleGenerateCode}
                     disabled={isGenerating}
-                    className="bg-gray-900 text-white hover:bg-gray-800"
+                    className="bg-foreground text-background hover:bg-foreground/80"
                   >
                     {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {isGenerating ? "Generating..." : "Generate Link Code"}
@@ -178,10 +178,10 @@ export default function TelegramSettings() {
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Send this command to <span className="font-semibold text-gray-900">@Four86Bot</span> on Telegram:
+                    Send this command to <span className="font-semibold text-foreground">@Four86Bot</span> on Telegram:
                   </p>
                   <div className="flex items-center gap-2 bg-muted border border-border p-3">
-                    <code className="flex-1 font-mono text-sm text-gray-900 tabular-nums">
+                    <code className="flex-1 font-mono text-sm text-foreground tabular-nums">
                       /link {verificationCode}
                     </code>
                     <Button
@@ -237,7 +237,7 @@ export default function TelegramSettings() {
       {isLinked && (
         <Card className="bg-background border border-border">
           <CardHeader>
-            <CardTitle className="text-gray-900">Notification Preferences</CardTitle>
+            <CardTitle className="text-foreground">Notification Preferences</CardTitle>
             <CardDescription className="text-muted-foreground">
               Choose which notifications to receive on Telegram
             </CardDescription>
@@ -245,7 +245,7 @@ export default function TelegramSettings() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label className="text-gray-900">Trade Opened</Label>
+                <Label className="text-foreground">Trade Opened</Label>
                 <p className="text-sm text-muted-foreground">
                   Get notified when a new position is opened
                 </p>
@@ -256,11 +256,11 @@ export default function TelegramSettings() {
               />
             </div>
 
-            <Separator className="bg-gray-200" />
+            <Separator className="bg-border" />
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label className="text-gray-900">Trade Closed</Label>
+                <Label className="text-foreground">Trade Closed</Label>
                 <p className="text-sm text-muted-foreground">
                   Get notified when a position is closed with P&L details
                 </p>
@@ -271,11 +271,11 @@ export default function TelegramSettings() {
               />
             </div>
 
-            <Separator className="bg-gray-200" />
+            <Separator className="bg-border" />
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label className="text-gray-900">Risk Alerts</Label>
+                <Label className="text-foreground">Risk Alerts</Label>
                 <p className="text-sm text-muted-foreground">
                   Circuit breaker triggers, emergency closes, and bot errors
                 </p>
@@ -286,11 +286,11 @@ export default function TelegramSettings() {
               />
             </div>
 
-            <Separator className="bg-gray-200" />
+            <Separator className="bg-border" />
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label className="text-gray-900">Daily Summary</Label>
+                <Label className="text-foreground">Daily Summary</Label>
                 <p className="text-sm text-muted-foreground">
                   Receive a daily performance digest
                 </p>
@@ -301,11 +301,11 @@ export default function TelegramSettings() {
               />
             </div>
 
-            <Separator className="bg-gray-200" />
+            <Separator className="bg-border" />
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label className="text-gray-900 flex items-center gap-1.5">
+                <Label className="text-foreground flex items-center gap-1.5">
                   <Bell className="h-4 w-4" />
                   Position Updates
                 </Label>
@@ -317,7 +317,7 @@ export default function TelegramSettings() {
                 value={String(settings?.positionUpdateInterval ?? 0)}
                 onValueChange={handleIntervalChange}
               >
-                <SelectTrigger className="w-[140px] border-border text-gray-900">
+                <SelectTrigger className="w-[140px] border-border text-foreground">
                   <SelectValue placeholder="Off" />
                 </SelectTrigger>
                 <SelectContent>
@@ -339,7 +339,7 @@ export default function TelegramSettings() {
       {isLinked && (
         <Card className="bg-background border border-border">
           <CardHeader>
-            <CardTitle className="text-gray-900">Test Connection</CardTitle>
+            <CardTitle className="text-foreground">Test Connection</CardTitle>
             <CardDescription className="text-muted-foreground">
               Send a test message to verify your Telegram connection
             </CardDescription>

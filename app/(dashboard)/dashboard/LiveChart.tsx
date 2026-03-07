@@ -350,30 +350,52 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
       markersRef.current = null;
     }
 
+    // Theme-aware colors
+    const isDark = document.documentElement.classList.contains("dark");
+    const colors = isDark
+      ? {
+          bg: "#000000", text: "#a3a3a3", grid: "#1a1a1a",
+          crosshair: "#404040", crosshairLabel: "#e5e5e5",
+          border: "#333333",
+          candleUp: "#e5e5e5", candleDown: "#404040",
+          candleBorderUp: "#e5e5e5", candleBorderDown: "#525252",
+          wickUp: "#a3a3a3", wickDown: "#525252",
+          line: "#ffffff", lineBg: "#ffffff", lineBorder: "#000000",
+        }
+      : {
+          bg: "#ffffff", text: "#737373", grid: "#f5f5f5",
+          crosshair: "#d4d4d4", crosshairLabel: "#171717",
+          border: "#e5e5e5",
+          candleUp: "#171717", candleDown: "#d4d4d4",
+          candleBorderUp: "#171717", candleBorderDown: "#a3a3a3",
+          wickUp: "#404040", wickDown: "#a3a3a3",
+          line: "#000000", lineBg: "#000000", lineBorder: "#ffffff",
+        };
+
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
       height: SIZE_MAP[chartSize],
       layout: {
-        background: { color: "#ffffff" },
-        textColor: "#737373",
+        background: { color: colors.bg },
+        textColor: colors.text,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "#f5f5f5" },
-        horzLines: { color: "#f5f5f5" },
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "#d4d4d4", style: LineStyle.Dashed, labelBackgroundColor: "#171717" },
-        horzLine: { color: "#d4d4d4", style: LineStyle.Dashed, labelBackgroundColor: "#171717" },
+        vertLine: { color: colors.crosshair, style: LineStyle.Dashed, labelBackgroundColor: colors.crosshairLabel },
+        horzLine: { color: colors.crosshair, style: LineStyle.Dashed, labelBackgroundColor: colors.crosshairLabel },
       },
       rightPriceScale: {
-        borderColor: "#e5e5e5",
+        borderColor: colors.border,
         scaleMargins: { top: 0.08, bottom: vol ? 0.25 : 0.08 },
       },
       timeScale: {
-        borderColor: "#e5e5e5",
+        borderColor: colors.border,
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 5,
@@ -388,19 +410,19 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     // Price series
     if (type === "candles") {
       seriesRef.current = chart.addSeries(CandlestickSeries, {
-        upColor: "#171717",
-        downColor: "#d4d4d4",
-        borderUpColor: "#171717",
-        borderDownColor: "#a3a3a3",
-        wickUpColor: "#404040",
-        wickDownColor: "#a3a3a3",
+        upColor: colors.candleUp,
+        downColor: colors.candleDown,
+        borderUpColor: colors.candleBorderUp,
+        borderDownColor: colors.candleBorderDown,
+        wickUpColor: colors.wickUp,
+        wickDownColor: colors.wickDown,
       });
     } else {
       seriesRef.current = chart.addSeries(LineSeries, {
-        color: "#000000",
+        color: colors.line,
         lineWidth: 2,
-        crosshairMarkerBackgroundColor: "#000000",
-        crosshairMarkerBorderColor: "#ffffff",
+        crosshairMarkerBackgroundColor: colors.lineBg,
+        crosshairMarkerBorderColor: colors.lineBorder,
         crosshairMarkerRadius: 4,
       });
     }

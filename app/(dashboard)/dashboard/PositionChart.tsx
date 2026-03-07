@@ -78,7 +78,7 @@ function ChartTooltip({ active, payload, label }: any) {
   const d = payload[0]?.payload as CandleData | undefined;
 
   return (
-    <div className="rounded border border-gray-200 bg-background px-3 py-2 shadow-sm">
+    <div className="rounded border border-border bg-background px-3 py-2 shadow-sm">
       <p className="font-mono text-xs tabular-nums text-muted-foreground">
         {new Date(time).toLocaleString("en-US", {
           month: "short",
@@ -93,10 +93,10 @@ function ChartTooltip({ active, payload, label }: any) {
           <span className="text-muted-foreground">H</span>
           <span className="text-muted-foreground">L</span>
           <span className="text-muted-foreground">C</span>
-          <span className="text-gray-900">{fmtPrice(d.open)}</span>
-          <span className="text-gray-900">{fmtPrice(d.high)}</span>
-          <span className="text-gray-900">{fmtPrice(d.low)}</span>
-          <span className="text-gray-900">{fmtPrice(d.close)}</span>
+          <span className="text-foreground">{fmtPrice(d.open)}</span>
+          <span className="text-foreground">{fmtPrice(d.high)}</span>
+          <span className="text-foreground">{fmtPrice(d.low)}</span>
+          <span className="text-foreground">{fmtPrice(d.close)}</span>
         </div>
       )}
     </div>
@@ -377,12 +377,12 @@ export default function PositionChart({
       {/* Header */}
       <div className="mb-2 flex items-center justify-between px-1">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-mono font-semibold text-gray-900">
+          <span className="text-xs font-mono font-semibold text-foreground">
             {symbol} 5m
           </span>
           <span
             className={`inline-flex items-center gap-1 text-xs font-mono ${
-              wsConnected ? "text-gray-900" : "text-muted-foreground"
+              wsConnected ? "text-foreground" : "text-muted-foreground"
             }`}
           >
             <span
@@ -451,24 +451,24 @@ export default function PositionChart({
           <Area
             type="monotone"
             dataKey="close"
-            stroke="#000"
+            stroke="currentColor"
             strokeWidth={1.5}
             fill={`url(#priceGrad-${symbol})`}
             dot={false}
-            activeDot={{ r: 3, fill: "#000", stroke: "#fff", strokeWidth: 1 }}
+            activeDot={{ r: 3, fill: "currentColor", stroke: "hsl(var(--background))", strokeWidth: 1 }}
             isAnimationActive={false}
           />
 
           {/* Entry Price Reference Line */}
           <ReferenceLine
             y={entryPrice}
-            stroke="#000"
+            stroke="currentColor"
             strokeDasharray="6 3"
             strokeWidth={1}
             label={{
               value: `Entry ${fmtPrice(entryPrice)}`,
               position: "right",
-              fill: "#000",
+              fill: "currentColor",
               fontSize: 10,
               fontFamily: "monospace",
             }}
@@ -532,7 +532,7 @@ export default function PositionChart({
       {/* Legend */}
       <div className="mt-1 flex items-center justify-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-px w-4 bg-black" style={{ borderTop: "2px dashed #000" }} />
+          <span className="inline-block h-px w-4 bg-foreground" style={{ borderTop: "2px dashed currentColor" }} />
           Entry
         </span>
         {effectiveStop && (

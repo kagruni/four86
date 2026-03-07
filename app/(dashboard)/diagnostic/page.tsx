@@ -90,16 +90,16 @@ export default function DiagnosticPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Position Diagnostic</h1>
-        <p className="text-gray-600 mt-2">
+        <h1 className="text-3xl font-bold text-foreground">Position Diagnostic</h1>
+        <p className="text-muted-foreground mt-2">
           Compare database positions with Hyperliquid to find sync issues
         </p>
       </div>
 
-      <Card className="bg-white border-gray-200">
+      <Card className="bg-background border-border">
         <CardHeader>
-          <CardTitle className="text-gray-900">Check Position Status</CardTitle>
-          <CardDescription className="text-gray-600">
+          <CardTitle className="text-foreground">Check Position Status</CardTitle>
+          <CardDescription className="text-muted-foreground">
             This will compare your positions in the database vs Hyperliquid and show any mismatches.
           </CardDescription>
         </CardHeader>
@@ -108,7 +108,7 @@ export default function DiagnosticPage() {
             <Button
               onClick={handleCheck}
               disabled={isChecking || !user}
-              className="bg-gray-900 text-white hover:bg-gray-800"
+              className="bg-foreground text-background hover:bg-foreground/80"
             >
               {isChecking ? (
                 <>
@@ -128,7 +128,7 @@ export default function DiagnosticPage() {
                 onClick={handleRecover}
                 disabled={isRecovering || !user}
                 variant="outline"
-                className="border-green-600 text-green-700 hover:bg-green-50"
+                className="border-green-600 text-green-700 hover:bg-green-50 dark:border-green-500 dark:text-green-400 dark:hover:bg-green-950"
               >
                 {isRecovering ? (
                   <>
@@ -148,23 +148,23 @@ export default function DiagnosticPage() {
           {result && !result.error && (
             <div className="space-y-4 mt-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 border border-gray-200">
-                  <h3 className="font-semibold text-gray-900 mb-2">Database</h3>
-                  <p className="text-2xl font-bold text-gray-900">{result.database.count}</p>
-                  <p className="text-sm text-gray-600">positions</p>
+                <div className="p-4 border border-border">
+                  <h3 className="font-semibold text-foreground mb-2">Database</h3>
+                  <p className="text-2xl font-bold text-foreground">{result.database.count}</p>
+                  <p className="text-sm text-muted-foreground">positions</p>
                   {result.database.symbols.length > 0 && (
-                    <div className="mt-2 text-sm text-gray-700">
+                    <div className="mt-2 text-sm text-muted-foreground">
                       {result.database.symbols.join(", ")}
                     </div>
                   )}
                 </div>
 
-                <div className="p-4 border border-gray-200">
-                  <h3 className="font-semibold text-gray-900 mb-2">Hyperliquid</h3>
-                  <p className="text-2xl font-bold text-gray-900">{result.hyperliquid.count}</p>
-                  <p className="text-sm text-gray-600">positions</p>
+                <div className="p-4 border border-border">
+                  <h3 className="font-semibold text-foreground mb-2">Hyperliquid</h3>
+                  <p className="text-2xl font-bold text-foreground">{result.hyperliquid.count}</p>
+                  <p className="text-sm text-muted-foreground">positions</p>
                   {result.hyperliquid.symbols.length > 0 && (
-                    <div className="mt-2 text-sm text-gray-700">
+                    <div className="mt-2 text-sm text-muted-foreground">
                       {result.hyperliquid.symbols.join(", ")}
                     </div>
                   )}
@@ -172,7 +172,7 @@ export default function DiagnosticPage() {
               </div>
 
               {(result.mismatches.inHLNotDb.length > 0 || result.mismatches.inDbNotHL.length > 0) && (
-                <Alert className="border-red-400 bg-red-50">
+                <Alert className="border-red-400 bg-red-50 dark:bg-red-950/30 dark:border-red-800">
                   <AlertTitle className="text-red-800">Mismatches Found</AlertTitle>
                   <AlertDescription className="text-red-700">
                     {result.mismatches.inHLNotDb.length > 0 && (
@@ -192,7 +192,7 @@ export default function DiagnosticPage() {
               )}
 
               {result.mismatches.inHLNotDb.length === 0 && result.mismatches.inDbNotHL.length === 0 && (
-                <Alert className="border-green-400 bg-green-50">
+                <Alert className="border-green-400 bg-green-50 dark:bg-green-950/30 dark:border-green-800">
                   <AlertTitle className="text-green-800">✓ In Sync</AlertTitle>
                   <AlertDescription className="text-green-700">
                     Database and Hyperliquid positions match perfectly.
@@ -202,8 +202,8 @@ export default function DiagnosticPage() {
 
               {result.hyperliquid.raw && result.hyperliquid.raw.length > 0 && (
                 <div className="mt-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">Hyperliquid Position Details:</h4>
-                  <pre className="bg-gray-100 p-4 rounded text-xs overflow-auto max-h-96">
+                  <h4 className="font-semibold text-foreground mb-2">Hyperliquid Position Details:</h4>
+                  <pre className="bg-muted p-4 text-xs overflow-auto max-h-96">
                     {JSON.stringify(result.hyperliquid.raw, null, 2)}
                   </pre>
                 </div>
