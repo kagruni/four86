@@ -1,6 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
+import { Loader2 } from "lucide-react";
 import Nav from "./components/landing/Nav";
 import Hero from "./components/landing/Hero";
 import Proof from "./components/landing/Proof";
@@ -14,12 +15,8 @@ export default function Home() {
 
   if (!isLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <img
-          src="/logo-animation-fast.gif"
-          alt="Loading"
-          className="h-16 w-auto"
-        />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-foreground" />
       </div>
     );
   }

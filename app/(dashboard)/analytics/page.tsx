@@ -749,7 +749,7 @@ export default function AnalyticsPage() {
                     onClick={() => setTimeframe(tf)}
                     className={`h-7 px-2.5 font-mono text-xs ${
                       timeframe === tf
-                        ? "bg-gray-900 text-white hover:bg-gray-800 hover:text-white"
+                        ? "bg-foreground text-background hover:bg-foreground/80 hover:text-background"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
@@ -791,7 +791,7 @@ export default function AnalyticsPage() {
                     </div>
                     <button
                       onClick={clearSelection}
-                      className="mt-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-gray-700"
+                      className="mt-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -818,18 +818,18 @@ export default function AnalyticsPage() {
                       >
                         <stop
                           offset="0%"
-                          stopColor="#000000"
+                          stopColor="hsl(var(--foreground))"
                           stopOpacity={0.08}
                         />
                         <stop
                           offset="100%"
-                          stopColor="#000000"
+                          stopColor="hsl(var(--foreground))"
                           stopOpacity={0.01}
                         />
                       </linearGradient>
                     </defs>
                     <CartesianGrid
-                      stroke="#e5e5e5"
+                      stroke="hsl(var(--border))"
                       strokeDasharray="3 3"
                       vertical={false}
                     />
@@ -839,9 +839,9 @@ export default function AnalyticsPage() {
                       tick={{
                         fontSize: 11,
                         fontFamily: "monospace",
-                        fill: "#737373",
+                        fill: "hsl(var(--muted-foreground))",
                       }}
-                      axisLine={{ stroke: "#e5e5e5" }}
+                      axisLine={{ stroke: "hsl(var(--border))" }}
                       tickLine={false}
                       minTickGap={40}
                     />
@@ -854,7 +854,7 @@ export default function AnalyticsPage() {
                       tick={{
                         fontSize: 11,
                         fontFamily: "monospace",
-                        fill: "#737373",
+                        fill: "hsl(var(--muted-foreground))",
                       }}
                       axisLine={false}
                       tickLine={false}
@@ -877,21 +877,21 @@ export default function AnalyticsPage() {
                               Math.max(rangeStart, rangeEnd)
                             ]?.timestamp
                           }
-                          fill="rgba(0,0,0,0.06)"
+                          fill="hsl(var(--foreground) / 0.06)"
                           strokeOpacity={0}
                         />
                       )}
                     <Area
                       type="monotone"
                       dataKey="accountValue"
-                      stroke="#000000"
+                      stroke="hsl(var(--foreground))"
                       strokeWidth={1.5}
                       fill="url(#equityFill)"
                       dot={false}
                       activeDot={{
                         r: 4,
-                        fill: "#000000",
-                        stroke: "#ffffff",
+                        fill: "hsl(var(--foreground))",
+                        stroke: "hsl(var(--background))",
                         strokeWidth: 2,
                       }}
                     />
@@ -932,7 +932,7 @@ export default function AnalyticsPage() {
                   margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
                 >
                   <CartesianGrid
-                    stroke="#e5e5e5"
+                    stroke="hsl(var(--border))"
                     strokeDasharray="3 3"
                     vertical={false}
                   />
@@ -941,9 +941,9 @@ export default function AnalyticsPage() {
                     tick={{
                       fontSize: 11,
                       fontFamily: "monospace",
-                      fill: "#737373",
+                      fill: "hsl(var(--muted-foreground))",
                     }}
-                    axisLine={{ stroke: "#e5e5e5" }}
+                    axisLine={{ stroke: "hsl(var(--border))" }}
                     tickLine={false}
                     label={{
                       value: "Trade #",
@@ -952,7 +952,7 @@ export default function AnalyticsPage() {
                       style: {
                         fontSize: 10,
                         fontFamily: "monospace",
-                        fill: "#a3a3a3",
+                        fill: "hsl(var(--muted-foreground))",
                       },
                     }}
                   />
@@ -961,19 +961,19 @@ export default function AnalyticsPage() {
                     tick={{
                       fontSize: 11,
                       fontFamily: "monospace",
-                      fill: "#737373",
+                      fill: "hsl(var(--muted-foreground))",
                     }}
                     axisLine={false}
                     tickLine={false}
                     width={55}
                   />
                   <Tooltip content={<TradeBarTooltip />} />
-                  <ReferenceLine y={0} stroke="#d4d4d4" strokeWidth={1} />
+                  <ReferenceLine y={0} stroke="hsl(var(--border))" strokeWidth={1} />
                   <Bar dataKey="pnl" radius={[2, 2, 0, 0]} maxBarSize={24}>
                     {tradeBarData.map((entry, idx) => (
                       <Cell
                         key={`bar-${idx}`}
-                        fill={entry.pnl >= 0 ? "#171717" : "#d4d4d4"}
+                        fill={entry.pnl >= 0 ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"}
                       />
                     ))}
                   </Bar>
@@ -1080,7 +1080,7 @@ export default function AnalyticsPage() {
                 </Table>
 
                 {/* Totals row */}
-                <div className="mt-3 flex items-center justify-between border-t border-gray-900 pt-3 px-4">
+                <div className="mt-3 flex items-center justify-between border-t border-foreground pt-3 px-4">
                   <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
                     Total
                   </span>
@@ -1148,17 +1148,17 @@ export default function AnalyticsPage() {
                         >
                           <CartesianGrid
                             strokeDasharray="3 3"
-                            stroke="#e5e5e5"
+                            stroke="hsl(var(--border))"
                             vertical={false}
                           />
                           <XAxis
                             dataKey="range"
-                            tick={{ fontSize: 10, fill: "#737373" }}
+                            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                             tickLine={false}
-                            axisLine={{ stroke: "#e5e5e5" }}
+                            axisLine={{ stroke: "hsl(var(--border))" }}
                           />
                           <YAxis
-                            tick={{ fontSize: 10, fill: "#737373" }}
+                            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                             tickLine={false}
                             axisLine={false}
                             allowDecimals={false}
@@ -1168,7 +1168,7 @@ export default function AnalyticsPage() {
                             {confidenceBins.map((_, index) => (
                               <Cell
                                 key={`cell-${index}`}
-                                fill={index >= 5 ? "#171717" : "#a3a3a3"}
+                                fill={index >= 5 ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"}
                               />
                             ))}
                           </Bar>
@@ -1291,7 +1291,7 @@ export default function AnalyticsPage() {
               <ScrollArea className="h-[500px] pr-4">
                 <div className="relative">
                   {/* Timeline line */}
-                  <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gray-200" />
+                  <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
 
                   <div className="space-y-0">
                     {recentDecisions.map((log, index) => {
@@ -1315,7 +1315,7 @@ export default function AnalyticsPage() {
                           />
 
                           {/* Content */}
-                          <div className="border border-gray-100 bg-muted/50 p-3 hover:bg-muted transition-colors duration-150">
+                          <div className="border border-border bg-muted/50 p-3 hover:bg-muted transition-colors duration-150">
                             {/* Top row: badge + timestamp */}
                             <div className="flex items-center justify-between mb-2">
                               <Badge
@@ -1334,7 +1334,7 @@ export default function AnalyticsPage() {
                             {log.confidence !== undefined &&
                               log.confidence !== null && (
                                 <div className="mb-2">
-                                  <span className="inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                                  <span className="inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-muted-foreground">
                                     Confidence:{" "}
                                     {(log.confidence * 100).toFixed(0)}%
                                   </span>
@@ -1360,7 +1360,7 @@ export default function AnalyticsPage() {
                             </Accordion>
 
                             {/* Footer: model name + account value */}
-                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
                               <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
                                 {log.modelName}
                               </span>

@@ -93,17 +93,17 @@ function StatusBadge({ status }: { status: "green" | "yellow" | "red" }) {
   const label = statusLabel(status);
 
   if (status === "green") {
-    return <Badge className="bg-gray-900 text-white">{label}</Badge>;
+    return <Badge className="bg-foreground text-background">{label}</Badge>;
   }
   if (status === "yellow") {
     return (
-      <Badge className="bg-gray-200 text-gray-700 border border-gray-300">
+      <Badge className="bg-muted text-muted-foreground border border-border">
         {label}
       </Badge>
     );
   }
   return (
-    <Badge className="bg-white text-gray-900 border-2 border-gray-900">
+    <Badge className="bg-background text-foreground border-2 border-foreground">
       {label}
     </Badge>
   );
@@ -127,15 +127,15 @@ function MetricRow({ metric, metricKey }: { metric: PreFlightMetric; metricKey: 
 
   return (
     <div className="flex items-center gap-3 py-2">
-      <Icon className="h-4 w-4 shrink-0 text-gray-500" />
-      <span className="text-sm font-medium text-gray-900 min-w-[110px]">
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="text-sm font-medium text-foreground min-w-[110px]">
         {metric.name}
       </span>
-      <span className="text-sm font-mono tabular-nums text-gray-700 min-w-[90px]">
+      <span className="text-sm font-mono tabular-nums text-muted-foreground min-w-[90px]">
         {metric.value}
       </span>
       <StatusBadge status={metric.status} />
-      <span className="text-xs text-gray-500 truncate ml-auto">
+      <span className="text-xs text-muted-foreground truncate ml-auto">
         {metric.explanation}
       </span>
     </div>
@@ -144,7 +144,7 @@ function MetricRow({ metric, metricKey }: { metric: PreFlightMetric; metricKey: 
 
 function LoadingSkeleton() {
   return (
-    <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+    <Card className="border border-border">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="space-y-2">
@@ -153,7 +153,7 @@ function LoadingSkeleton() {
           </div>
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-center gap-1">
-              <Loader2 className="h-8 w-8 animate-spin text-gray-900" />
+              <Loader2 className="h-8 w-8 animate-spin text-foreground" />
               <Skeleton className="h-3 w-16" />
             </div>
             <Skeleton className="h-8 w-8 rounded-md" />
@@ -192,9 +192,9 @@ function ErrorState({
   onRetry: () => void;
 }) {
   return (
-    <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+    <Card className="border border-border">
       <CardHeader>
-        <CardTitle className="text-gray-900 font-semibold">
+        <CardTitle className="text-foreground font-semibold">
           Pre-Flight Check
         </CardTitle>
       </CardHeader>
@@ -278,7 +278,7 @@ export default function PreFlightPanel({ symbols, testnet, botActive = false }: 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <Card className="border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+      <Card className="border border-border">
         {/* Collapsible Header — always visible */}
         <CardHeader
           className="cursor-pointer select-none"
@@ -291,13 +291,13 @@ export default function PreFlightPanel({ symbols, testnet, botActive = false }: 
                 animate={{ rotate: isOpen ? 180 : 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <ChevronDown className="h-5 w-5 text-gray-400" />
+                <ChevronDown className="h-5 w-5 text-muted-foreground" />
               </motion.div>
               <div>
-                <CardTitle className="text-gray-900 font-semibold">
+                <CardTitle className="text-foreground font-semibold">
                   {botActive ? "Market Status" : "Pre-Flight Check"}
                 </CardTitle>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                   {isOpen ? "Market conditions assessment" : result.bestTimeHint}
                 </p>
               </div>
@@ -306,7 +306,7 @@ export default function PreFlightPanel({ symbols, testnet, botActive = false }: 
             {/* Right: score + refresh */}
             <div className="flex items-center gap-4">
               <div className="flex flex-col items-center">
-                <span className="text-3xl font-mono font-bold tabular-nums text-gray-900">
+                <span className="text-3xl font-mono font-bold tabular-nums text-foreground">
                   {result.overallScore}
                 </span>
                 <StatusBadge status={result.overallStatus} />
@@ -357,12 +357,12 @@ export default function PreFlightPanel({ symbols, testnet, botActive = false }: 
                 <Separator className="my-3" />
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-500">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
                       {result.bestTimeHint}
                     </span>
                   </div>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-muted-foreground">
                     Last check: {formatTimestamp(result.timestamp)}
                   </span>
                 </div>

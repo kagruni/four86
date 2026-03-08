@@ -114,52 +114,65 @@ function calculateHistoricalIndicators(candles: Candle[], lastN: number = 10) {
   };
 }
 
-/**
- * Get detailed multi-timeframe market data for a single symbol
- */
-async function getDetailedCoinData(
+function averageLast(values: number[], periods: number, fallback: number): number {
+  if (values.length === 0) return fallback;
+  const slice = values.slice(-periods);
+  return slice.reduce((sum, value) => sum + value, 0) / slice.length;
+}
+
+export function buildDetailedCoinDataFromCandles(
   symbol: string,
-  testnet: boolean
-): Promise<DetailedCoinData> {
-  // Fetch 1-minute candles and aggregate to 2-minute (need at least 50 for calculations + 10 for history)
-  const candles1m = await fetchCandlesInternal(symbol, "1m", 120, testnet); // Fetch 120 1m candles
-  const candles2m = aggregate1mTo2m(candles1m); // Aggregate to 2-minute candles
+  candles1m: Candle[],
+  candles1h: Candle[],
+  candles4h: Candle[],
+  candles1d: Candle[]
+): DetailedCoinData {
+  const candles2m = aggregate1mTo2m(candles1m);
 
-  const candles1h = await fetchCandlesInternal(symbol, "1h", 80, testnet);
-  // Fetch 4-hour candles (need at least 50 + 10 for history)
-  const candles4h = await fetchCandlesInternal(symbol, "4h", 60, testnet);
-  const candles1d = await fetchCandlesInternal(symbol, "1d", 7, testnet);
-
-  // Calculate intraday (2-minute) indicators
   const intradayIndicators = calculateHistoricalIndicators(candles2m, 10);
   const closePrices2m = extractClosePrices(candles2m);
-
-  // Current values (most recent)
-  const currentPrice = closePrices2m[closePrices2m.length - 1];
-  const currentEma20 = calculateEMA(closePrices2m, 20);
-  const currentMacd = calculateMACD(closePrices2m);
-  const currentRsi7 = calculateRSI(closePrices2m, 7);
-  const currentRsi14 = calculateRSI(closePrices2m, 14);
-
-  // Calculate 4-hour context
   const closePrices1h = extractClosePrices(candles1h);
   const closePrices4h = extractClosePrices(candles4h);
+  const fallbackPrice =
+    closePrices2m[closePrices2m.length - 1] ??
+    closePrices1h[closePrices1h.length - 1] ??
+    closePrices4h[closePrices4h.length - 1] ??
+    candles1d[candles1d.length - 1]?.c ??
+    0;
+
+  const currentPrice = fallbackPrice;
+  const currentEma20 = closePrices2m.length >= 20
+    ? calculateEMA(closePrices2m, 20)
+    : averageLast(closePrices2m, 20, currentPrice);
+  const currentMacd = closePrices2m.length >= 35
+    ? calculateMACD(closePrices2m)
+    : { macd: 0, signal: 0, histogram: 0 };
+  const currentRsi7 = closePrices2m.length >= 8
+    ? calculateRSI(closePrices2m, 7)
+    : 50;
+  const currentRsi14 = closePrices2m.length >= 15
+    ? calculateRSI(closePrices2m, 14)
+    : 50;
+
   const fourHourIndicators = calculateHistoricalIndicators(candles4h, 10);
+  const ema20_1h = closePrices1h.length >= 20
+    ? calculateEMA(closePrices1h, 20)
+    : averageLast(closePrices1h, 20, currentPrice);
+  const ema50_1h = closePrices1h.length >= 50
+    ? calculateEMA(closePrices1h, 50)
+    : averageLast(closePrices1h, 50, currentPrice);
+  const ema20_4h = closePrices4h.length >= 20
+    ? calculateEMA(closePrices4h, 20)
+    : averageLast(closePrices4h, 20, currentPrice);
+  const ema50_4h = closePrices4h.length >= 50
+    ? calculateEMA(closePrices4h, 50)
+    : averageLast(closePrices4h, 50, currentPrice);
 
-  const ema20_1h = calculateEMA(closePrices1h, 20);
-  const ema50_1h = calculateEMA(closePrices1h, 50);
-  const ema20_4h = calculateEMA(closePrices4h, 20);
-  const ema50_4h = calculateEMA(closePrices4h, 50);
-
-  // ATR for volatility
-  const atr3_4h = calculateATR(candles4h, 3);
-  const atr14_4h = calculateATR(candles4h, 14);
-
-  // Volume analysis
+  const atr3_4h = candles4h.length >= 3 ? calculateATR(candles4h, 3) : Math.abs(currentPrice * 0.01);
+  const atr14_4h = candles4h.length >= 14 ? calculateATR(candles4h, 14) : Math.abs(currentPrice * 0.015);
   const currentVolume_4h = candles4h[candles4h.length - 1]?.v || 0;
   const avgVolume_4h = calculateAverageVolume(candles4h, 20);
 
-  // 24-hour high/low from last 6 4h candles
   const last6Candles4h = candles4h.slice(-6);
   const high24h = last6Candles4h.length > 0
     ? Math.max(...last6Candles4h.map(c => c.h))
@@ -168,7 +181,6 @@ async function getDetailedCoinData(
     ? Math.min(...last6Candles4h.map(c => c.l))
     : currentPrice;
 
-  // Volume ratio (current vs average)
   const volumeRatio = avgVolume_4h > 0 ? currentVolume_4h / avgVolume_4h : 1;
 
   const currentDayCandle = candles1d[candles1d.length - 1];
@@ -182,15 +194,11 @@ async function getDetailedCoinData(
     macd: currentMacd.macd,
     rsi7: currentRsi7,
     rsi14: currentRsi14,
-
-    // Intraday series
     priceHistory: intradayIndicators.priceHistory,
     ema20History: intradayIndicators.ema20History,
     macdHistory: intradayIndicators.macdHistory,
     rsi7History: intradayIndicators.rsi7History,
     rsi14History: intradayIndicators.rsi14History,
-
-    // 4-hour context
     ema20_1h,
     ema50_1h,
     priceHistory_1h: closePrices1h.slice(-10),
@@ -202,19 +210,35 @@ async function getDetailedCoinData(
     avgVolume_4h,
     macdHistory_4h: fourHourIndicators.macdHistory,
     rsi14History_4h: fourHourIndicators.rsi14History,
-
-    // 24-hour price range and volume
     dayOpen,
     dayChangePct,
     high24h,
     low24h,
     volumeRatio,
-
-    // Market microstructure (TODO: fetch from Hyperliquid if available)
-    // openInterest: undefined,
-    // avgOpenInterest: undefined,
-    // fundingRate: undefined,
   };
+}
+
+/**
+ * Get detailed multi-timeframe market data for a single symbol
+ */
+async function getDetailedCoinData(
+  symbol: string,
+  testnet: boolean
+): Promise<DetailedCoinData> {
+  // Fetch 1-minute candles and aggregate to 2-minute (need at least 50 for calculations + 10 for history)
+  const candles1m = await fetchCandlesInternal(symbol, "1m", 120, testnet); // Fetch 120 1m candles
+
+  const candles1h = await fetchCandlesInternal(symbol, "1h", 80, testnet);
+  // Fetch 4-hour candles (need at least 50 + 10 for history)
+  const candles4h = await fetchCandlesInternal(symbol, "4h", 60, testnet);
+  const candles1d = await fetchCandlesInternal(symbol, "1d", 7, testnet);
+  return buildDetailedCoinDataFromCandles(
+    symbol,
+    candles1m,
+    candles1h,
+    candles4h,
+    candles1d
+  );
 }
 
 /**

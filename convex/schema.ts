@@ -268,6 +268,7 @@ export default defineSchema({
 
     // Configuration
     symbol: v.string(),
+    symbols: v.optional(v.array(v.string())),
     startDate: v.number(), // timestamp
     endDate: v.number(), // timestamp
     modelName: v.string(),
@@ -280,6 +281,9 @@ export default defineSchema({
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
     useHybridSelection: v.optional(v.boolean()),
+    botIsActive: v.optional(v.boolean()),
+    effectiveHybridScoreFloor: v.optional(v.number()),
+    overrideSummary: v.optional(v.string()),
     hybridScoreFloor: v.optional(v.number()),
     hybridFourHourTrendThresholdPct: v.optional(v.number()),
     hybridExtremeRsi7Block: v.optional(v.number()),
@@ -305,6 +309,9 @@ export default defineSchema({
     totalFees: v.optional(v.number()),        // Total trading fees paid
     totalFunding: v.optional(v.number()),     // Net funding rate costs
     liquidationCount: v.optional(v.number()), // Number of forced liquidations
+    aiInvocationCount: v.optional(v.number()),
+    forcedHoldCount: v.optional(v.number()),
+    diagnosticSummary: v.optional(v.string()),
 
     // Metadata
     error: v.optional(v.string()),

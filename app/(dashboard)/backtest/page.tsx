@@ -10,15 +10,16 @@ import { Id } from "@/convex/_generated/dataModel";
 const BacktestChart = dynamic(() => import("./BacktestChart"), { ssr: false });
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Calendar } from "@/components/ui/calendar";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { endOfDay, format, startOfDay } from "date-fns";
 import {
   Table,
   TableBody,
@@ -28,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  CalendarIcon,
   Loader2,
   Play,
   TrendingUp,
@@ -39,32 +41,6 @@ import {
 } from "lucide-react";
 
 const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"];
-const MODELS = [
-  { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
-  { value: "openai/gpt-5", label: "GPT-5" },
-  { value: "openai/gpt-5-mini", label: "GPT-5 Mini" },
-  { value: "openai/gpt-4.1", label: "GPT-4.1" },
-  { value: "google/gemini-3-pro", label: "Gemini 3 Pro" },
-  { value: "google/gemini-3-flash-preview", label: "Gemini 3 Flash" },
-  { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  { value: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat V3.1" },
-  { value: "deepseek/deepseek-v3.2-speciale", label: "DeepSeek V3.2 Speciale" },
-  { value: "deepseek/deepseek-r1", label: "DeepSeek R1" },
-  { value: "x-ai/grok-4.1-fast", label: "Grok 4.1 Fast" },
-  { value: "x-ai/grok-4-fast", label: "Grok 4 Fast" },
-  { value: "x-ai/grok-code-fast-1", label: "Grok Code Fast 1" },
-  { value: "z-ai/glm-4.7", label: "GLM-4.7" },
-  { value: "z-ai/glm-4.6", label: "GLM-4.6" },
-  { value: "moonshotai/kimi-k2.5", label: "Kimi K2.5" },
-  { value: "moonshotai/kimi-k2-thinking", label: "Kimi K2 Thinking" },
-  { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick" },
-  { value: "openai/gpt-oss-120b", label: "GPT-OSS 120B" },
-];
-const PROMPT_MODES = [
-  { value: "alpha_arena", label: "Alpha Arena" },
-  { value: "compact", label: "Compact" },
-  { value: "detailed", label: "Detailed" },
-];
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString("en-US", {
@@ -85,11 +61,11 @@ function formatDuration(ms: number) {
 function defaultStartDate() {
   const d = new Date();
   d.setDate(d.getDate() - 7);
-  return d.toISOString().split("T")[0];
+  return d;
 }
 
 function defaultEndDate() {
-  return new Date().toISOString().split("T")[0];
+  return new Date();
 }
 
 export default function BacktestPage() {
@@ -97,17 +73,18 @@ export default function BacktestPage() {
   const userId = user?.id || "";
 
   // Form state
-  const [symbol, setSymbol] = useState("BTC");
-  const [startDate, setStartDate] = useState(defaultStartDate());
-  const [endDate, setEndDate] = useState(defaultEndDate());
-  const [modelName, setModelName] = useState(MODELS[0].value);
-  const [promptMode, setPromptMode] = useState("alpha_arena");
-  const [initialCapital, setInitialCapital] = useState("1000");
-  const [maxLeverage, setMaxLeverage] = useState("10");
+  const [startDate, setStartDate] = useState<Date>(defaultStartDate());
+  const [endDate, setEndDate] = useState<Date>(defaultEndDate());
+  const [disableHybridSelection, setDisableHybridSelection] = useState(false);
+  const [hybridScoreFloorOverride, setHybridScoreFloorOverride] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   // Data
+  const botConfig = useQuery(
+    api.queries.getBotConfig,
+    userId ? { userId } : "skip"
+  );
   const backtestRuns = useQuery(
     api.backtesting.backtestActions.getBacktestRuns,
     userId ? { userId } : "skip"
@@ -130,19 +107,52 @@ export default function BacktestPage() {
       : "skip"
   );
 
+  const configuredSymbols =
+    botConfig?.symbols && botConfig.symbols.length > 0
+      ? botConfig.symbols
+      : SYMBOLS;
+  const effectiveModelName = botConfig?.modelName ?? "Not configured";
+  const effectivePromptMode = botConfig?.tradingPromptMode ?? "alpha_arena";
+  const effectiveInitialCapital =
+    botConfig?.currentCapital ?? botConfig?.startingCapital ?? 0;
+  const effectiveMaxLeverage = botConfig?.maxLeverage ?? 0;
+  const effectiveHybridScoreFloor = botConfig?.hybridScoreFloor ?? 64;
+  const configuredSymbolsLabel = configuredSymbols.join(", ");
+
   const handleStartBacktest = async () => {
-    if (!userId) return;
+    await handleStartBacktestWithOverrides({
+      disableHybridSelection,
+      hybridScoreFloorOverride:
+        !disableHybridSelection && hybridScoreFloorOverride.trim() !== ""
+          ? Number(hybridScoreFloorOverride)
+          : undefined,
+    });
+  };
+
+  const handleStartBacktestWithOverrides = async ({
+    disableHybridSelection,
+    hybridScoreFloorOverride,
+  }: {
+    disableHybridSelection: boolean;
+    hybridScoreFloorOverride?: number;
+  }) => {
+    if (!userId || !botConfig) return;
     setIsSubmitting(true);
     try {
+      const normalizedStartDate = startOfDay(startDate).getTime();
+      const normalizedEndDate = Math.min(endOfDay(endDate).getTime(), Date.now());
+
       await startBacktest({
         userId,
-        symbol,
-        startDate: new Date(startDate).getTime(),
-        endDate: new Date(endDate).getTime(),
-        modelName,
-        tradingPromptMode: promptMode,
-        initialCapital: parseFloat(initialCapital),
-        maxLeverage: parseFloat(maxLeverage),
+        symbol: configuredSymbols[0] ?? "BTC",
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+        modelName: botConfig.modelName,
+        tradingPromptMode: botConfig.tradingPromptMode ?? "alpha_arena",
+        initialCapital: effectiveInitialCapital,
+        maxLeverage: botConfig.maxLeverage,
+        disableHybridSelection,
+        hybridScoreFloorOverride,
       });
     } catch (err) {
       console.error("Failed to start backtest:", err);
@@ -176,114 +186,138 @@ export default function BacktestPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {/* Symbol */}
+            {/* Configured Basket */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-muted-foreground">Symbol</Label>
-              <Select value={symbol} onValueChange={setSymbol}>
-                <SelectTrigger className="text-foreground">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SYMBOLS.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-sm text-muted-foreground">Live Symbols</Label>
+              <div className="flex min-h-10 items-center rounded-md border border-input px-3 text-sm text-foreground">
+                {configuredSymbolsLabel}
+              </div>
             </div>
 
             {/* Start Date */}
             <div className="space-y-1.5">
               <Label className="text-sm text-muted-foreground">Start Date</Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="text-foreground"
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-mono text-sm text-foreground"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {format(startDate, "PPP")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={startDate}
+                    onSelect={(date) => date && setStartDate(date)}
+                    disabled={(date) => date > endDate || date > new Date()}
+                    defaultMonth={startDate}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
             {/* End Date */}
             <div className="space-y-1.5">
               <Label className="text-sm text-muted-foreground">End Date</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="text-foreground"
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-mono text-sm text-foreground"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {format(endDate, "PPP")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={endDate}
+                    onSelect={(date) => date && setEndDate(date)}
+                    disabled={(date) => date < startDate || date > new Date()}
+                    defaultMonth={endDate}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
-            {/* Model */}
-            <div className="space-y-1.5">
-              <Label className="text-sm text-muted-foreground">AI Model</Label>
-              <Select value={modelName} onValueChange={setModelName}>
-                <SelectTrigger className="text-foreground">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MODELS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Prompt Mode */}
-            <div className="space-y-1.5">
-              <Label className="text-sm text-muted-foreground">Prompt Mode</Label>
-              <Select value={promptMode} onValueChange={setPromptMode}>
-                <SelectTrigger className="text-foreground">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PROMPT_MODES.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Initial Capital */}
             <div className="space-y-1.5">
               <Label className="text-sm text-muted-foreground">
-                Initial Capital ($)
+                Live Model
               </Label>
-              <Input
-                type="number"
-                value={initialCapital}
-                onChange={(e) => setInitialCapital(e.target.value)}
-                className="text-foreground placeholder:text-muted-foreground font-mono"
-                placeholder="1000"
-                min="100"
-              />
+              <div className="flex h-10 items-center rounded-md border border-input px-3 text-sm text-foreground">
+                {effectiveModelName}
+              </div>
             </div>
 
-            {/* Max Leverage */}
             <div className="space-y-1.5">
-              <Label className="text-sm text-muted-foreground">Max Leverage</Label>
-              <Input
-                type="number"
-                value={maxLeverage}
-                onChange={(e) => setMaxLeverage(e.target.value)}
-                className="text-foreground placeholder:text-muted-foreground font-mono"
-                placeholder="10"
-                min="1"
-                max="50"
-              />
+              <Label className="text-sm text-muted-foreground">
+                Live Prompt Mode
+              </Label>
+              <div className="flex h-10 items-center rounded-md border border-input px-3 text-sm text-foreground">
+                {effectivePromptMode}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm text-muted-foreground">
+                Live Initial Capital ($)
+              </Label>
+              <div className="flex h-10 items-center rounded-md border border-input px-3 font-mono text-sm text-foreground">
+                {effectiveInitialCapital.toFixed(2)}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm text-muted-foreground">
+                Live Max Leverage
+              </Label>
+              <div className="flex h-10 items-center rounded-md border border-input px-3 font-mono text-sm text-foreground">
+                {effectiveMaxLeverage > 0 ? `${effectiveMaxLeverage}x` : "N/A"}
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-md border border-input p-3 sm:col-span-2 lg:col-span-2">
+              <Label className="text-sm text-muted-foreground">
+                Backtest Overrides
+              </Label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <Checkbox
+                  checked={disableHybridSelection}
+                  onCheckedChange={(checked) =>
+                    setDisableHybridSelection(checked === true)
+                  }
+                />
+                Disable hybrid selection for this run
+              </label>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Custom Hybrid Floor
+                </Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={hybridScoreFloorOverride}
+                  onChange={(e) => setHybridScoreFloorOverride(e.target.value)}
+                  disabled={disableHybridSelection}
+                  placeholder={`${effectiveHybridScoreFloor}`}
+                  className="font-mono text-sm"
+                />
+              </div>
             </div>
 
             {/* Submit */}
-            <div className="flex items-end">
+            <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2">
               <Button
                 onClick={handleStartBacktest}
-                disabled={isSubmitting}
-                className="w-full bg-gray-900 text-white hover:bg-gray-800"
+                disabled={isSubmitting || !botConfig}
+                className="w-full bg-foreground text-background hover:bg-foreground/80"
               >
                 {isSubmitting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -292,8 +326,63 @@ export default function BacktestPage() {
                 )}
                 {isSubmitting ? "Starting..." : "Run Backtest"}
               </Button>
+              {botConfig?.useHybridSelection && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    handleStartBacktestWithOverrides({
+                      disableHybridSelection: true,
+                    })
+                  }
+                  disabled={isSubmitting || !botConfig}
+                  className="w-full"
+                >
+                  Run Without Hybrid Gate
+                </Button>
+              )}
             </div>
           </div>
+          {!botConfig && (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Configure the live bot on the settings page first. Backtests now
+              run from the saved bot configuration instead of local form
+              overrides.
+            </p>
+          )}
+          {botConfig && (
+            <div className="mt-4 space-y-1 text-sm text-muted-foreground">
+              {!botConfig.isActive && (
+                <p>
+                  The live bot is currently inactive. The live trading loop will
+                  not place orders until it is turned back on.
+                </p>
+              )}
+              {botConfig.useHybridSelection && (
+                <p>
+                  Hybrid selection is enabled. The model is only called when the
+                  best deterministic setup meets the current score floor of{" "}
+                  <span className="font-mono text-foreground">
+                    {effectiveHybridScoreFloor}
+                  </span>
+                  .
+                </p>
+              )}
+              {disableHybridSelection && (
+                <p className="text-foreground">
+                  This run will ignore hybrid selection and call the model directly.
+                </p>
+              )}
+              {!disableHybridSelection && hybridScoreFloorOverride.trim() !== "" && (
+                <p className="text-foreground">
+                  This run will use a backtest-only hybrid floor of{" "}
+                  <span className="font-mono">
+                    {hybridScoreFloorOverride}
+                  </span>
+                  .
+                </p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -385,6 +474,17 @@ function BacktestRow({
   const pnl = run.totalPnl ?? 0;
   const pnlPct = run.totalPnlPct ?? 0;
   const isPositive = pnl >= 0;
+  const runSymbols =
+    Array.isArray(run.symbols) && run.symbols.length > 0
+      ? run.symbols
+      : [run.symbol];
+  const rowDiagnostic =
+    !isRunning && (run.totalTrades ?? 0) === 0 && run.diagnosticSummary
+      ? run.diagnosticSummary
+      : null;
+  const runHybridFloor =
+    run.effectiveHybridScoreFloor ?? run.hybridScoreFloor ?? null;
+  const overrideSummary = run.overrideSummary ?? null;
 
   // Extract short model name
   const modelShort = run.modelName.split("/").pop() || run.modelName;
@@ -417,7 +517,35 @@ function BacktestRow({
           )}
         </TableCell>
         <TableCell className="font-mono text-sm font-medium text-foreground">
-          {run.symbol}
+          <div>{run.symbol}</div>
+          {runSymbols.length > 1 && (
+            <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+              {runSymbols.join(", ")}
+            </div>
+          )}
+          {rowDiagnostic && (
+            <div
+              className="mt-0.5 max-w-[320px] truncate text-xs font-normal text-muted-foreground"
+              title={rowDiagnostic}
+            >
+              {rowDiagnostic}
+            </div>
+          )}
+          {overrideSummary && (
+            <div className="mt-0.5 text-xs font-normal text-foreground">
+              {overrideSummary}
+            </div>
+          )}
+          {!isRunning && run.botIsActive === false && (
+            <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+              Saved live bot status: inactive (informational only)
+            </div>
+          )}
+          {!isRunning && run.useHybridSelection && runHybridFloor != null && (
+            <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+              Hybrid floor: {runHybridFloor}
+            </div>
+          )}
         </TableCell>
         <TableCell className="text-xs text-muted-foreground">
           {formatDate(run.startDate)} - {formatDate(run.endDate)}
@@ -519,6 +647,9 @@ function TradeRow({ trade }: { trade: any }) {
         className={isLong ? "cursor-pointer hover:bg-muted/50" : ""}
         onClick={() => isLong && setExpanded(!expanded)}
       >
+        <TableCell className="font-mono text-xs text-muted-foreground">
+          {trade.symbol}
+        </TableCell>
         <TableCell className="text-xs">
           <span className="inline-flex items-center gap-1">
             {trade.side === "LONG" ? (
@@ -569,7 +700,7 @@ function TradeRow({ trade }: { trade: any }) {
       </TableRow>
       {expanded && (
         <TableRow>
-          <TableCell colSpan={8} className="bg-muted/70 px-4 py-3">
+          <TableCell colSpan={9} className="bg-muted/70 px-4 py-3">
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground">AI Reasoning</p>
               <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
@@ -613,10 +744,45 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
 
   const trades = results.trades || [];
   const closeTrades = trades.filter((t: any) => t.action === "CLOSE");
+  const closeTradesBySymbol = closeTrades.reduce(
+    (acc: Record<string, any[]>, trade: any) => {
+      if (!acc[trade.symbol]) {
+        acc[trade.symbol] = [];
+      }
+      acc[trade.symbol].push(trade);
+      return acc;
+    },
+    {}
+  );
+  const chartSymbols = Object.keys(closeTradesBySymbol);
 
   if (closeTrades.length === 0) {
     return (
-      <p className="p-4 text-sm text-muted-foreground">No completed trades.</p>
+      <div className="space-y-2 p-4">
+        <p className="text-sm text-muted-foreground">No completed trades.</p>
+        {run.botIsActive === false && (
+          <p className="text-sm text-muted-foreground">
+            Saved live bot status at run start: inactive. This does not block backtests; it only stops the live trading loop.
+          </p>
+        )}
+        {run.overrideSummary && (
+          <p className="text-sm text-foreground">{run.overrideSummary}</p>
+        )}
+        {run.useHybridSelection && (
+          <p className="text-sm text-muted-foreground">
+            Hybrid score floor at run start:{" "}
+            {run.effectiveHybridScoreFloor ?? run.hybridScoreFloor ?? 64}
+          </p>
+        )}
+        {run.diagnosticSummary && (
+          <p className="text-sm text-muted-foreground">{run.diagnosticSummary}</p>
+        )}
+        {run.aiInvocationCount != null && run.forcedHoldCount != null && (
+          <p className="text-xs text-muted-foreground">
+            AI calls: {run.aiInvocationCount} · Hybrid forced holds: {run.forcedHoldCount}
+          </p>
+        )}
+      </div>
     );
   }
 
@@ -669,21 +835,31 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
         </div>
       </div>
 
-      {/* Price chart with trade markers */}
-      {run.status === "completed" && (
-        <BacktestChart
-          symbol={run.symbol}
-          startDate={run.startDate}
-          endDate={run.endDate}
-          trades={closeTrades}
-          testnet={testnet}
-        />
+      {/* Price charts with trade markers */}
+      {run.status === "completed" && chartSymbols.length > 0 && (
+        <div className="space-y-5">
+          {chartSymbols.map((symbol) => (
+            <div key={symbol}>
+              <p className="mb-2 font-mono text-xs uppercase tracking-wide text-muted-foreground">
+                {symbol}
+              </p>
+              <BacktestChart
+                symbol={symbol}
+                startDate={run.startDate}
+                endDate={run.endDate}
+                trades={closeTradesBySymbol[symbol]}
+                testnet={testnet}
+              />
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Trade list */}
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="text-xs">Symbol</TableHead>
             <TableHead className="text-xs">Side</TableHead>
             <TableHead className="text-xs">Entry</TableHead>
             <TableHead className="text-xs">Exit</TableHead>

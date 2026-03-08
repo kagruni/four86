@@ -186,6 +186,22 @@ async function fetchCandlesFromAPI(
   }
 }
 
+export async function fetchCandlesForRangeInternal(
+  symbol: string,
+  interval: CandleInterval,
+  startTime: number,
+  endTime: number,
+  testnet: boolean = true
+): Promise<Candle[]> {
+  return await fetchCandlesFromAPI(
+    symbol,
+    interval,
+    startTime,
+    endTime,
+    testnet
+  );
+}
+
 /**
  * Internal helper to fetch candles from Hyperliquid API
  * This is not a Convex action - use within actions only

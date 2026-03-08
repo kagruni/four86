@@ -465,11 +465,7 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="flex h-[calc(100vh-200px)] items-center justify-center">
-        <img
-          src="/logo-animation-fast.gif"
-          alt="Loading"
-          className="h-16 w-auto"
-        />
+        <Loader2 className="h-8 w-8 animate-spin text-foreground" />
       </div>
     );
   }

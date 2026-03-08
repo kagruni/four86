@@ -32,7 +32,15 @@ export default function RootLayout({
       <html
         lang="en"
         className={`${inter.variable} ${jetbrainsMono.variable} ${manrope.variable}`}
+        suppressHydrationWarning
       >
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(){try{if(localStorage.getItem("four86-theme")==="dark"){document.documentElement.classList.add("dark")}}catch(e){}})()`,
+            }}
+          />
+        </head>
         <body className={inter.className}>
           <ConvexProviderWithClerk>
             {children}

@@ -1,21 +1,46 @@
 "use node";
 
 import { internalAction } from "../_generated/server";
-import { internal } from "../fnRefs";
+import { api, internal } from "../fnRefs";
 import { v } from "convex/values";
-import { fetchCandlesInternal } from "../hyperliquid/candles";
+import { fetchCandlesForRangeInternal } from "../hyperliquid/candles";
 import { validateDecisionAgainstRegime } from "../trading/validators/regimeValidator";
-import type { DecisionContext } from "../trading/decisionContext";
-import { calculateATR } from "../indicators/technicalIndicators";
+import {
+  buildMarketSnapshot,
+  summarizeMarketSnapshot,
+  type DecisionContext,
+} from "../trading/decisionContext";
+import {
+  buildDetailedCoinDataFromCandles,
+  type DetailedCoinData,
+} from "../hyperliquid/detailedMarketData";
 import {
   buildHybridCandidateSet,
   buildHybridHoldDecision,
 } from "../trading/hybridSelection";
+import { checkTrendGuard } from "../trading/validators/trendGuard";
+import {
+  MANAGED_EXIT_MODE,
+  LEGACY_EXIT_MODE,
+  calculateHardStopPrice,
+  clampManagedStop,
+  getBreakEvenStopPrice,
+  getManagedExitRules,
+  getManagedPeakPrice,
+  getTrailingStopPrice,
+  hasStopBeenCrossed,
+  tightenManagedStop,
+} from "../trading/managedExitUtils";
 import {
   formatHybridCandidateSection,
   formatHybridCloseSection,
 } from "../ai/prompts/hybridSelectionPrompt";
 import { parseHybridSelectionOutput } from "../ai/chains/tradingChain";
+import {
+  computeMarketOverview,
+  evaluatePositions,
+  processAllCoins,
+} from "../signals/signalProcessor";
 
 /**
  * Backtest Engine (Chunked) — Realistic Hyperliquid Simulation
@@ -41,6 +66,12 @@ const CHUNK_TIME_BUDGET_MS = 510_000; // 510s = 8.5 minutes
 
 // Per-AI-call fetch timeout — prevents a single hung request from eating the budget
 const AI_FETCH_TIMEOUT_MS = 120_000; // 120s per call
+
+const ONE_MINUTE_MS = 60 * 1000;
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const FOUR_HOURS_MS = 4 * ONE_HOUR_MS;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 // ─── Realistic Hyperliquid Trading Costs ─────────────────────────────────────
 
@@ -143,6 +174,229 @@ interface BacktestResult {
   liquidationCount: number;
 }
 
+type BacktestTradingMode = "alpha_arena" | "compact" | "detailed";
+
+interface SimulatedPosition {
+  symbol: string;
+  side: "LONG" | "SHORT";
+  entryPrice: number;
+  size: number;
+  leverage: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  liquidationPrice: number;
+  exitMode: typeof MANAGED_EXIT_MODE | typeof LEGACY_EXIT_MODE;
+  managedPeakPrice?: number;
+  managedStopPrice?: number;
+  managedStopReason?: string;
+  entryTime: number;
+  confidence: number;
+  reasoning: string;
+  lastFundingCheckTime: number;
+  accumulatedFunding: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeMaxPositionSizePct(rawMaxPositionSize: number): number {
+  const pct = rawMaxPositionSize <= 1 ? rawMaxPositionSize * 100 : rawMaxPositionSize;
+  return Math.max(1, Math.min(100, pct));
+}
+
+function buildHistoricalDetailedCoinData(
+  symbol: string,
+  recent1m: any[],
+  recent1h: any[],
+  recent4h: any[],
+  recent1d: any[]
+): DetailedCoinData {
+  return buildDetailedCoinDataFromCandles(
+    symbol,
+    recent1m,
+    recent1h,
+    recent4h,
+    recent1d
+  );
+}
+
+function createBacktestDecisionContext(
+  marketData: Record<string, DetailedCoinData>
+): DecisionContext {
+  const marketSnapshot = buildMarketSnapshot(marketData);
+  return {
+    marketSnapshot,
+    marketSnapshotSummary: summarizeMarketSnapshot(marketSnapshot),
+  };
+}
+
+function createBacktestPositionView(
+  currentPositions: SimulatedPosition[],
+  currentPrices: Record<string, number>
+): any[] {
+  return currentPositions.map((position) => {
+    const currentPrice = currentPrices[position.symbol] ?? position.entryPrice;
+    const notional = position.size * position.leverage;
+    const rawPnl = position.side === "LONG"
+      ? ((currentPrice - position.entryPrice) / position.entryPrice) * notional
+      : ((position.entryPrice - currentPrice) / position.entryPrice) * notional;
+    const unrealizedPnl = rawPnl - position.accumulatedFunding;
+    const unrealizedPnlPct = position.size > 0
+      ? (unrealizedPnl / position.size) * 100
+      : 0;
+
+    return {
+      symbol: position.symbol,
+      side: position.side,
+      size: position.size,
+      leverage: position.leverage,
+      entryPrice: position.entryPrice,
+      currentPrice,
+      unrealizedPnl,
+      unrealizedPnlPct,
+      stopLoss: position.stopLoss,
+      takeProfit: position.takeProfit,
+      liquidationPrice: position.liquidationPrice,
+      exitMode: position.exitMode,
+      managedPeakPrice: position.managedPeakPrice,
+      managedStopPrice: position.managedStopPrice,
+      managedStopReason: position.managedStopReason,
+      openedAt: position.entryTime,
+      entryReasoning: position.reasoning,
+      confidence: position.confidence,
+    };
+  });
+}
+
+function createBacktestAccountState(
+  capital: number,
+  currentPositions: SimulatedPosition[],
+  currentPrices: Record<string, number>
+) {
+  let unrealizedPnl = 0;
+  let usedMargin = 0;
+
+  for (const position of currentPositions) {
+    const currentPrice = currentPrices[position.symbol] ?? position.entryPrice;
+    const notional = position.size * position.leverage;
+    const rawPnl = position.side === "LONG"
+      ? ((currentPrice - position.entryPrice) / position.entryPrice) * notional
+      : ((position.entryPrice - currentPrice) / position.entryPrice) * notional;
+    unrealizedPnl += rawPnl - position.accumulatedFunding;
+    usedMargin += position.size;
+  }
+
+  return {
+    accountValue: capital + unrealizedPnl,
+    withdrawable: Math.max(0, capital - usedMargin),
+  };
+}
+
+function createBacktestPerformanceMetrics(
+  initialCapital: number,
+  capital: number,
+  startTime: number,
+  returnsSum: number,
+  returnsSquaredSum: number,
+  returnsCount: number,
+  invocationCount: number
+) {
+  const totalReturnPct =
+    initialCapital > 0 ? ((capital - initialCapital) / initialCapital) * 100 : 0;
+  const variance =
+    returnsCount > 1
+      ? (returnsSquaredSum - (returnsSum * returnsSum) / returnsCount) /
+        (returnsCount - 1)
+      : 0;
+  const stdReturn = Math.sqrt(Math.max(0, variance));
+  const sharpeRatio =
+    stdReturn > 0 ? (returnsSum / returnsCount / stdReturn) * Math.sqrt(252) : 0;
+
+  return {
+    totalReturnPct,
+    sharpeRatio: Number.isFinite(sharpeRatio) ? sharpeRatio : 0,
+    invocationCount,
+    minutesSinceStart: Math.floor((Date.now() - startTime) / 60000),
+  };
+}
+
+function getLatestCandleAtOrBefore(
+  candles: any[],
+  timestamp: number
+): any | null {
+  for (let i = candles.length - 1; i >= 0; i -= 1) {
+    if (candles[i]?.t <= timestamp) {
+      return candles[i];
+    }
+  }
+
+  return null;
+}
+
+function buildHistoricalMarketDataForSymbols(
+  symbols: string[],
+  currentTime: number,
+  candles1mBySymbol: Record<string, any[]>,
+  candles1hBySymbol: Record<string, any[]>,
+  candles4hBySymbol: Record<string, any[]>,
+  candles1dBySymbol: Record<string, any[]>
+): Record<string, DetailedCoinData> {
+  const marketData: Record<string, DetailedCoinData> = {};
+
+  for (const symbol of symbols) {
+    const recent1m = (candles1mBySymbol[symbol] ?? [])
+      .filter((c: any) => c.t <= currentTime)
+      .slice(-120);
+    const recent1h = (candles1hBySymbol[symbol] ?? [])
+      .filter((c: any) => c.t <= currentTime)
+      .slice(-80);
+    const recent4h = (candles4hBySymbol[symbol] ?? [])
+      .filter((c: any) => c.t <= currentTime)
+      .slice(-60);
+    const recent1d = (candles1dBySymbol[symbol] ?? [])
+      .filter((c: any) => c.t <= currentTime)
+      .slice(-7);
+
+    if (recent1m.length === 0) {
+      continue;
+    }
+
+    marketData[symbol] = buildHistoricalDetailedCoinData(
+      symbol,
+      recent1m,
+      recent1h,
+      recent4h,
+      recent1d
+    );
+  }
+
+  return marketData;
+}
+
+function buildBacktestRecentTrades(
+  lastTradeTimestamps: Record<string, number>
+): Array<{ symbol: string; executedAt: number; action: string }> {
+  return Object.entries(lastTradeTimestamps)
+    .sort(([, left], [, right]) => right - left)
+    .slice(0, 50)
+    .map(([symbol, executedAt]) => ({
+      symbol,
+      executedAt,
+      action: "OPEN",
+    }));
+}
+
+function calculatePositionRawPnl(
+  position: SimulatedPosition,
+  exitPrice: number
+): number {
+  const notional = position.size * position.leverage;
+  return position.side === "LONG"
+    ? ((exitPrice - position.entryPrice) / position.entryPrice) * notional
+    : ((position.entryPrice - exitPrice) / position.entryPrice) * notional;
+}
+
 /**
  * Entry point — fetches candles, then kicks off the first processing chunk.
  */
@@ -151,12 +405,29 @@ export const runBacktest = internalAction({
     runId: v.id("backtestRuns"),
     userId: v.string(),
     symbol: v.string(),
+    symbols: v.optional(v.array(v.string())),
     startDate: v.number(),
     endDate: v.number(),
     modelName: v.string(),
     tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    maxPositionSize: v.number(),
+    maxDailyLoss: v.number(),
+    minAccountValue: v.number(),
+    perTradeRiskPct: v.number(),
+    maxTotalPositions: v.number(),
+    maxSameDirectionPositions: v.number(),
+    consecutiveLossLimit: v.number(),
+    tradingMode: v.string(),
+    minEntryConfidence: v.number(),
+    minRiskRewardRatio: v.number(),
+    stopOutCooldownHours: v.number(),
+    minEntrySignals: v.number(),
+    require4hAlignment: v.boolean(),
+    tradeVolatileMarkets: v.boolean(),
+    volatilitySizeReduction: v.number(),
+    stopLossAtrMultiplier: v.number(),
     useHybridSelection: v.optional(v.boolean()),
     enableRegimeFilter: v.optional(v.boolean()),
     require1hAlignment: v.optional(v.boolean()),
@@ -168,63 +439,146 @@ export const runBacktest = internalAction({
     hybridExtremeRsi7Block: v.optional(v.number()),
     hybridMinChopVolumeRatio: v.optional(v.number()),
     hybridChopDistanceFromEmaPct: v.optional(v.number()),
+    managedExitEnabled: v.boolean(),
+    managedExitHardStopLossPct: v.optional(v.number()),
+    managedExitBreakEvenTriggerPct: v.optional(v.number()),
+    managedExitBreakEvenLockProfitPct: v.optional(v.number()),
+    managedExitTrailingTriggerPct: v.optional(v.number()),
+    managedExitTrailingDistancePct: v.optional(v.number()),
+    managedExitTightenTriggerPct: v.optional(v.number()),
+    managedExitTightenedDistancePct: v.optional(v.number()),
+    managedExitStaleMinutes: v.optional(v.number()),
+    managedExitStaleMinProfitPct: v.optional(v.number()),
+    managedExitMaxHoldMinutes: v.optional(v.number()),
     openrouterApiKey: v.string(),
     testnet: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const assetConfig = getAssetConfig(args.symbol);
-    const effectiveMaxLeverage = Math.min(args.maxLeverage, assetConfig.maxLeverage);
+    const configuredSymbols = args.symbols?.length ? args.symbols : [args.symbol];
 
     console.log(
-      `[BACKTEST] Starting backtest for ${args.symbol} from ${new Date(args.startDate).toISOString()} to ${new Date(args.endDate).toISOString()}, maxLev: ${effectiveMaxLeverage}x (user: ${args.maxLeverage}x, asset: ${assetConfig.maxLeverage}x)`
+      `[BACKTEST] Starting backtest for ${configuredSymbols.join(", ")} from ${new Date(args.startDate).toISOString()} to ${new Date(args.endDate).toISOString()}, maxLev: ${args.maxLeverage}x`
     );
 
     try {
-      // Fetch historical candles (5-minute intervals for simulation steps)
-      const candles = await fetchCandlesInternal(
-        args.symbol,
-        "5m",
-        5000,
-        args.testnet
+      const symbolDataEntries = await Promise.all(
+        configuredSymbols.map(async (symbol) => {
+          const intradayStart = Math.max(
+            0,
+            args.startDate - 120 * ONE_MINUTE_MS
+          );
+          const periodStart = Math.max(
+            0,
+            args.startDate - 50 * FIVE_MINUTES_MS
+          );
+          const hourlyStart = Math.max(0, args.startDate - 80 * ONE_HOUR_MS);
+          const fourHourStart = Math.max(
+            0,
+            args.startDate - 60 * FOUR_HOURS_MS
+          );
+          const dailyStart = Math.max(0, args.startDate - 7 * ONE_DAY_MS);
+          const [candles5m, candles1m, candles1h, candles4h, candles1d] = await Promise.all([
+            fetchCandlesForRangeInternal(
+              symbol,
+              "5m",
+              periodStart,
+              args.endDate,
+              args.testnet
+            ),
+            fetchCandlesForRangeInternal(
+              symbol,
+              "1m",
+              intradayStart,
+              args.endDate,
+              args.testnet
+            ),
+            fetchCandlesForRangeInternal(
+              symbol,
+              "1h",
+              hourlyStart,
+              args.endDate,
+              args.testnet
+            ),
+            fetchCandlesForRangeInternal(
+              symbol,
+              "4h",
+              fourHourStart,
+              args.endDate,
+              args.testnet
+            ),
+            fetchCandlesForRangeInternal(
+              symbol,
+              "1d",
+              dailyStart,
+              args.endDate,
+              args.testnet
+            ),
+          ]);
+
+          const simulationCandleCount = candles5m.filter(
+            (c) => c.t >= args.startDate && c.t <= args.endDate
+          ).length;
+          const simulationStartIndex = candles5m.findIndex(
+            (c) => c.t >= args.startDate
+          );
+
+          return {
+            symbol,
+            periodCandles: candles5m.filter((c) => c.t <= args.endDate),
+            candles1m: candles1m.filter((c) => c.t <= args.endDate),
+            candles1h,
+            candles4h,
+            candles1d,
+            simulationCandleCount,
+            simulationStartIndex,
+          };
+        })
       );
 
-      // Filter candles to the backtest period
-      const periodCandles = candles.filter(
-        (c) => c.t >= args.startDate && c.t <= args.endDate
+      const activeEntries = symbolDataEntries.filter(
+        (entry) =>
+          entry.simulationCandleCount >= 10 && entry.simulationStartIndex >= 0
       );
-
-      if (periodCandles.length < 10) {
-        throw new Error(
-          `Insufficient candle data: only ${periodCandles.length} candles in period`
-        );
+      if (activeEntries.length === 0) {
+        throw new Error("Insufficient candle data for all configured symbols");
       }
 
+      const activeSymbols = activeEntries.map((entry) => entry.symbol);
+      const primarySymbol = activeSymbols[0];
+      const primaryEntry = activeEntries.find(
+        (entry) => entry.symbol === primarySymbol
+      );
+      const primaryPeriodCandles = primaryEntry?.periodCandles ?? [];
+      const simulationStartIndex = Math.max(
+        0,
+        primaryEntry?.simulationStartIndex ?? 0
+      );
+
       console.log(
-        `[BACKTEST] ${periodCandles.length} candles loaded for simulation`
+        `[BACKTEST] Loaded candle history for ${activeSymbols.join(", ")} (primary ${primarySymbol}: ${primaryEntry?.simulationCandleCount ?? 0} in-range candles, start index ${simulationStartIndex}, total buffered candles ${primaryPeriodCandles.length})`
       );
 
-      // Also fetch 1h and 4h candles for multi-timeframe context
-      const candles1h = await fetchCandlesInternal(
-        args.symbol,
-        "1h",
-        500,
-        args.testnet
+      const periodCandlesBySymbol = Object.fromEntries(
+        activeEntries.map((entry) => [entry.symbol, entry.periodCandles])
       );
-      const candles4h = await fetchCandlesInternal(
-        args.symbol,
-        "4h",
-        200,
-        args.testnet
+      const candles1mBySymbol = Object.fromEntries(
+        activeEntries.map((entry) => [entry.symbol, entry.candles1m])
       );
-      const candles1d = await fetchCandlesInternal(
-        args.symbol,
-        "1d",
-        60,
-        args.testnet
+      const candles1hBySymbol = Object.fromEntries(
+        activeEntries.map((entry) => [entry.symbol, entry.candles1h])
+      );
+      const candles4hBySymbol = Object.fromEntries(
+        activeEntries.map((entry) => [entry.symbol, entry.candles4h])
+      );
+      const candles1dBySymbol = Object.fromEntries(
+        activeEntries.map((entry) => [entry.symbol, entry.candles1d])
       );
 
-      const stepSize = 6; // every 6th candle = 30 min intervals
-      const totalSteps = Math.ceil((periodCandles.length - 50) / stepSize);
+      const stepSize = 1; // mirror the live trading loop cadence: every 5 minutes
+      const totalSteps = Math.max(
+        1,
+        Math.ceil((primaryPeriodCandles.length - simulationStartIndex) / stepSize)
+      );
 
       // Schedule first chunk immediately
       await ctx.scheduler.runAfter(
@@ -234,9 +588,27 @@ export const runBacktest = internalAction({
           runId: args.runId,
           userId: args.userId,
           symbol: args.symbol,
+          symbols: activeSymbols,
           modelName: args.modelName,
+          tradingPromptMode: args.tradingPromptMode,
           initialCapital: args.initialCapital,
-          maxLeverage: effectiveMaxLeverage,
+          maxLeverage: args.maxLeverage,
+          maxPositionSize: args.maxPositionSize,
+          maxDailyLoss: args.maxDailyLoss,
+          minAccountValue: args.minAccountValue,
+          perTradeRiskPct: args.perTradeRiskPct,
+          maxTotalPositions: args.maxTotalPositions,
+          maxSameDirectionPositions: args.maxSameDirectionPositions,
+          consecutiveLossLimit: args.consecutiveLossLimit,
+          tradingMode: args.tradingMode,
+          minEntryConfidence: args.minEntryConfidence,
+          minRiskRewardRatio: args.minRiskRewardRatio,
+          stopOutCooldownHours: args.stopOutCooldownHours,
+          minEntrySignals: args.minEntrySignals,
+          require4hAlignment: args.require4hAlignment,
+          tradeVolatileMarkets: args.tradeVolatileMarkets,
+          volatilitySizeReduction: args.volatilitySizeReduction,
+          stopLossAtrMultiplier: args.stopLossAtrMultiplier,
           useHybridSelection: args.useHybridSelection ?? false,
           enableRegimeFilter: args.enableRegimeFilter ?? true,
           require1hAlignment: args.require1hAlignment ?? true,
@@ -248,16 +620,31 @@ export const runBacktest = internalAction({
           hybridExtremeRsi7Block: args.hybridExtremeRsi7Block,
           hybridMinChopVolumeRatio: args.hybridMinChopVolumeRatio,
           hybridChopDistanceFromEmaPct: args.hybridChopDistanceFromEmaPct,
+          managedExitEnabled: args.managedExitEnabled,
+          managedExitHardStopLossPct: args.managedExitHardStopLossPct,
+          managedExitBreakEvenTriggerPct: args.managedExitBreakEvenTriggerPct,
+          managedExitBreakEvenLockProfitPct:
+            args.managedExitBreakEvenLockProfitPct,
+          managedExitTrailingTriggerPct: args.managedExitTrailingTriggerPct,
+          managedExitTrailingDistancePct:
+            args.managedExitTrailingDistancePct,
+          managedExitTightenTriggerPct: args.managedExitTightenTriggerPct,
+          managedExitTightenedDistancePct:
+            args.managedExitTightenedDistancePct,
+          managedExitStaleMinutes: args.managedExitStaleMinutes,
+          managedExitStaleMinProfitPct: args.managedExitStaleMinProfitPct,
+          managedExitMaxHoldMinutes: args.managedExitMaxHoldMinutes,
           openrouterApiKey: args.openrouterApiKey,
           testnet: args.testnet,
           startTime: Date.now(),
           // Candle data (serialized)
-          periodCandlesJson: JSON.stringify(periodCandles),
-          candles1hJson: JSON.stringify(candles1h),
-          candles4hJson: JSON.stringify(candles4h),
-          candles1dJson: JSON.stringify(candles1d),
+          periodCandlesJson: JSON.stringify(periodCandlesBySymbol),
+          candles1mJson: JSON.stringify(candles1mBySymbol),
+          candles1hJson: JSON.stringify(candles1hBySymbol),
+          candles4hJson: JSON.stringify(candles4hBySymbol),
+          candles1dJson: JSON.stringify(candles1dBySymbol),
           // Chunk state
-          candleIndex: 50, // start from index 50 (need lookback)
+          candleIndex: simulationStartIndex,
           stepSize,
           totalSteps,
           stepCount: 0,
@@ -275,9 +662,11 @@ export const runBacktest = internalAction({
           returnsSum: 0,
           returnsSquaredSum: 0,
           returnsCount: 0,
-          // Current position (null = no position)
-          positionJson: "null",
-          lastTradeTimestamp: 0,
+          // Current positions / per-symbol cooldown state
+          positionsJson: "[]",
+          lastTradeTimestampsJson: "{}",
+          consecutiveLosses: 0,
+          aiInvocationCount: 0,
         }
       );
     } catch (error) {
@@ -302,9 +691,27 @@ export const processBacktestChunk = internalAction({
     runId: v.id("backtestRuns"),
     userId: v.string(),
     symbol: v.string(),
+    symbols: v.optional(v.array(v.string())),
     modelName: v.string(),
+    tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    maxPositionSize: v.number(),
+    maxDailyLoss: v.number(),
+    minAccountValue: v.number(),
+    perTradeRiskPct: v.number(),
+    maxTotalPositions: v.number(),
+    maxSameDirectionPositions: v.number(),
+    consecutiveLossLimit: v.number(),
+    tradingMode: v.string(),
+    minEntryConfidence: v.number(),
+    minRiskRewardRatio: v.number(),
+    stopOutCooldownHours: v.number(),
+    minEntrySignals: v.number(),
+    require4hAlignment: v.boolean(),
+    tradeVolatileMarkets: v.boolean(),
+    volatilitySizeReduction: v.number(),
+    stopLossAtrMultiplier: v.number(),
     useHybridSelection: v.boolean(),
     enableRegimeFilter: v.boolean(),
     require1hAlignment: v.boolean(),
@@ -316,11 +723,23 @@ export const processBacktestChunk = internalAction({
     hybridExtremeRsi7Block: v.optional(v.number()),
     hybridMinChopVolumeRatio: v.optional(v.number()),
     hybridChopDistanceFromEmaPct: v.optional(v.number()),
+    managedExitEnabled: v.boolean(),
+    managedExitHardStopLossPct: v.optional(v.number()),
+    managedExitBreakEvenTriggerPct: v.optional(v.number()),
+    managedExitBreakEvenLockProfitPct: v.optional(v.number()),
+    managedExitTrailingTriggerPct: v.optional(v.number()),
+    managedExitTrailingDistancePct: v.optional(v.number()),
+    managedExitTightenTriggerPct: v.optional(v.number()),
+    managedExitTightenedDistancePct: v.optional(v.number()),
+    managedExitStaleMinutes: v.optional(v.number()),
+    managedExitStaleMinProfitPct: v.optional(v.number()),
+    managedExitMaxHoldMinutes: v.optional(v.number()),
     openrouterApiKey: v.string(),
     testnet: v.boolean(),
     startTime: v.number(),
     // Candle data
     periodCandlesJson: v.string(),
+    candles1mJson: v.string(),
     candles1hJson: v.string(),
     candles4hJson: v.string(),
     candles1dJson: v.string(),
@@ -343,9 +762,11 @@ export const processBacktestChunk = internalAction({
     returnsSum: v.number(),
     returnsSquaredSum: v.number(),
     returnsCount: v.number(),
-    // Current position
-    positionJson: v.string(),
-    lastTradeTimestamp: v.number(),
+    // Current positions and per-symbol cooldown state
+    positionsJson: v.string(),
+    lastTradeTimestampsJson: v.string(),
+    consecutiveLosses: v.number(),
+    aiInvocationCount: v.number(),
   },
   handler: async (ctx, args) => {
     try {
@@ -359,13 +780,15 @@ export const processBacktestChunk = internalAction({
         return;
       }
 
-      const assetConfig = getAssetConfig(args.symbol);
-
       // Deserialize state
-      const periodCandles = JSON.parse(args.periodCandlesJson);
-      const candles1h = JSON.parse(args.candles1hJson);
-      const candles4h = JSON.parse(args.candles4hJson);
-      const candles1d = JSON.parse(args.candles1dJson);
+      const periodCandlesBySymbol = JSON.parse(args.periodCandlesJson) as Record<string, any[]>;
+      const candles1mBySymbol = JSON.parse(args.candles1mJson) as Record<string, any[]>;
+      const candles1hBySymbol = JSON.parse(args.candles1hJson) as Record<string, any[]>;
+      const candles4hBySymbol = JSON.parse(args.candles4hJson) as Record<string, any[]>;
+      const candles1dBySymbol = JSON.parse(args.candles1dJson) as Record<string, any[]>;
+      const symbols = args.symbols?.length ? args.symbols : [args.symbol];
+      const primarySymbol = symbols[0];
+      const primaryPeriodCandles = periodCandlesBySymbol[primarySymbol] ?? [];
 
       let capital = args.capital;
       let peakCapital = args.peakCapital;
@@ -379,22 +802,164 @@ export const processBacktestChunk = internalAction({
       let returnsSum = args.returnsSum;
       let returnsSquaredSum = args.returnsSquaredSum;
       let returnsCount = args.returnsCount;
-      let currentPosition = JSON.parse(args.positionJson);
-      let lastTradeTimestamp = args.lastTradeTimestamp;
+      let currentPositions = JSON.parse(args.positionsJson) as SimulatedPosition[];
+      let lastTradeTimestamps = JSON.parse(args.lastTradeTimestampsJson) as Record<string, number>;
+      let consecutiveLosses = args.consecutiveLosses;
+      let aiInvocationCount = args.aiInvocationCount;
       let stepCount = args.stepCount;
       let aiCallsThisChunk = 0;
       let candleIndex = args.candleIndex;
       let capitalDepleted = false;
+      let forcedHoldSteps = 0;
+      let lastForcedHoldReason: string | null = null;
+      let lastProcessedTime =
+        primaryPeriodCandles[Math.max(0, candleIndex - args.stepSize)]?.t ??
+        primaryPeriodCandles[0]?.t ??
+        args.startTime;
       const chunkStartMs = Date.now();
+      const safeTotalSteps = Math.max(1, args.totalSteps);
+
+      const updateDrawdown = () => {
+        if (capital > peakCapital) peakCapital = capital;
+        const drawdown = peakCapital - capital;
+        const drawdownPct = peakCapital > 0 ? (drawdown / peakCapital) * 100 : 0;
+        if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+        if (drawdownPct > maxDrawdownPct) maxDrawdownPct = drawdownPct;
+      };
+
+      const scheduleNextChunk = async () => {
+        await ctx.runMutation(
+          internal.backtesting.backtestActions.updateBacktestProgress,
+          {
+            runId: args.runId,
+            currentCapital: capital,
+            currentTrades: tradeCount,
+            progressPct: Math.min(
+              100,
+              Math.round((stepCount / safeTotalSteps) * 100)
+            ),
+          }
+        );
+
+        await ctx.scheduler.runAfter(
+          0,
+          internal.backtesting.backtestEngine.processBacktestChunk,
+          {
+            ...args,
+            symbols,
+            candleIndex,
+            stepCount,
+            capital,
+            peakCapital,
+            maxDrawdown,
+            maxDrawdownPct,
+            totalFees,
+            totalFunding,
+            liquidationCount,
+            tradeCount,
+            winCount,
+            returnsSum,
+            returnsSquaredSum,
+            returnsCount,
+            positionsJson: JSON.stringify(currentPositions),
+            lastTradeTimestampsJson: JSON.stringify(lastTradeTimestamps),
+            consecutiveLosses,
+            aiInvocationCount,
+          }
+        );
+      };
+
+      const closePosition = async (
+        position: SimulatedPosition,
+        exitPrice: number,
+        exitTime: number,
+        exitReason: string,
+        confidence: number | undefined,
+        reasoning: string | undefined,
+        options?: {
+          addFundingToExitTime?: boolean;
+          extraFeePct?: number;
+        }
+      ) => {
+        const notional = position.size * position.leverage;
+
+        if (options?.addFundingToExitTime) {
+          const remainingFunding = calculateFundingForPeriod(
+            position.symbol,
+            position.side,
+            notional,
+            position.lastFundingCheckTime,
+            exitTime
+          );
+          if (remainingFunding !== 0) {
+            position.accumulatedFunding += remainingFunding;
+            position.lastFundingCheckTime = advanceFundingTime(
+              position.lastFundingCheckTime,
+              exitTime
+            );
+          }
+        }
+
+        let pnl = calculatePositionRawPnl(position, exitPrice);
+        const exitFee = notional * TAKER_FEE_PCT;
+        const extraFee = notional * (options?.extraFeePct ?? 0);
+        pnl -= exitFee + extraFee + position.accumulatedFunding;
+
+        totalFees += exitFee + extraFee;
+        totalFunding += position.accumulatedFunding;
+        capital += pnl;
+
+        const pnlPct = position.size > 0 ? (pnl / position.size) * 100 : 0;
+        tradeCount += 1;
+        if (pnl > 0) {
+          winCount += 1;
+          consecutiveLosses = 0;
+        } else {
+          consecutiveLosses += 1;
+        }
+        returnsSum += pnlPct;
+        returnsSquaredSum += pnlPct * pnlPct;
+        returnsCount += 1;
+        lastTradeTimestamps[position.symbol] = exitTime;
+        currentPositions = currentPositions.filter(
+          (candidate) => candidate.symbol !== position.symbol
+        );
+
+        await ctx.runMutation(
+          internal.backtesting.backtestActions.saveBacktestTrade,
+          {
+            runId: args.runId,
+            userId: args.userId,
+            symbol: position.symbol,
+            action: "CLOSE",
+            side: position.side,
+            entryPrice: position.entryPrice,
+            exitPrice,
+            size: position.size,
+            leverage: position.leverage,
+            pnl,
+            pnlPct,
+            exitReason,
+            fundingPaid: position.accumulatedFunding,
+            confidence,
+            reasoning,
+            entryTime: position.entryTime,
+            exitTime,
+          }
+        );
+
+        updateDrawdown();
+      };
 
       console.log(
-        `[BACKTEST] Chunk starting at candle ${candleIndex}, capital: $${capital.toFixed(2)}, trades: ${tradeCount}, AI calls budget: ${MAX_AI_CALLS_PER_CHUNK}, time budget: ${CHUNK_TIME_BUDGET_MS / 1000}s, apiKey: ${args.openrouterApiKey ? args.openrouterApiKey.slice(0, 8) + "..." : "MISSING"}, model: ${args.modelName}`
+        `[BACKTEST] Chunk starting at candle ${candleIndex}/${primaryPeriodCandles.length - 1}, capital: $${capital.toFixed(2)}, trades: ${tradeCount}, AI calls budget: ${MAX_AI_CALLS_PER_CHUNK}, time budget: ${CHUNK_TIME_BUDGET_MS / 1000}s, apiKey: ${args.openrouterApiKey ? args.openrouterApiKey.slice(0, 8) + "..." : "MISSING"}, model: ${args.modelName}`
       );
 
       // Process steps until we run out of candles or hit AI call limit
-      while (candleIndex < periodCandles.length) {
+      while (candleIndex < primaryPeriodCandles.length) {
         stepCount++;
-        const currentCandle = periodCandles[candleIndex];
+        const currentCandle = primaryPeriodCandles[candleIndex];
+        lastProcessedTime = currentCandle.t;
 
         // Update progress every 5 steps
         if (stepCount % 5 === 0) {
@@ -404,232 +969,266 @@ export const processBacktestChunk = internalAction({
               runId: args.runId,
               currentCapital: capital,
               currentTrades: tradeCount,
-              progressPct: Math.min(100, Math.round((stepCount / args.totalSteps) * 100)),
+              progressPct: Math.min(
+                100,
+                Math.round((stepCount / safeTotalSteps) * 100)
+              ),
             }
           );
         }
 
-        // ─── Position checks: funding, liquidation, SL/TP ─────────────
-        if (currentPosition) {
-          const prevIndex = Math.max(0, candleIndex - args.stepSize);
-          let positionClosed = false;
+        // ─── Position checks: funding, liquidation, managed exits, SL/TP ───
+        const previousAnchorTime =
+          primaryPeriodCandles[Math.max(0, candleIndex - args.stepSize)]?.t ??
+          currentCandle.t;
 
-          for (let j = prevIndex; j <= candleIndex; j++) {
-            const checkCandle = periodCandles[j];
-            if (!checkCandle) continue;
+        for (const position of [...currentPositions]) {
+          if (!currentPositions.some((candidate) => candidate.symbol === position.symbol)) {
+            continue;
+          }
 
-            const notional = currentPosition.size * currentPosition.leverage;
-            const margin = currentPosition.size; // margin = position size (collateral)
+          const assetConfig = getAssetConfig(position.symbol);
+          const symbolCandles = periodCandlesBySymbol[position.symbol] ?? [];
+          const candlesToCheck = symbolCandles.filter(
+            (candle) => candle.t > previousAnchorTime && candle.t <= currentCandle.t
+          );
+          if (candlesToCheck.length === 0) {
+            const latestCandle = getLatestCandleAtOrBefore(
+              symbolCandles,
+              currentCandle.t
+            );
+            if (latestCandle) {
+              candlesToCheck.push(latestCandle);
+            }
+          }
 
-            // (a) Funding charge — hourly
+          for (const checkCandle of candlesToCheck) {
+            if (!currentPositions.some((candidate) => candidate.symbol === position.symbol)) {
+              break;
+            }
+
+            const notional = position.size * position.leverage;
+            const margin = position.size;
             const fundingCost = calculateFundingForPeriod(
-              args.symbol,
-              currentPosition.side,
+              position.symbol,
+              position.side,
               notional,
-              currentPosition.lastFundingCheckTime,
+              position.lastFundingCheckTime,
               checkCandle.t
             );
             if (fundingCost !== 0) {
-              currentPosition.accumulatedFunding += fundingCost;
-              currentPosition.lastFundingCheckTime = advanceFundingTime(
-                currentPosition.lastFundingCheckTime,
+              position.accumulatedFunding += fundingCost;
+              position.lastFundingCheckTime = advanceFundingTime(
+                position.lastFundingCheckTime,
                 checkCandle.t
               );
             }
 
-            // (b) Liquidation check — at candle's worst price
-            const worstPrice = currentPosition.side === "LONG"
-              ? checkCandle.l
-              : checkCandle.h;
-
-            let unrealizedPnl: number;
-            if (currentPosition.side === "LONG") {
-              unrealizedPnl =
-                ((worstPrice - currentPosition.entryPrice) /
-                  currentPosition.entryPrice) *
-                notional;
-            } else {
-              unrealizedPnl =
-                ((currentPosition.entryPrice - worstPrice) /
-                  currentPosition.entryPrice) *
-                notional;
-            }
-
-            const positionEquity = margin + unrealizedPnl - currentPosition.accumulatedFunding;
-            const maintenanceMargin = notional * assetConfig.maintenanceMarginRate;
+            const worstPrice = position.side === "LONG" ? checkCandle.l : checkCandle.h;
+            const worstCasePnl = calculatePositionRawPnl(position, worstPrice);
+            const positionEquity = margin + worstCasePnl - position.accumulatedFunding;
+            const maintenanceMargin =
+              notional * assetConfig.maintenanceMarginRate;
 
             if (positionEquity <= maintenanceMargin) {
-              // LIQUIDATION — forced close at worst price
-              const liqFee = notional * LIQUIDATION_FEE_PCT;
-              const exitFee = notional * TAKER_FEE_PCT;
-              const liqPnl = unrealizedPnl - liqFee - exitFee - currentPosition.accumulatedFunding;
-
-              totalFees += liqFee + exitFee;
-              totalFunding += currentPosition.accumulatedFunding;
-              liquidationCount++;
-
-              const pnlPct = (liqPnl / currentPosition.size) * 100;
-              capital += liqPnl;
-              tradeCount++;
-              if (liqPnl > 0) winCount++; // unlikely for liquidation
-              returnsSum += pnlPct;
-              returnsSquaredSum += pnlPct * pnlPct;
-              returnsCount++;
-
-              await ctx.runMutation(
-                internal.backtesting.backtestActions.saveBacktestTrade,
-                {
-                  runId: args.runId,
-                  userId: args.userId,
-                  symbol: args.symbol,
-                  action: "CLOSE",
-                  side: currentPosition.side,
-                  entryPrice: currentPosition.entryPrice,
-                  exitPrice: worstPrice,
-                  size: currentPosition.size,
-                  leverage: currentPosition.leverage,
-                  pnl: liqPnl,
-                  pnlPct,
-                  exitReason: "liquidation",
-                  fundingPaid: currentPosition.accumulatedFunding,
-                  confidence: currentPosition.confidence,
-                  reasoning: currentPosition.reasoning,
-                  entryTime: currentPosition.entryTime,
-                  exitTime: checkCandle.t,
-                }
+              liquidationCount += 1;
+              await closePosition(
+                position,
+                worstPrice,
+                checkCandle.t,
+                "liquidation",
+                position.confidence,
+                position.reasoning,
+                { extraFeePct: LIQUIDATION_FEE_PCT }
               );
-
-              currentPosition = null;
-              positionClosed = true;
-              lastTradeTimestamp = checkCandle.t;
-
-              // Track drawdown
-              if (capital > peakCapital) peakCapital = capital;
-              const drawdown = peakCapital - capital;
-              const drawdownPct = (drawdown / peakCapital) * 100;
-              if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-              if (drawdownPct > maxDrawdownPct) maxDrawdownPct = drawdownPct;
-
               break;
             }
 
-            // (c) SL/TP check with slippage
+            if (position.exitMode === MANAGED_EXIT_MODE) {
+              const managedExitRules = getManagedExitRules({
+                managedExitEnabled: args.managedExitEnabled,
+                managedExitHardStopLossPct: args.managedExitHardStopLossPct,
+                managedExitBreakEvenTriggerPct:
+                  args.managedExitBreakEvenTriggerPct,
+                managedExitBreakEvenLockProfitPct:
+                  args.managedExitBreakEvenLockProfitPct,
+                managedExitTrailingTriggerPct:
+                  args.managedExitTrailingTriggerPct,
+                managedExitTrailingDistancePct:
+                  args.managedExitTrailingDistancePct,
+                managedExitTightenTriggerPct:
+                  args.managedExitTightenTriggerPct,
+                managedExitTightenedDistancePct:
+                  args.managedExitTightenedDistancePct,
+                managedExitStaleMinutes: args.managedExitStaleMinutes,
+                managedExitStaleMinProfitPct:
+                  args.managedExitStaleMinProfitPct,
+                managedExitMaxHoldMinutes: args.managedExitMaxHoldMinutes,
+              });
+              const priceForPeak = checkCandle.c;
+              const livePnlPct =
+                position.side === "LONG"
+                  ? ((priceForPeak - position.entryPrice) / position.entryPrice) *
+                    100 *
+                    position.leverage
+                  : ((position.entryPrice - priceForPeak) / position.entryPrice) *
+                    100 *
+                    position.leverage;
+              const peakPrice = getManagedPeakPrice(
+                position.side,
+                position.managedPeakPrice,
+                priceForPeak
+              );
+              const hardStop = calculateHardStopPrice(
+                position.entryPrice,
+                position.side,
+                managedExitRules.managedExitHardStopLossPct
+              );
+              const breakEvenStop =
+                livePnlPct >= managedExitRules.managedExitBreakEvenTriggerPct
+                  ? getBreakEvenStopPrice(
+                      position.entryPrice,
+                      position.side,
+                      managedExitRules.managedExitBreakEvenLockProfitPct
+                    )
+                  : undefined;
+              const trailingStop =
+                livePnlPct >= managedExitRules.managedExitTrailingTriggerPct
+                  ? getTrailingStopPrice(
+                      peakPrice,
+                      position.side,
+                      managedExitRules.managedExitTrailingDistancePct
+                    )
+                  : undefined;
+              const tightenedStop =
+                livePnlPct >= managedExitRules.managedExitTightenTriggerPct
+                  ? getTrailingStopPrice(
+                      peakPrice,
+                      position.side,
+                      managedExitRules.managedExitTightenedDistancePct
+                    )
+                  : undefined;
+              const effectiveStop = tightenManagedStop(
+                position.side,
+                position.managedStopPrice,
+                [hardStop, breakEvenStop, trailingStop, tightenedStop]
+              );
+
+              position.managedPeakPrice = peakPrice;
+              position.managedStopPrice = effectiveStop;
+              position.stopLoss = effectiveStop;
+              position.managedStopReason =
+                effectiveStop === tightenedStop
+                  ? "tightened_trailing_stop"
+                  : effectiveStop === trailingStop
+                    ? "trailing_stop"
+                    : effectiveStop === breakEvenStop
+                      ? "break_even_stop"
+                      : "hard_stop";
+
+              const ageMinutes =
+                (checkCandle.t - position.entryTime) / 60000;
+              let managedExitReason: string | null = null;
+              let managedExitPrice = checkCandle.c;
+
+              if (
+                ageMinutes >= managedExitRules.managedExitStaleMinutes &&
+                livePnlPct < managedExitRules.managedExitStaleMinProfitPct
+              ) {
+                managedExitReason = "stale_trade";
+              } else if (
+                ageMinutes >= managedExitRules.managedExitMaxHoldMinutes
+              ) {
+                managedExitReason = "max_hold";
+              } else if (
+                typeof effectiveStop === "number" &&
+                hasStopBeenCrossed(
+                  position.side,
+                  position.side === "LONG" ? checkCandle.l : checkCandle.h,
+                  effectiveStop
+                )
+              ) {
+                const baseSlippage = calculateSlippage(
+                  notional,
+                  assetConfig.liquidityTier
+                );
+                const slippagePct =
+                  baseSlippage *
+                  Math.max(1, (checkCandle.h - checkCandle.l) / checkCandle.c / 0.005);
+                managedExitPrice =
+                  position.side === "LONG"
+                    ? effectiveStop * (1 - slippagePct)
+                    : effectiveStop * (1 + slippagePct);
+                managedExitReason = position.managedStopReason || "hard_stop";
+              }
+
+              if (managedExitReason) {
+                await closePosition(
+                  position,
+                  managedExitPrice,
+                  checkCandle.t,
+                  managedExitReason,
+                  position.confidence,
+                  position.reasoning
+                );
+                break;
+              }
+            }
+
             let hitSL = false;
             let hitTP = false;
 
-            if (currentPosition.side === "LONG") {
-              hitSL = checkCandle.l <= currentPosition.stopLoss;
-              hitTP = checkCandle.h >= currentPosition.takeProfit;
+            if (position.side === "LONG") {
+              hitSL =
+                typeof position.stopLoss === "number" &&
+                checkCandle.l <= position.stopLoss;
+              hitTP =
+                typeof position.takeProfit === "number" &&
+                checkCandle.h >= position.takeProfit;
             } else {
-              hitSL = checkCandle.h >= currentPosition.stopLoss;
-              hitTP = checkCandle.l <= currentPosition.takeProfit;
+              hitSL =
+                typeof position.stopLoss === "number" &&
+                checkCandle.h >= position.stopLoss;
+              hitTP =
+                typeof position.takeProfit === "number" &&
+                checkCandle.l <= position.takeProfit;
             }
 
             if (hitSL || hitTP) {
-              // Calculate volatility multiplier from candle range
               const candleRange = (checkCandle.h - checkCandle.l) / checkCandle.c;
-              const volatilityMultiplier = Math.max(1.0, candleRange / 0.005); // baseline 0.5% range
-
-              const baseSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
-
-              let exitPrice: number;
+              const volatilityMultiplier = Math.max(1, candleRange / 0.005);
+              const baseSlippage = calculateSlippage(
+                notional,
+                assetConfig.liquidityTier
+              );
               const exitReason = hitSL ? "stop_loss" : "take_profit";
 
+              let exitPrice: number;
               if (hitSL) {
-                // SL gets full slippage in worse direction, scaled by volatility
                 const slippagePct = baseSlippage * volatilityMultiplier;
-                if (currentPosition.side === "LONG") {
-                  exitPrice = currentPosition.stopLoss * (1 - slippagePct);
-                } else {
-                  exitPrice = currentPosition.stopLoss * (1 + slippagePct);
-                }
+                exitPrice =
+                  position.side === "LONG"
+                    ? position.stopLoss! * (1 - slippagePct)
+                    : position.stopLoss! * (1 + slippagePct);
               } else {
-                // TP gets half slippage (less urgency, limit-like execution)
                 const slippagePct = baseSlippage * 0.5;
-                if (currentPosition.side === "LONG") {
-                  exitPrice = currentPosition.takeProfit * (1 - slippagePct);
-                } else {
-                  exitPrice = currentPosition.takeProfit * (1 + slippagePct);
-                }
+                exitPrice =
+                  position.side === "LONG"
+                    ? position.takeProfit! * (1 - slippagePct)
+                    : position.takeProfit! * (1 + slippagePct);
               }
 
-              let pnl: number;
-              if (currentPosition.side === "LONG") {
-                pnl =
-                  ((exitPrice - currentPosition.entryPrice) /
-                    currentPosition.entryPrice) *
-                  notional;
-              } else {
-                pnl =
-                  ((currentPosition.entryPrice - exitPrice) /
-                    currentPosition.entryPrice) *
-                  notional;
-              }
-
-              // Deduct exit fee + accumulated funding
-              const exitFee = notional * TAKER_FEE_PCT;
-              pnl -= exitFee + currentPosition.accumulatedFunding;
-              totalFees += exitFee;
-              totalFunding += currentPosition.accumulatedFunding;
-
-              const pnlPct = (pnl / currentPosition.size) * 100;
-              capital += pnl;
-              tradeCount++;
-              if (pnl > 0) winCount++;
-              returnsSum += pnlPct;
-              returnsSquaredSum += pnlPct * pnlPct;
-              returnsCount++;
-
-              // Save trade
-              await ctx.runMutation(
-                internal.backtesting.backtestActions.saveBacktestTrade,
-                {
-                  runId: args.runId,
-                  userId: args.userId,
-                  symbol: args.symbol,
-                  action: "CLOSE",
-                  side: currentPosition.side,
-                  entryPrice: currentPosition.entryPrice,
-                  exitPrice,
-                  size: currentPosition.size,
-                  leverage: currentPosition.leverage,
-                  pnl,
-                  pnlPct,
-                  exitReason,
-                  fundingPaid: currentPosition.accumulatedFunding,
-                  confidence: currentPosition.confidence,
-                  reasoning: currentPosition.reasoning,
-                  entryTime: currentPosition.entryTime,
-                  exitTime: checkCandle.t,
-                }
+              await closePosition(
+                position,
+                exitPrice,
+                checkCandle.t,
+                exitReason,
+                position.confidence,
+                position.reasoning
               );
-
-              currentPosition = null;
-              positionClosed = true;
-              lastTradeTimestamp = checkCandle.t;
-
-              // Track drawdown
-              if (capital > peakCapital) peakCapital = capital;
-              const drawdown = peakCapital - capital;
-              const drawdownPct = (drawdown / peakCapital) * 100;
-              if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-              if (drawdownPct > maxDrawdownPct) maxDrawdownPct = drawdownPct;
-
               break;
             }
           }
-
-          // If position was closed (liquidation or SL/TP), skip to capital check
-          if (positionClosed) {
-            // fall through to capital check below
-          }
-        }
-
-        // Legacy mode only opens and then lets TP/SL manage exits.
-        // Hybrid mode may still ask the LLM whether to HOLD or CLOSE an eligible open position.
-        if (currentPosition && !args.useHybridSelection) {
-          candleIndex += args.stepSize;
-          continue;
         }
 
         // Stop if capital is too low
@@ -641,80 +1240,13 @@ export const processBacktestChunk = internalAction({
           break;
         }
 
-        if (
-          !currentPosition &&
-          lastTradeTimestamp > 0 &&
-          currentCandle.t - lastTradeTimestamp < args.reentryCooldownMinutes * 60 * 1000
-        ) {
-          candleIndex += args.stepSize;
-          continue;
-        }
-
         // Time watchdog: bail out before Convex's hard 600s kill
         const elapsedMs = Date.now() - chunkStartMs;
         if (elapsedMs >= CHUNK_TIME_BUDGET_MS) {
           console.log(
             `[BACKTEST] Time budget exhausted (${(elapsedMs / 1000).toFixed(0)}s elapsed, ${aiCallsThisChunk} AI calls). Scheduling next chunk...`
           );
-
-          await ctx.runMutation(
-            internal.backtesting.backtestActions.updateBacktestProgress,
-            {
-              runId: args.runId,
-              currentCapital: capital,
-              currentTrades: tradeCount,
-              progressPct: Math.min(100, Math.round((stepCount / args.totalSteps) * 100)),
-            }
-          );
-
-          await ctx.scheduler.runAfter(
-            0,
-            internal.backtesting.backtestEngine.processBacktestChunk,
-            {
-              runId: args.runId,
-              userId: args.userId,
-              symbol: args.symbol,
-              modelName: args.modelName,
-              initialCapital: args.initialCapital,
-              maxLeverage: args.maxLeverage,
-              useHybridSelection: args.useHybridSelection,
-              enableRegimeFilter: args.enableRegimeFilter,
-              require1hAlignment: args.require1hAlignment,
-              redDayLongBlockPct: args.redDayLongBlockPct,
-              greenDayShortBlockPct: args.greenDayShortBlockPct,
-              reentryCooldownMinutes: args.reentryCooldownMinutes,
-              hybridScoreFloor: args.hybridScoreFloor,
-              hybridFourHourTrendThresholdPct: args.hybridFourHourTrendThresholdPct,
-              hybridExtremeRsi7Block: args.hybridExtremeRsi7Block,
-              hybridMinChopVolumeRatio: args.hybridMinChopVolumeRatio,
-              hybridChopDistanceFromEmaPct: args.hybridChopDistanceFromEmaPct,
-              openrouterApiKey: args.openrouterApiKey,
-              testnet: args.testnet,
-              startTime: args.startTime,
-              periodCandlesJson: args.periodCandlesJson,
-              candles1hJson: args.candles1hJson,
-              candles4hJson: args.candles4hJson,
-              candles1dJson: args.candles1dJson,
-              candleIndex,
-              stepSize: args.stepSize,
-              totalSteps: args.totalSteps,
-              stepCount,
-              capital,
-              peakCapital,
-              maxDrawdown,
-              maxDrawdownPct,
-              totalFees,
-              totalFunding,
-              liquidationCount,
-              tradeCount,
-              winCount,
-              returnsSum,
-              returnsSquaredSum,
-              returnsCount,
-              positionJson: JSON.stringify(currentPosition),
-              lastTradeTimestamp,
-            }
-          );
+          await scheduleNextChunk();
           return;
         }
 
@@ -723,274 +1255,326 @@ export const processBacktestChunk = internalAction({
           console.log(
             `[BACKTEST] Chunk limit reached (${aiCallsThisChunk} AI calls). Scheduling next chunk...`
           );
-
-          // Update progress before scheduling next chunk
-          await ctx.runMutation(
-            internal.backtesting.backtestActions.updateBacktestProgress,
-            {
-              runId: args.runId,
-              currentCapital: capital,
-              currentTrades: tradeCount,
-              progressPct: Math.min(100, Math.round((stepCount / args.totalSteps) * 100)),
-            }
-          );
-
-          // Schedule next chunk
-          await ctx.scheduler.runAfter(
-            0,
-            internal.backtesting.backtestEngine.processBacktestChunk,
-            {
-              runId: args.runId,
-              userId: args.userId,
-              symbol: args.symbol,
-              modelName: args.modelName,
-              initialCapital: args.initialCapital,
-              maxLeverage: args.maxLeverage,
-              useHybridSelection: args.useHybridSelection,
-              enableRegimeFilter: args.enableRegimeFilter,
-              require1hAlignment: args.require1hAlignment,
-              redDayLongBlockPct: args.redDayLongBlockPct,
-              greenDayShortBlockPct: args.greenDayShortBlockPct,
-              reentryCooldownMinutes: args.reentryCooldownMinutes,
-              hybridScoreFloor: args.hybridScoreFloor,
-              hybridFourHourTrendThresholdPct: args.hybridFourHourTrendThresholdPct,
-              hybridExtremeRsi7Block: args.hybridExtremeRsi7Block,
-              hybridMinChopVolumeRatio: args.hybridMinChopVolumeRatio,
-              hybridChopDistanceFromEmaPct: args.hybridChopDistanceFromEmaPct,
-              openrouterApiKey: args.openrouterApiKey,
-              testnet: args.testnet,
-              startTime: args.startTime,
-              periodCandlesJson: args.periodCandlesJson,
-              candles1hJson: args.candles1hJson,
-              candles4hJson: args.candles4hJson,
-              candles1dJson: args.candles1dJson,
-              candleIndex,
-              stepSize: args.stepSize,
-              totalSteps: args.totalSteps,
-              stepCount,
-              capital,
-              peakCapital,
-              maxDrawdown,
-              maxDrawdownPct,
-              totalFees,
-              totalFunding,
-              liquidationCount,
-              tradeCount,
-              winCount,
-              returnsSum,
-              returnsSquaredSum,
-              returnsCount,
-              positionJson: JSON.stringify(currentPosition),
-              lastTradeTimestamp,
-            }
-          );
+          await scheduleNextChunk();
           return; // Exit this chunk
         }
 
-        // Build market context from candles
-        const recentCandles = periodCandles.slice(Math.max(0, candleIndex - 50), candleIndex + 1);
-        const recent1h = candles1h
-          .filter((c: any) => c.t <= currentCandle.t)
-          .slice(-24);
-        const recent4h = candles4h
-          .filter((c: any) => c.t <= currentCandle.t)
-          .slice(-12);
-        const recent1d = candles1d
-          .filter((c: any) => c.t <= currentCandle.t)
-          .slice(-7);
-
-        const closes = recentCandles.map((c: any) => c.c);
-        const currentPrice = currentCandle.c;
-        const sma20 =
-          closes.slice(-20).reduce((a: number, b: number) => a + b, 0) /
-          Math.min(20, closes.length);
-        const sma50 =
-          closes.slice(-50).reduce((a: number, b: number) => a + b, 0) /
-          Math.min(50, closes.length);
-        const priceChange1h =
-          recent1h.length >= 2
-            ? ((currentPrice - recent1h[recent1h.length - 2].c) /
-                recent1h[recent1h.length - 2].c) *
-              100
-            : 0;
-        const priceChange4h =
-          recent4h.length >= 2
-            ? ((currentPrice - recent4h[recent4h.length - 2].c) /
-                recent4h[recent4h.length - 2].c) *
-              100
-            : 0;
-
-        const marketContext = `Symbol: ${args.symbol}
-Current Price: $${currentPrice.toFixed(2)}
-SMA20: $${sma20.toFixed(2)} (${currentPrice > sma20 ? "above" : "below"})
-SMA50: $${sma50.toFixed(2)} (${currentPrice > sma50 ? "above" : "below"})
-1h Change: ${priceChange1h.toFixed(2)}%
-4h Change: ${priceChange4h.toFixed(2)}%
-Recent High: $${Math.max(...recentCandles.slice(-12).map((c: any) => c.h)).toFixed(2)}
-Recent Low: $${Math.min(...recentCandles.slice(-12).map((c: any) => c.l)).toFixed(2)}
-Account Balance: $${capital.toFixed(2)}
-Max Leverage: ${args.maxLeverage}x`;
-        const decisionContext = createBacktestDecisionContext(
-          args.symbol,
-          currentPrice,
-          recentCandles,
-          recent1h,
-          recent4h,
-          recent1d
+        // Build historical market snapshot that matches the live prompt contracts.
+        const historicalMarketData = buildHistoricalMarketDataForSymbols(
+          symbols,
+          currentCandle.t,
+          candles1mBySymbol,
+          candles1hBySymbol,
+          candles4hBySymbol,
+          candles1dBySymbol
         );
+        if (Object.keys(historicalMarketData).length === 0) {
+          candleIndex += args.stepSize;
+          continue;
+        }
 
-        const backtestPositions = currentPosition
-          ? [{
-              symbol: args.symbol,
-              side: currentPosition.side,
-              stopLoss: currentPosition.stopLoss,
-              takeProfit: currentPosition.takeProfit,
-              unrealizedPnlPct: (() => {
-                const rawMovePct = currentPosition.side === "LONG"
-                  ? ((currentPrice - currentPosition.entryPrice) / currentPosition.entryPrice) * 100
-                  : ((currentPosition.entryPrice - currentPrice) / currentPosition.entryPrice) * 100;
-                return rawMovePct * currentPosition.leverage;
-              })(),
-            }]
-          : [];
+        const currentPrices = Object.fromEntries(
+          Object.entries(historicalMarketData).map(([symbol, data]) => [
+            symbol,
+            data.currentPrice,
+          ])
+        );
+        const decisionContext = createBacktestDecisionContext(
+          historicalMarketData
+        );
+        const backtestPositions = createBacktestPositionView(
+          currentPositions,
+          currentPrices
+        );
+        const accountState = createBacktestAccountState(
+          capital,
+          currentPositions,
+          currentPrices
+        );
+        const performanceMetrics = createBacktestPerformanceMetrics(
+          args.initialCapital,
+          capital,
+          args.startTime,
+          returnsSum,
+          returnsSquaredSum,
+          returnsCount,
+          aiInvocationCount
+        );
+        const tradingPromptMode =
+          (args.tradingPromptMode as BacktestTradingMode) || "alpha_arena";
 
-        // Call AI
         try {
           let aiDecision: any;
           let hybridCandidateSet = null;
+          const recentTrades = buildBacktestRecentTrades(lastTradeTimestamps);
 
-          if (args.useHybridSelection) {
+          if (tradingPromptMode === "alpha_arena" && args.useHybridSelection) {
             hybridCandidateSet = buildHybridCandidateSet({
               decisionContext,
-              accountState: {
-                accountValue: capital,
-                withdrawable: capital,
-              },
+              accountState,
               positions: backtestPositions,
-              recentTrades: lastTradeTimestamp > 0
-                ? [{ symbol: args.symbol, executedAt: lastTradeTimestamp, action: "OPEN" }]
-                : [],
+              recentTrades,
               config: {
                 maxLeverage: args.maxLeverage,
-                maxPositionSize: 20,
-                perTradeRiskPct: 2,
-                maxTotalPositions: 1,
-                maxSameDirectionPositions: 1,
-                minRiskRewardRatio: 2,
-                stopLossAtrMultiplier: 1.5,
+                maxPositionSize: normalizeMaxPositionSizePct(args.maxPositionSize),
+                perTradeRiskPct: args.perTradeRiskPct,
+                maxTotalPositions: args.maxTotalPositions,
+                maxSameDirectionPositions: args.maxSameDirectionPositions,
+                minRiskRewardRatio: args.minRiskRewardRatio,
+                stopLossAtrMultiplier: args.stopLossAtrMultiplier,
                 reentryCooldownMinutes: args.reentryCooldownMinutes,
                 enableRegimeFilter: args.enableRegimeFilter,
                 require1hAlignment: args.require1hAlignment,
                 redDayLongBlockPct: args.redDayLongBlockPct,
                 greenDayShortBlockPct: args.greenDayShortBlockPct,
                 hybridScoreFloor: args.hybridScoreFloor,
-                hybridFourHourTrendThresholdPct: args.hybridFourHourTrendThresholdPct,
+                hybridFourHourTrendThresholdPct:
+                  args.hybridFourHourTrendThresholdPct,
                 hybridExtremeRsi7Block: args.hybridExtremeRsi7Block,
                 hybridMinChopVolumeRatio: args.hybridMinChopVolumeRatio,
                 hybridChopDistanceFromEmaPct: args.hybridChopDistanceFromEmaPct,
               },
-              allowedSymbols: [args.symbol],
+              allowedSymbols: symbols,
               testnet: args.testnet,
               now: currentCandle.t,
             });
 
-            if (hybridCandidateSet.forcedHold && hybridCandidateSet.closeCandidates.length === 0) {
+            if (
+              hybridCandidateSet.forcedHold &&
+              hybridCandidateSet.closeCandidates.length === 0
+            ) {
+              forcedHoldSteps += 1;
+              lastForcedHoldReason =
+                hybridCandidateSet.holdReason ||
+                "No valid hybrid candidates in backtest.";
               aiDecision = buildHybridHoldDecision(
-                hybridCandidateSet.holdReason || "No valid hybrid candidates in backtest."
+                lastForcedHoldReason
               );
             } else {
-              aiCallsThisChunk++;
-              aiDecision = await callHybridAIForBacktest(
-                args.openrouterApiKey,
-                args.modelName,
-                hybridCandidateSet,
-                capital
+              aiCallsThisChunk += 1;
+              aiInvocationCount += 1;
+              aiDecision = await ctx.runAction(
+                api.ai.agents.tradingAgent.makeHybridAlphaArenaTradingDecision,
+                {
+                  userId: args.userId,
+                  modelType: "openrouter",
+                  modelName: args.modelName,
+                  accountState,
+                  positions: backtestPositions,
+                  candidateSet: hybridCandidateSet,
+                }
               );
             }
+          } else if (tradingPromptMode === "alpha_arena") {
+            aiCallsThisChunk += 1;
+            aiInvocationCount += 1;
+            aiDecision = await ctx.runAction(
+              api.ai.agents.tradingAgent.makeAlphaArenaTradingDecision,
+              {
+                userId: args.userId,
+                modelType: "openrouter",
+                modelName: args.modelName,
+                detailedMarketData: historicalMarketData,
+                accountState,
+                positions: backtestPositions,
+                config: {
+                  maxLeverage: args.maxLeverage,
+                  maxPositionSize: normalizeMaxPositionSizePct(
+                    args.maxPositionSize
+                  ),
+                  perTradeRiskPct: args.perTradeRiskPct,
+                  maxTotalPositions: args.maxTotalPositions,
+                  maxSameDirectionPositions: args.maxSameDirectionPositions,
+                  minEntryConfidence: args.minEntryConfidence,
+                  stopLossAtrMultiplier: args.stopLossAtrMultiplier,
+                  minRiskRewardRatio: args.minRiskRewardRatio,
+                  require4hAlignment: args.require4hAlignment,
+                  tradeVolatileMarkets: args.tradeVolatileMarkets,
+                  volatilitySizeReduction: args.volatilitySizeReduction,
+                  tradingMode: args.tradingMode,
+                  consecutiveLosses,
+                  consecutiveLossLimit: args.consecutiveLossLimit,
+                  enableRegimeFilter: args.enableRegimeFilter,
+                  require1hAlignment: args.require1hAlignment,
+                  redDayLongBlockPct: args.redDayLongBlockPct,
+                  greenDayShortBlockPct: args.greenDayShortBlockPct,
+                  managedExitEnabled: args.managedExitEnabled,
+                },
+              }
+            );
+          } else if (tradingPromptMode === "compact") {
+            const coins = processAllCoins(historicalMarketData);
+            const processedSignals = {
+              timestamp: new Date(currentCandle.t).toISOString(),
+              processingTimeMs: 0,
+              coins,
+              positions: evaluatePositions(backtestPositions, coins),
+              overview: computeMarketOverview(coins),
+            };
+            aiCallsThisChunk += 1;
+            aiInvocationCount += 1;
+            aiDecision = await ctx.runAction(
+              api.ai.agents.tradingAgent.makeCompactTradingDecision,
+              {
+                userId: args.userId,
+                modelType: "openrouter",
+                modelName: args.modelName,
+                processedSignals,
+                accountState,
+                positions: backtestPositions,
+                config: {
+                  maxLeverage: args.maxLeverage,
+                  maxPositionSize: normalizeMaxPositionSizePct(
+                    args.maxPositionSize
+                  ),
+                  perTradeRiskPct: args.perTradeRiskPct,
+                  maxTotalPositions: args.maxTotalPositions,
+                  maxSameDirectionPositions: args.maxSameDirectionPositions,
+                  minEntryConfidence: args.minEntryConfidence,
+                  managedExitEnabled: args.managedExitEnabled,
+                },
+              }
+            );
           } else {
-            aiCallsThisChunk++;
-            aiDecision = await callAIForBacktest(
-              args.openrouterApiKey,
-              args.modelName,
-              args.symbol,
-              marketContext,
-              capital,
-              args.maxLeverage
+            aiCallsThisChunk += 1;
+            aiInvocationCount += 1;
+            aiDecision = await ctx.runAction(
+              api.ai.agents.tradingAgent.makeDetailedTradingDecision,
+              {
+                userId: args.userId,
+                modelType: "openrouter",
+                modelName: args.modelName,
+                detailedMarketData: historicalMarketData,
+                accountState,
+                positions: backtestPositions,
+                performanceMetrics,
+                recentActionsOverride: [],
+                config: {
+                  maxLeverage: args.maxLeverage,
+                  maxPositionSize: normalizeMaxPositionSizePct(
+                    args.maxPositionSize
+                  ),
+                  maxDailyLoss: args.maxDailyLoss,
+                  minAccountValue: args.minAccountValue,
+                  perTradeRiskPct: args.perTradeRiskPct,
+                  maxTotalPositions: args.maxTotalPositions,
+                  maxSameDirectionPositions: args.maxSameDirectionPositions,
+                  consecutiveLossLimit: args.consecutiveLossLimit,
+                  tradingMode: args.tradingMode,
+                  minEntryConfidence: args.minEntryConfidence,
+                  minRiskRewardRatio: args.minRiskRewardRatio,
+                  stopOutCooldownHours: args.stopOutCooldownHours,
+                  minEntrySignals: args.minEntrySignals,
+                  require4hAlignment: args.require4hAlignment,
+                  tradeVolatileMarkets: args.tradeVolatileMarkets,
+                  volatilitySizeReduction: args.volatilitySizeReduction,
+                  stopLossAtrMultiplier: args.stopLossAtrMultiplier,
+                  managedExitEnabled: args.managedExitEnabled,
+                },
+              }
             );
           }
 
           if (aiDecision && aiDecision.decision !== "HOLD") {
-            if (currentPosition && aiDecision.decision === "CLOSE") {
-              const notional = currentPosition.size * currentPosition.leverage;
-              const remainingFunding = calculateFundingForPeriod(
-                args.symbol,
-                currentPosition.side,
-                notional,
-                currentPosition.lastFundingCheckTime,
-                currentCandle.t
-              );
-              currentPosition.accumulatedFunding += remainingFunding;
-              const exitSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
-              const exitPrice = currentPosition.side === "LONG"
-                ? currentPrice * (1 - exitSlippage)
-                : currentPrice * (1 + exitSlippage);
+            const decisionSymbol =
+              typeof aiDecision.symbol === "string" ? aiDecision.symbol : null;
 
-              let pnl: number;
-              if (currentPosition.side === "LONG") {
-                pnl =
-                  ((exitPrice - currentPosition.entryPrice) /
-                    currentPosition.entryPrice) *
-                  notional;
-              } else {
-                pnl =
-                  ((currentPosition.entryPrice - exitPrice) /
-                    currentPosition.entryPrice) *
-                  notional;
+            if (aiDecision.decision === "CLOSE") {
+              if (!decisionSymbol) {
+                candleIndex += args.stepSize;
+                continue;
               }
 
-              const exitFee = notional * TAKER_FEE_PCT;
-              pnl -= exitFee + currentPosition.accumulatedFunding;
-              totalFees += exitFee;
-              totalFunding += currentPosition.accumulatedFunding;
+              const positionToClose = currentPositions.find(
+                (position) => position.symbol === decisionSymbol
+              );
+              if (!positionToClose) {
+                candleIndex += args.stepSize;
+                continue;
+              }
 
-              capital += pnl;
-              const pnlPct = (pnl / currentPosition.size) * 100;
-              tradeCount++;
-              if (pnl > 0) winCount++;
-              returnsSum += pnlPct;
-              returnsSquaredSum += pnlPct * pnlPct;
-              returnsCount++;
-              lastTradeTimestamp = currentCandle.t;
+              const positionView = backtestPositions.find(
+                (position) => position.symbol === decisionSymbol
+              );
+              const hasTpSl = Boolean(
+                positionToClose.stopLoss && positionToClose.takeProfit
+              );
+              const livePnlPct = positionView?.unrealizedPnlPct ?? 0;
 
-              await ctx.runMutation(
-                internal.backtesting.backtestActions.saveBacktestTrade,
-                {
-                  runId: args.runId,
-                  userId: args.userId,
-                  symbol: args.symbol,
-                  action: "CLOSE",
-                  side: currentPosition.side,
-                  entryPrice: currentPosition.entryPrice,
-                  exitPrice,
-                  size: currentPosition.size,
-                  leverage: currentPosition.leverage,
-                  pnl,
-                  pnlPct,
-                  exitReason: "ai_close",
-                  fundingPaid: currentPosition.accumulatedFunding,
-                  confidence: aiDecision.confidence,
-                  reasoning: aiDecision.reasoning,
-                  entryTime: currentPosition.entryTime,
-                  exitTime: currentCandle.t,
-                }
+              if (
+                positionToClose.exitMode === MANAGED_EXIT_MODE ||
+                (hasTpSl && livePnlPct < 0.5)
+              ) {
+                candleIndex += args.stepSize;
+                continue;
+              }
+
+              const currentPrice =
+                currentPrices[decisionSymbol] ?? positionToClose.entryPrice;
+              const notional = positionToClose.size * positionToClose.leverage;
+              const assetConfig = getAssetConfig(decisionSymbol);
+              const exitSlippage = calculateSlippage(
+                notional,
+                assetConfig.liquidityTier
+              );
+              const exitPrice =
+                positionToClose.side === "LONG"
+                  ? currentPrice * (1 - exitSlippage)
+                  : currentPrice * (1 + exitSlippage);
+
+              await closePosition(
+                positionToClose,
+                exitPrice,
+                currentCandle.t,
+                "ai_close",
+                aiDecision.confidence ?? positionToClose.confidence,
+                aiDecision.reasoning ?? positionToClose.reasoning,
+                { addFundingToExitTime: true }
               );
 
-              currentPosition = null;
               candleIndex += args.stepSize;
               continue;
             }
 
-            if (currentPosition) {
+            if (
+              aiDecision.decision !== "OPEN_LONG" &&
+              aiDecision.decision !== "OPEN_SHORT"
+            ) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            if (!decisionSymbol || !historicalMarketData[decisionSymbol]) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            if (currentPositions.some((position) => position.symbol === decisionSymbol)) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            const requestedSide =
+              aiDecision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
+            if (currentPositions.length >= args.maxTotalPositions) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            const sameDirectionCount = currentPositions.filter(
+              (position) => position.side === requestedSide
+            ).length;
+            if (sameDirectionCount >= args.maxSameDirectionPositions) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            const lastTradeTimestamp = lastTradeTimestamps[decisionSymbol] ?? 0;
+            if (
+              lastTradeTimestamp > 0 &&
+              currentCandle.t - lastTradeTimestamp <
+                args.reentryCooldownMinutes * 60 * 1000
+            ) {
               candleIndex += args.stepSize;
               continue;
             }
@@ -1010,63 +1594,166 @@ Max Leverage: ${args.maxLeverage}x`;
               continue;
             }
 
-            const positionSize = Math.min(
-              capital * 0.2,
-              aiDecision.size_usd || capital * 0.2
+            aiDecision.symbol = decisionSymbol;
+            const trendValidation = await checkTrendGuard(
+              aiDecision,
+              args.userId,
+              decisionContext
+            );
+            if (!trendValidation.allowed) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            const currentPrice = currentPrices[decisionSymbol];
+            if (!currentPrice || currentPrice <= 0) {
+              candleIndex += args.stepSize;
+              continue;
+            }
+
+            const maxPositionSizePct = normalizeMaxPositionSizePct(
+              args.maxPositionSize
+            );
+            const minPositionSizeUsd = Math.max(
+              50,
+              accountState.accountValue * 0.05
+            );
+            const maxPositionSizeUsd =
+              accountState.accountValue * (maxPositionSizePct / 100);
+            const positionSize = clamp(
+              aiDecision.size_usd || maxPositionSizeUsd,
+              minPositionSizeUsd,
+              Math.max(minPositionSizeUsd, maxPositionSizeUsd)
             );
 
-            // Enforce per-asset max leverage
+            const assetConfig = getAssetConfig(decisionSymbol);
             const effectiveLeverage = Math.min(
-              aiDecision.leverage || 5,
+              Math.max(aiDecision.leverage || 5, 1),
               args.maxLeverage,
               assetConfig.maxLeverage
             );
-
-            const side = aiDecision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
+            const side = requestedSide;
             const notional = positionSize * effectiveLeverage;
-
-            // Apply dynamic entry slippage
-            const entrySlippage = calculateSlippage(notional, assetConfig.liquidityTier);
-            const entryPrice = side === "LONG"
-              ? currentPrice * (1 + entrySlippage) // buy higher
-              : currentPrice * (1 - entrySlippage); // sell lower
-
-            // Entry fee
+            const entrySlippage = calculateSlippage(
+              notional,
+              assetConfig.liquidityTier
+            );
+            const entryPrice =
+              side === "LONG"
+                ? currentPrice * (1 + entrySlippage)
+                : currentPrice * (1 - entrySlippage);
             const entryFee = notional * TAKER_FEE_PCT;
             totalFees += entryFee;
+            capital -= entryFee;
+            updateDrawdown();
 
-            currentPosition = {
-              symbol: args.symbol,
+            let stopLoss = aiDecision.stop_loss;
+            let takeProfit = aiDecision.take_profit;
+
+            if (stopLoss && stopLoss < entryPrice * 0.1) {
+              const pct = stopLoss <= 1 ? stopLoss : stopLoss / 100;
+              stopLoss =
+                side === "LONG"
+                  ? entryPrice * (1 - pct)
+                  : entryPrice * (1 + pct);
+            }
+            if (takeProfit && takeProfit < entryPrice * 0.1) {
+              const pct = takeProfit <= 1 ? takeProfit : takeProfit / 100;
+              takeProfit =
+                side === "LONG"
+                  ? entryPrice * (1 + pct)
+                  : entryPrice * (1 - pct);
+            }
+
+            if (!stopLoss) {
+              stopLoss =
+                side === "LONG" ? entryPrice * 0.97 : entryPrice * 1.03;
+            }
+            if (
+              (side === "LONG" && stopLoss >= entryPrice) ||
+              (side === "SHORT" && stopLoss <= entryPrice)
+            ) {
+              stopLoss =
+                side === "LONG" ? entryPrice * 0.97 : entryPrice * 1.03;
+            }
+
+            const managedExitRules = getManagedExitRules({
+              managedExitEnabled: args.managedExitEnabled,
+              managedExitHardStopLossPct: args.managedExitHardStopLossPct,
+              managedExitBreakEvenTriggerPct:
+                args.managedExitBreakEvenTriggerPct,
+              managedExitBreakEvenLockProfitPct:
+                args.managedExitBreakEvenLockProfitPct,
+              managedExitTrailingTriggerPct: args.managedExitTrailingTriggerPct,
+              managedExitTrailingDistancePct:
+                args.managedExitTrailingDistancePct,
+              managedExitTightenTriggerPct: args.managedExitTightenTriggerPct,
+              managedExitTightenedDistancePct:
+                args.managedExitTightenedDistancePct,
+              managedExitStaleMinutes: args.managedExitStaleMinutes,
+              managedExitStaleMinProfitPct: args.managedExitStaleMinProfitPct,
+              managedExitMaxHoldMinutes: args.managedExitMaxHoldMinutes,
+            });
+            let exitMode: SimulatedPosition["exitMode"] = LEGACY_EXIT_MODE;
+            let managedStopPrice: number | undefined;
+            let managedPeakPrice: number | undefined;
+            let managedStopReason: string | undefined;
+
+            if (managedExitRules.managedExitEnabled) {
+              const configuredHardStop = calculateHardStopPrice(
+                entryPrice,
+                side,
+                managedExitRules.managedExitHardStopLossPct
+              );
+              stopLoss = clampManagedStop(side, stopLoss, configuredHardStop);
+              takeProfit = undefined;
+              exitMode = MANAGED_EXIT_MODE;
+              managedStopPrice = stopLoss;
+              managedPeakPrice = entryPrice;
+              managedStopReason = "hard_stop";
+            } else {
+              if (!takeProfit) {
+                takeProfit =
+                  side === "LONG" ? entryPrice * 1.008 : entryPrice * 0.992;
+              }
+              if (
+                (side === "LONG" && takeProfit <= entryPrice) ||
+                (side === "SHORT" && takeProfit >= entryPrice)
+              ) {
+                takeProfit =
+                  side === "LONG" ? entryPrice * 1.008 : entryPrice * 0.992;
+              }
+            }
+
+            const currentPosition: SimulatedPosition = {
+              symbol: decisionSymbol,
               side,
               entryPrice,
               size: positionSize,
               leverage: effectiveLeverage,
-              stopLoss:
-                aiDecision.stop_loss ||
-                (side === "LONG"
-                  ? currentPrice * 0.97
-                  : currentPrice * 1.03),
-              takeProfit:
-                aiDecision.take_profit ||
-                (side === "LONG"
-                  ? currentPrice * 1.008
-                  : currentPrice * 0.992),
+              stopLoss,
+              takeProfit,
+              liquidationPrice:
+                entryPrice * (side === "LONG" ? 0.9 : 1.1),
+              exitMode,
+              managedPeakPrice,
+              managedStopPrice,
+              managedStopReason,
               entryTime: currentCandle.t,
               confidence: aiDecision.confidence || 0.5,
               reasoning: aiDecision.reasoning || "Backtest AI decision",
-              // Funding tracking
               lastFundingCheckTime: currentCandle.t,
               accumulatedFunding: 0,
             };
-            lastTradeTimestamp = currentCandle.t;
+            currentPositions.push(currentPosition);
+            lastTradeTimestamps[decisionSymbol] = currentCandle.t;
 
-            // Save entry trade
             await ctx.runMutation(
               internal.backtesting.backtestActions.saveBacktestTrade,
               {
                 runId: args.runId,
                 userId: args.userId,
-                symbol: args.symbol,
+                symbol: decisionSymbol,
                 action: "OPEN",
                 side: currentPosition.side,
                 entryPrice,
@@ -1080,7 +1767,9 @@ Max Leverage: ${args.maxLeverage}x`;
           }
         } catch (aiError) {
           console.error(
-            `[BACKTEST] AI call failed at ${new Date(currentCandle.t).toISOString()}:`,
+            `[BACKTEST] AI call failed at ${new Date(
+              currentCandle.t
+            ).toISOString()}:`,
             aiError
           );
         }
@@ -1089,76 +1778,32 @@ Max Leverage: ${args.maxLeverage}x`;
       }
 
       // If we exited the loop, we're done (all candles processed or capital depleted)
-      // Close any remaining position at end of period
-      if (currentPosition) {
-        const lastCandle = periodCandles[periodCandles.length - 1];
-        const notional = currentPosition.size * currentPosition.leverage;
-
-        // Charge remaining funding up to last candle
-        const remainingFunding = calculateFundingForPeriod(
-          args.symbol,
-          currentPosition.side,
-          notional,
-          currentPosition.lastFundingCheckTime,
-          lastCandle.t
-        );
-        currentPosition.accumulatedFunding += remainingFunding;
-
-        // Apply exit slippage
-        const exitSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
-        const exitPrice = currentPosition.side === "LONG"
-          ? lastCandle.c * (1 - exitSlippage) // sell lower
-          : lastCandle.c * (1 + exitSlippage); // buy higher to cover
-
-        let pnl: number;
-        if (currentPosition.side === "LONG") {
-          pnl =
-            ((exitPrice - currentPosition.entryPrice) /
-              currentPosition.entryPrice) *
-            notional;
-        } else {
-          pnl =
-            ((currentPosition.entryPrice - exitPrice) /
-              currentPosition.entryPrice) *
-            notional;
+      // Close any remaining positions at end of period
+      for (const position of [...currentPositions]) {
+        const symbolCandles = periodCandlesBySymbol[position.symbol] ?? [];
+        const lastCandle = capitalDepleted
+          ? getLatestCandleAtOrBefore(symbolCandles, lastProcessedTime)
+          : symbolCandles[symbolCandles.length - 1];
+        if (!lastCandle) {
+          continue;
         }
 
-        // Deduct exit fee + accumulated funding
-        const exitFee = notional * TAKER_FEE_PCT;
-        pnl -= exitFee + currentPosition.accumulatedFunding;
-        totalFees += exitFee;
-        totalFunding += currentPosition.accumulatedFunding;
+        const notional = position.size * position.leverage;
+        const assetConfig = getAssetConfig(position.symbol);
+        const exitSlippage = calculateSlippage(notional, assetConfig.liquidityTier);
+        const exitPrice =
+          position.side === "LONG"
+            ? lastCandle.c * (1 - exitSlippage)
+            : lastCandle.c * (1 + exitSlippage);
 
-        capital += pnl;
-        const pnlPct = (pnl / currentPosition.size) * 100;
-        tradeCount++;
-        if (pnl > 0) winCount++;
-        returnsSum += pnlPct;
-        returnsSquaredSum += pnlPct * pnlPct;
-        returnsCount++;
-        lastTradeTimestamp = lastCandle.t;
-
-        await ctx.runMutation(
-          internal.backtesting.backtestActions.saveBacktestTrade,
-          {
-            runId: args.runId,
-            userId: args.userId,
-            symbol: args.symbol,
-            action: "CLOSE",
-            side: currentPosition.side,
-            entryPrice: currentPosition.entryPrice,
-            exitPrice,
-            size: currentPosition.size,
-            leverage: currentPosition.leverage,
-            pnl,
-            pnlPct,
-            exitReason: "end_of_period",
-            fundingPaid: currentPosition.accumulatedFunding,
-            confidence: currentPosition.confidence,
-            reasoning: currentPosition.reasoning,
-            entryTime: currentPosition.entryTime,
-            exitTime: lastCandle.t,
-          }
+        await closePosition(
+          position,
+          exitPrice,
+          lastCandle.t,
+          "end_of_period",
+          position.confidence,
+          position.reasoning,
+          { addFundingToExitTime: true }
         );
       }
 
@@ -1190,6 +1835,12 @@ Max Leverage: ${args.maxLeverage}x`;
         totalFunding,
         liquidationCount,
       };
+      const diagnosticSummary =
+        tradeCount === 0 && forcedHoldSteps > 0
+          ? `No trades opened. Hybrid selection forced HOLD on ${forcedHoldSteps} evaluation step(s). Last reason: ${lastForcedHoldReason ?? "No valid hybrid candidates remained after deterministic filtering."}`
+          : tradeCount === 0 && aiInvocationCount === 0
+            ? "No trades opened and the model was never invoked during the evaluated window."
+            : undefined;
 
       // Save results
       await ctx.runMutation(
@@ -1198,12 +1849,18 @@ Max Leverage: ${args.maxLeverage}x`;
           runId: args.runId,
           ...results,
           durationMs: Date.now() - args.startTime,
+          aiInvocationCount,
+          forcedHoldCount: forcedHoldSteps,
+          diagnosticSummary,
         }
       );
 
       console.log(
-        `[BACKTEST] Complete: ${tradeCount} trades, P&L: $${totalPnl.toFixed(2)} (${totalPnlPct.toFixed(1)}%), Win Rate: ${results.winRate.toFixed(1)}%, Fees: $${totalFees.toFixed(2)}, Funding: $${totalFunding.toFixed(2)}, Liquidations: ${liquidationCount}`
+        `[BACKTEST] Complete: ${tradeCount} trades, P&L: $${totalPnl.toFixed(2)} (${totalPnlPct.toFixed(1)}%), Win Rate: ${results.winRate.toFixed(1)}%, Fees: $${totalFees.toFixed(2)}, Funding: $${totalFunding.toFixed(2)}, Liquidations: ${liquidationCount}, AI calls: ${aiInvocationCount}, hybrid forced holds: ${forcedHoldSteps}`
       );
+      if (diagnosticSummary) {
+        console.log(`[BACKTEST] Diagnostic: ${diagnosticSummary}`);
+      }
     } catch (error) {
       console.error("[BACKTEST] Chunk failed:", error);
       await ctx.runMutation(
@@ -1216,121 +1873,6 @@ Max Leverage: ${args.maxLeverage}x`;
     }
   },
 });
-
-/**
- * Build a minimal shared decision context for backtests.
- * Reuses the same regime validation rules as live trading.
- */
-function createBacktestDecisionContext(
-  symbol: string,
-  currentPrice: number,
-  recentCandles: any[],
-  recent1h: any[],
-  recent4h: any[],
-  recent1d: any[]
-): DecisionContext {
-  const intradayPrices = recentCandles.slice(-10).map((c: any) => c.c);
-  const intradayEma20 = intradayPrices.length > 0
-    ? intradayPrices.reduce((sum: number, v: number) => sum + v, 0) / intradayPrices.length
-    : currentPrice;
-  const intradayMomentum =
-    intradayPrices.length < 5
-      ? "FLAT"
-      : intradayPrices[intradayPrices.length - 1] > intradayPrices[intradayPrices.length - 5]
-        ? "RISING"
-        : intradayPrices[intradayPrices.length - 1] < intradayPrices[intradayPrices.length - 5]
-          ? "FALLING"
-          : "FLAT";
-
-  const hourlyPrices = recent1h.map((c: any) => c.c);
-  const ema20_1h = hourlyPrices.length > 0
-    ? hourlyPrices.slice(-20).reduce((sum: number, v: number) => sum + v, 0) / Math.min(20, hourlyPrices.length)
-    : currentPrice;
-  const ema50_1h = hourlyPrices.length > 0
-    ? hourlyPrices.slice(-50).reduce((sum: number, v: number) => sum + v, 0) / Math.min(50, hourlyPrices.length)
-    : currentPrice;
-
-  const fourHourPrices = recent4h.map((c: any) => c.c);
-  const ema20_4h = fourHourPrices.length > 0
-    ? fourHourPrices.slice(-20).reduce((sum: number, v: number) => sum + v, 0) / Math.min(20, fourHourPrices.length)
-    : currentPrice;
-  const ema50_4h = fourHourPrices.length > 0
-    ? fourHourPrices.slice(-50).reduce((sum: number, v: number) => sum + v, 0) / Math.min(50, fourHourPrices.length)
-    : currentPrice;
-  const atr3_4h = recent4h.length >= 3 ? calculateATR(recent4h, 3) : Math.abs(currentPrice * 0.01);
-  const atr14_4h = recent4h.length >= 14 ? calculateATR(recent4h, 14) : Math.abs(currentPrice * 0.015);
-
-  const priceVsEma20Pct = intradayEma20 > 0 ? ((currentPrice - intradayEma20) / intradayEma20) * 100 : 0;
-  const ema20VsEma50Pct4h = ema50_4h > 0 ? ((ema20_4h - ema50_4h) / ema50_4h) * 100 : 0;
-  const dayOpen = recent1d[recent1d.length - 1]?.o || currentPrice;
-  const dayChangePct = dayOpen > 0 ? ((currentPrice - dayOpen) / dayOpen) * 100 : 0;
-
-  return {
-    marketSnapshot: {
-      generatedAt: new Date().toISOString(),
-      symbols: {
-        [symbol]: {
-          symbol,
-          currentPrice,
-          dayOpen,
-          dayChangePct,
-          intraday: {
-            ema20: intradayEma20,
-            priceVsEma20Pct,
-            momentum: intradayMomentum,
-            trendDirection: "NEUTRAL",
-            priceHistory: intradayPrices,
-            ema20History: [],
-            macd: 0,
-            macdHistory: [],
-            rsi7: 50,
-            rsi7History: [],
-            rsi14: 50,
-            rsi14History: [],
-          },
-          hourly: {
-            ema20: ema20_1h,
-            ema50: ema50_1h,
-            trendDirection: ema20_1h >= ema50_1h ? "BULLISH" : "BEARISH",
-            priceHistory: hourlyPrices.slice(-10),
-          },
-          fourHour: {
-            ema20: ema20_4h,
-            ema50: ema50_4h,
-            ema20VsEma50Pct: ema20VsEma50Pct4h,
-            trendDirection: ema20_4h >= ema50_4h ? "BULLISH" : "BEARISH",
-            atr3: atr3_4h,
-            atr14: atr14_4h,
-            currentVolume: recent4h[recent4h.length - 1]?.v || 0,
-            avgVolume: 0,
-            volumeRatio: 1,
-            macdHistory: [],
-            rsi14History: [],
-          },
-          session: {
-            high24h: Math.max(...recentCandles.slice(-12).map((c: any) => c.h)),
-            low24h: Math.min(...recentCandles.slice(-12).map((c: any) => c.l)),
-          },
-        },
-      },
-    },
-    marketSnapshotSummary: {
-      generatedAt: new Date().toISOString(),
-      symbols: {
-        [symbol]: {
-          currentPrice,
-          dayChangePct,
-          intradayMomentum,
-          intradayTrend: "NEUTRAL",
-          hourlyTrend: ema20_1h >= ema50_1h ? "BULLISH" : "BEARISH",
-          fourHourTrend: ema20_4h >= ema50_4h ? "BULLISH" : "BEARISH",
-          priceVsEma20Pct,
-          ema20VsEma50Pct4h,
-        },
-      },
-    },
-  };
-}
 
 /**
  * Call OpenRouter AI for a backtest trading decision

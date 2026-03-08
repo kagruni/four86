@@ -99,6 +99,7 @@ export const makeDetailedTradingDecision = action({
     accountState: v.any(),
     positions: v.any(),
     performanceMetrics: v.any(),
+    recentActionsOverride: v.optional(v.array(v.any())),
     config: v.object({
       maxLeverage: v.number(),
       maxPositionSize: v.number(),
@@ -143,10 +144,13 @@ export const makeDetailedTradingDecision = action({
       }
 
       // Get recent trading actions for context (OPEN/CLOSE only, skip HOLD)
-      const recentActions = await ctx.runQuery(internal.queries.getRecentTradingActions, {
-        userId: args.userId,
-        limit: 5,
-      });
+      const recentActions = args.recentActionsOverride ?? await ctx.runQuery(
+        internal.queries.getRecentTradingActions,
+        {
+          userId: args.userId,
+          limit: 5,
+        }
+      );
 
       // Create the detailed trading chain with defaults for optional config fields
       const fullConfig = {

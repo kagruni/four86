@@ -151,41 +151,56 @@ function snapToCandle(ms: number, tf: Interval): UTCTimestamp {
   return (s - (s % bucket)) as UTCTimestamp;
 }
 
-/** Build chart markers from trades for a given symbol + interval */
+/** Tooltip data for trade markers, keyed by snapped timestamp */
+type MarkerTooltipMap = Map<number, string>;
+
+/** Build chart markers from trades for a given symbol + interval.
+ *  Markers have NO text — text is shown on hover via crosshair tooltip. */
 function buildTradeMarkers(
   trades: Trade[],
   symbol: string,
   tf: Interval
-): SeriesMarker<UTCTimestamp>[] {
-  return trades
+): { markers: SeriesMarker<UTCTimestamp>[]; tooltips: MarkerTooltipMap } {
+  const tooltips: MarkerTooltipMap = new Map();
+  const isDark = document.documentElement.classList.contains("dark");
+
+  const markers = trades
     .filter((t) => t.symbol === symbol)
     .sort((a, b) => a.executedAt - b.executedAt)
     .map((t) => {
       const isOpen = t.action === "OPEN";
       const isLong = t.side === "LONG";
+      const time = snapToCandle(t.executedAt, tf);
 
-      // Entry: arrow pointing into the trade direction
-      // Exit: arrow pointing out + show P&L
+      // Build tooltip text
       if (isOpen) {
-        return {
-          time: snapToCandle(t.executedAt, tf),
-          position: isLong ? ("belowBar" as const) : ("aboveBar" as const),
-          color: "#171717",
-          shape: isLong ? ("arrowUp" as const) : ("arrowDown" as const),
-          text: `${isLong ? "LONG" : "SHORT"} @ ${fmtPrice(t.price)}`,
-        };
+        tooltips.set(time as number, `${isLong ? "LONG" : "SHORT"} @ ${fmtPrice(t.price)}`);
       } else {
         const pnlText =
           t.pnl !== undefined ? ` ${t.pnl >= 0 ? "+" : ""}$${t.pnl.toFixed(2)}` : "";
+        tooltips.set(time as number, `CLOSE${pnlText}`);
+      }
+
+      if (isOpen) {
         return {
-          time: snapToCandle(t.executedAt, tf),
+          time,
+          position: isLong ? ("belowBar" as const) : ("aboveBar" as const),
+          color: isDark ? "#e5e5e5" : "#171717",
+          shape: isLong ? ("arrowUp" as const) : ("arrowDown" as const),
+          text: "",
+        };
+      } else {
+        return {
+          time,
           position: isLong ? ("aboveBar" as const) : ("belowBar" as const),
-          color: "#737373",
+          color: isDark ? "#a3a3a3" : "#737373",
           shape: isLong ? ("arrowDown" as const) : ("arrowUp" as const),
-          text: `CLOSE${pnlText}`,
+          text: "",
         };
       }
     });
+
+  return { markers, tooltips };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +229,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const markersRef = useRef<ISeriesMarkersPluginApi<UTCTimestamp> | null>(null);
+  const markerTooltipsRef = useRef<MarkerTooltipMap>(new Map());
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -279,10 +296,11 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     priceLinesRef.current = [];
 
     // Entry
+    const isDark = document.documentElement.classList.contains("dark");
     priceLinesRef.current.push(
       seriesRef.current.createPriceLine({
         price: selectedPosition.entryPrice,
-        color: "#171717",
+        color: isDark ? "#e5e5e5" : "#171717",
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
@@ -489,7 +507,9 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           candles.map((c) => ({
             time: toTimestamp(c.t),
             value: c.v || 0,
-            color: c.c >= c.o ? "rgba(23,23,23,0.3)" : "rgba(163,163,163,0.4)",
+            color: c.c >= c.o
+                      ? (document.documentElement.classList.contains("dark") ? "rgba(229,229,229,0.3)" : "rgba(23,23,23,0.3)")
+                      : (document.documentElement.classList.contains("dark") ? "rgba(100,100,100,0.4)" : "rgba(163,163,163,0.4)"),
           }))
         );
       }
@@ -512,7 +532,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   const applyMarkers = useCallback((symbol: string, tf: Interval) => {
     if (!seriesRef.current) return;
 
-    const markers = buildTradeMarkers(tradesRef.current, symbol, tf);
+    const { markers, tooltips } = buildTradeMarkers(tradesRef.current, symbol, tf);
+    markerTooltipsRef.current = tooltips;
 
     if (markersRef.current) {
       markersRef.current.setMarkers(markers);
@@ -626,6 +647,50 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   }, []);
 
   // -----------------------------------------------------------------------
+  // Subscribe crosshair — reusable, called after every chart build
+  // -----------------------------------------------------------------------
+
+  const subscribeCrosshairTooltip = useCallback(() => {
+    if (!chartRef.current) return;
+    chartRef.current.subscribeCrosshairMove((param) => {
+      const tooltip = tooltipRef.current;
+      if (!tooltip) return;
+
+      if (!param.time || !param.point) {
+        tooltip.style.display = "none";
+        return;
+      }
+
+      const text = markerTooltipsRef.current.get(param.time as number);
+      if (!text) {
+        tooltip.style.display = "none";
+        return;
+      }
+
+      tooltip.textContent = text;
+      tooltip.style.display = "block";
+
+      // Position near crosshair, offset to the right
+      const chartContainer = containerRef.current;
+      if (chartContainer) {
+        const chartRect = chartContainer.getBoundingClientRect();
+        let left = param.point.x + 12;
+        let top = param.point.y - 10;
+
+        // Keep within chart bounds
+        const tooltipWidth = tooltip.offsetWidth;
+        if (left + tooltipWidth > chartRect.width) {
+          left = param.point.x - tooltipWidth - 12;
+        }
+        if (top < 0) top = 4;
+
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+      }
+    });
+  }, []);
+
+  // -----------------------------------------------------------------------
   // EFFECT: Mount — create chart, load data, start WS (once)
   // -----------------------------------------------------------------------
 
@@ -638,6 +703,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     });
 
     startWebSocket(selectedSymbol, interval);
+    subscribeCrosshairTooltip();
 
     // Resize observer
     const container = containerRef.current;
@@ -696,8 +762,11 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
       }
     }
 
-    // Reset markers for new symbol/interval (new series will be created on chart type change)
-    markersRef.current = null;
+    // Clear markers immediately so old-symbol arrows don't linger
+    if (markersRef.current) {
+      markersRef.current.setMarkers([]);
+    }
+    markerTooltipsRef.current = new Map();
 
     fetchAndSetData(selectedSymbol, interval, chartTypeRef.current, true).then(() => {
       applyMarkers(selectedSymbol, interval);
@@ -728,12 +797,13 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
 
     // Rebuild chart with new series type (also clears markersRef)
     buildChart(chartType, showVolumeRef.current);
+    subscribeCrosshairTooltip();
 
     // Reload data into the new series, then re-apply markers
     fetchAndSetData(symbolRef.current, intervalRef.current, chartType, true).then(() => {
       applyMarkers(symbolRef.current, intervalRef.current);
     });
-  }, [chartType, buildChart, fetchAndSetData, applyMarkers]);
+  }, [chartType, buildChart, fetchAndSetData, applyMarkers, subscribeCrosshairTooltip]);
 
   // -----------------------------------------------------------------------
   // EFFECT: Chart size change — just resize, no data reload
@@ -752,6 +822,28 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   useEffect(() => {
     applyMarkers(symbolRef.current, intervalRef.current);
   }, [trades, applyMarkers]);
+
+  // -----------------------------------------------------------------------
+  // EFFECT: Theme change — rebuild chart when dark mode toggles
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.attributeName === "class") {
+          // Theme changed — rebuild chart with new colors, reload data
+          buildChart(chartTypeRef.current, showVolumeRef.current);
+          subscribeCrosshairTooltip();
+          fetchAndSetData(symbolRef.current, intervalRef.current, chartTypeRef.current, true).then(() => {
+            applyMarkers(symbolRef.current, intervalRef.current);
+          });
+          break;
+        }
+      }
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, [buildChart, fetchAndSetData, applyMarkers, subscribeCrosshairTooltip]);
 
   // -----------------------------------------------------------------------
   // EFFECT: Volume toggle — just toggle visibility + adjust margins
@@ -779,7 +871,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   return (
     <div className="border border-border bg-background overflow-hidden">
       {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 sm:px-4 py-2 sm:py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 sm:px-4 py-2 sm:py-2.5">
         {/* Left — symbol selector or label */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Symbol selector dropdown (always available) */}
@@ -787,7 +879,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             <button
               type="button"
               onClick={() => setSymbolDropdownOpen((v) => !v)}
-              className="flex items-center gap-1 text-sm font-mono font-bold text-foreground tracking-tight hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors"
+              className="flex items-center gap-1 text-sm font-mono font-bold text-foreground tracking-tight hover:bg-muted rounded px-1.5 py-0.5 transition-colors"
             >
               {selectedSymbol}
               <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${symbolDropdownOpen ? "rotate-180" : ""}`} />
@@ -810,8 +902,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       }}
                       className={`w-full text-left px-3 py-1.5 text-xs font-mono transition-colors ${
                         selectedSymbol === sym
-                          ? "bg-gray-900 text-white font-bold"
-                          : "text-gray-700 hover:bg-gray-100"
+                          ? "bg-foreground text-background font-bold"
+                          : "text-muted-foreground hover:bg-muted"
                       }`}
                     >
                       {sym}
@@ -831,7 +923,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           >
             <span
               className={`inline-block h-1.5 w-1.5 rounded-full ${
-                wsConnected ? "bg-gray-900 animate-pulse" : "bg-gray-300"
+                wsConnected ? "bg-foreground animate-pulse" : "bg-muted-foreground"
               }`}
             />
             {wsConnected ? "LIVE" : "..."}
@@ -849,7 +941,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                 onClick={() => setActiveInterval(tf)}
                 className={`px-1.5 sm:px-2 py-0.5 text-[11px] font-mono rounded transition-all ${
                   interval === tf
-                    ? "bg-gray-900 text-white shadow-sm"
+                    ? "bg-foreground text-background shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -865,7 +957,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
               onClick={() => setChartType("candles")}
               className={`p-1 rounded transition-all ${
                 chartType === "candles"
-                  ? "bg-gray-900 text-white shadow-sm"
+                  ? "bg-foreground text-background shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
               title="Candlesticks"
@@ -877,7 +969,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
               onClick={() => setChartType("line")}
               className={`p-1 rounded transition-all ${
                 chartType === "line"
-                  ? "bg-gray-900 text-white shadow-sm"
+                  ? "bg-foreground text-background shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
               title="Line"
@@ -892,7 +984,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             onClick={() => setShowVolume((v) => !v)}
             className={`p-1 rounded transition-all mr-1 sm:mr-2 shrink-0 ${
               showVolume
-                ? "bg-gray-900 text-white shadow-sm"
+                ? "bg-foreground text-background shadow-sm"
                 : "text-muted-foreground hover:text-foreground bg-muted"
             }`}
             title="Toggle Volume"
@@ -909,7 +1001,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                 onClick={() => setChartSize(sz)}
                 className={`px-1.5 py-0.5 text-[10px] font-mono font-bold rounded transition-all ${
                   chartSize === sz
-                    ? "bg-gray-900 text-white shadow-sm"
+                    ? "bg-foreground text-background shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -922,7 +1014,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           <button
             type="button"
             onClick={handleFit}
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-gray-100 transition-colors shrink-0"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
             title="Fit to screen"
           >
             <Maximize2 className="h-3.5 w-3.5" />
@@ -947,6 +1039,11 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             style={{ height: SIZE_MAP[chartSize] }}
             className="w-full"
           />
+          {/* Marker hover tooltip */}
+          <div
+            ref={tooltipRef}
+            className="absolute z-20 hidden px-2 py-1 text-[10px] font-mono bg-foreground text-background pointer-events-none whitespace-nowrap"
+          />
         </div>
 
         {/* Position selector — vertical sidebar on desktop, horizontal strip on mobile */}
@@ -954,10 +1051,10 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
           <>
             {/* Desktop: vertical sidebar */}
             <div
-              className="hidden md:flex w-48 border-l border-gray-100 bg-muted/50 flex-col"
+              className="hidden md:flex w-48 border-l border-border bg-muted/50 flex-col"
               style={{ height: SIZE_MAP[chartSize] }}
             >
-              <div className="px-3 py-2 border-b border-gray-100">
+              <div className="px-3 py-2 border-b border-border">
                 <span className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                   Positions
                 </span>
@@ -972,9 +1069,9 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       key={pos._id}
                       type="button"
                       onClick={() => setSelectedSymbol(pos.symbol)}
-                      className={`w-full text-left px-3 py-2.5 border-b border-gray-100 transition-all ${
+                      className={`w-full text-left px-3 py-2.5 border-b border-border transition-all ${
                         isSelected
-                          ? "bg-background shadow-[inset_3px_0_0_#171717]"
+                          ? "bg-background shadow-[inset_3px_0_0_hsl(var(--foreground))]"
                           : "hover:bg-background/70"
                       }`}
                     >
@@ -990,8 +1087,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                           variant="outline"
                           className={`text-[9px] px-1 py-0 h-4 ${
                             pos.side === "LONG"
-                              ? "border-gray-900 text-foreground"
-                              : "border-gray-400 text-muted-foreground"
+                              ? "border-foreground text-foreground"
+                              : "border-muted-foreground text-muted-foreground"
                           }`}
                         >
                           {pos.side === "LONG" ? (
@@ -1015,7 +1112,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                         </span>
                         <span
                           className={`text-[10px] font-mono tabular-nums ${
-                            isProfit ? "text-gray-700" : "text-muted-foreground"
+                            isProfit ? "text-muted-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {fmtPct(pos.unrealizedPnlPct)}
@@ -1040,8 +1137,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
             </div>
 
             {/* Mobile: horizontal scrollable strip below chart */}
-            <div className="md:hidden border-t border-gray-100 bg-muted/50">
-              <div className="px-3 py-1.5 border-b border-gray-100">
+            <div className="md:hidden border-t border-border bg-muted/50">
+              <div className="px-3 py-1.5 border-b border-border">
                 <span className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                   Positions
                 </span>
@@ -1058,8 +1155,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                       onClick={() => setSelectedSymbol(pos.symbol)}
                       className={`shrink-0 text-left px-3 py-2 min-w-[140px] transition-all ${
                         isSelected
-                          ? "bg-background border-2 border-gray-900 shadow-sm"
-                          : "bg-background/70 border border-border hover:border-gray-300"
+                          ? "bg-background border-2 border-foreground shadow-sm"
+                          : "bg-background/70 border border-border hover:border-foreground/30"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -1074,8 +1171,8 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                           variant="outline"
                           className={`text-[9px] px-1 py-0 h-4 ${
                             pos.side === "LONG"
-                              ? "border-gray-900 text-foreground"
-                              : "border-gray-400 text-muted-foreground"
+                              ? "border-foreground text-foreground"
+                              : "border-muted-foreground text-muted-foreground"
                           }`}
                         >
                           {pos.side === "LONG" ? (
@@ -1096,7 +1193,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
                         </span>
                         <span
                           className={`text-[10px] font-mono tabular-nums ${
-                            isProfit ? "text-gray-700" : "text-muted-foreground"
+                            isProfit ? "text-muted-foreground" : "text-muted-foreground"
                           }`}
                         >
                           {fmtPct(pos.unrealizedPnlPct)}
