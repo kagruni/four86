@@ -196,6 +196,23 @@ export default function DashboardPage() {
     ? ((totalPnl / startingCapital) * 100)
     : 0;
 
+  // Today's P&L — fetch snapshots since start of today (UTC)
+  const todayStart = React.useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }, []);
+  const todaySnapshots = useQuery(
+    api.queries.getAccountSnapshots,
+    userId ? { userId, since: todayStart } : "skip"
+  );
+  const startOfDayValue = todaySnapshots && todaySnapshots.length > 0
+    ? todaySnapshots[0].accountValue
+    : null;
+  const todayPnl = startOfDayValue !== null ? liveAccountValue - startOfDayValue : null;
+  const todayPnlPct = startOfDayValue !== null && startOfDayValue > 0
+    ? ((todayPnl! / startOfDayValue) * 100)
+    : null;
+
   const isLoading = botConfig === undefined;
   const isBotActive = botConfig?.isActive || false;
 
@@ -638,7 +655,7 @@ export default function DashboardPage() {
       )}
 
       {/* Account Overview */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {/* Current Capital - Hero card with dark bg */}
         <motion.div
           className="h-full"
@@ -709,12 +726,56 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
 
-        {/* Open Positions */}
+        {/* Today's P&L */}
         <motion.div
           className="h-full"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
+        >
+          <Card className="h-full border border-border overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div>
+                <CardTitle className="text-sm font-medium text-foreground">
+                  Today&apos;s P&L
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Since midnight
+                </p>
+              </div>
+              {todayPnl === null ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : todayPnl >= 0 ? (
+                <TrendingUp className="h-4 w-4 text-foreground" />
+              ) : (
+                <TrendingDown className="h-4 w-4 text-foreground" />
+              )}
+            </CardHeader>
+            <CardContent>
+              {todayPnl !== null ? (
+                <>
+                  <div className={`text-4xl font-mono font-bold tracking-tight tabular-nums ${todayPnl >= 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {formatCurrency(todayPnl)}
+                  </div>
+                  <p className={`text-xs font-mono tabular-nums mt-1 ${todayPnlPct !== null && todayPnlPct >= 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {todayPnlPct !== null ? formatPercent(todayPnlPct) : '—'}
+                  </p>
+                </>
+              ) : (
+                <div className="text-4xl font-mono font-bold tracking-tight tabular-nums text-muted-foreground">
+                  —
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Open Positions */}
+        <motion.div
+          className="h-full"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
         >
           <Card className="h-full border border-border overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
