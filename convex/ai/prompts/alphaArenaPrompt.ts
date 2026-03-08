@@ -4,6 +4,7 @@ import {
   HumanMessagePromptTemplate,
 } from "@langchain/core/prompts";
 import type { DetailedCoinData } from "../../hyperliquid/detailedMarketData";
+import { evaluateDirectionalRegime } from "../../trading/validators/regimeValidator";
 
 // =============================================================================
 // TREND ANALYSIS HELPERS (for Alpha Arena prompt)
@@ -88,38 +89,37 @@ function buildRuntimeConstraints(
   const priceVsEma20Pct = ((data.currentPrice - data.ema20) / data.ema20) * 100;
   const priceMomentum = calculatePriceMomentum(data.priceHistory);
 
-  let longAllowed = true;
-  let shortAllowed = true;
-  let longReason = "ALLOWED";
-  let shortReason = "ALLOWED";
+  const baseConfig = {
+    enableRegimeFilter,
+    require1hAlignment,
+    redDayLongBlockPct,
+    greenDayShortBlockPct,
+  };
+  const sharedInput = {
+    priceVsEma20Pct,
+    momentum: priceMomentum,
+    hourlyEma20: data.ema20_1h,
+    hourlyEma50: data.ema50_1h,
+    dayChangePct: data.dayChangePct,
+    fourHourEma20: data.ema20_4h,
+    fourHourEma50: data.ema50_4h,
+  };
 
-  if (priceVsEma20Pct < -0.3 && priceMomentum === "FALLING") {
-    longAllowed = false;
-    longReason = `FORBIDDEN - price is ${priceVsEma20Pct.toFixed(2)}% below EMA20 with falling momentum`;
-  } else if (require1hAlignment && data.ema20_1h < data.ema50_1h) {
-    longAllowed = false;
-    longReason = "FORBIDDEN - 1h EMA20 is below EMA50";
-  } else {
-    const hasBullishRecovery = data.ema20_1h >= data.ema50_1h && priceMomentum !== "FALLING";
-    if (data.dayChangePct <= redDayLongBlockPct && !hasBullishRecovery) {
-      longAllowed = false;
-      longReason = `FORBIDDEN - red session (${data.dayChangePct.toFixed(2)}%) without bullish 1h/intraday recovery`;
-    }
-  }
+  const longEvaluation = evaluateDirectionalRegime(baseConfig, "OPEN_LONG", sharedInput);
+  const shortEvaluation = evaluateDirectionalRegime(baseConfig, "OPEN_SHORT", sharedInput);
 
-  if (priceVsEma20Pct > 0.3 && priceMomentum === "RISING") {
-    shortAllowed = false;
-    shortReason = `FORBIDDEN - price is ${priceVsEma20Pct.toFixed(2)}% above EMA20 with rising momentum`;
-  } else if (require1hAlignment && data.ema20_1h > data.ema50_1h) {
-    shortAllowed = false;
-    shortReason = "FORBIDDEN - 1h EMA20 is above EMA50";
-  } else {
-    const hasBearishRecovery = data.ema20_1h <= data.ema50_1h && priceMomentum !== "RISING";
-    if (data.dayChangePct >= greenDayShortBlockPct && !hasBearishRecovery) {
-      shortAllowed = false;
-      shortReason = `FORBIDDEN - green session (${data.dayChangePct.toFixed(2)}%) without bearish 1h/intraday rollover`;
-    }
-  }
+  const longAllowed = longEvaluation.allowed;
+  const shortAllowed = shortEvaluation.allowed;
+  const longReason = longAllowed
+    ? longEvaluation.checks.includes("hourly_long_recovery_exception")
+      ? "ALLOWED - intraday recovery offsets bearish 1h structure while 4h context is not bearish"
+      : "ALLOWED"
+    : `FORBIDDEN - ${longEvaluation.reason.replace(/^Long blocked:\s*/i, "")}`;
+  const shortReason = shortAllowed
+    ? shortEvaluation.checks.includes("hourly_short_recovery_exception")
+      ? "ALLOWED - intraday rollover offsets bullish 1h structure while 4h context is not bullish"
+      : "ALLOWED"
+    : `FORBIDDEN - ${shortEvaluation.reason.replace(/^Short blocked:\s*/i, "")}`;
 
   let allowedActions: AllowedActionLabel = "BIDIRECTIONAL";
   if (!longAllowed && !shortAllowed) allowedActions = "HOLD_ONLY";
@@ -159,6 +159,7 @@ TRADING DISCIPLINE:
 - Default is HOLD when signals are mixed
 - Protect winners: If profitable (>=+1%) and momentum reverses, close to lock in gains
 - Let stop loss handle losers — do not invent discretionary exits at breakeven
+- Treat pullback longs and pullback shorts symmetrically when higher timeframe context supports mean reversion
 
 ACCOUNT CONFIG:
 - Max Leverage: {maxLeverage}x | Max Position Size: {maxPositionSize}% of account
@@ -232,6 +233,7 @@ The winning strategies let TP/SL handle most exits. Only close manually to PROTE
 
 4. NEW ENTRIES: Open when you see:
    - Clear trend direction with momentum
+   - Or a clean higher-timeframe pullback/reversal setup with momentum stabilizing
    - 1h context supports the trade direction
    - Session regime is not fighting the trade direction
    - RSI supports direction (oversold for longs, overbought for shorts)
@@ -251,29 +253,49 @@ ANALYSIS PROCESS (do this for EACH coin):
 8. If no position: is this a good setup? Verify R:R meets {minRiskRewardRatio}:1 before deciding
 
 MANDATORY TREND-FOLLOWING RULES:
-1. LONG entries ONLY when:
+1. CONTINUATION LONG entries when:
    - Price is ABOVE EMA20 (or within 0.3% after a bounce)
    - Price momentum is RISING or FLAT (NOT FALLING)
-   - 1h trend is not bearish
-   - 4h trend preferably BULLISH
+   - 1h trend is not meaningfully bearish, OR intraday has recovered and 4h context is not bearish
+   - 4h trend preferably BULLISH; if 4h is bearish, prefer HOLD
 
-2. SHORT entries ONLY when:
+2. CONTINUATION SHORT entries when:
    - Price is BELOW EMA20 (or within 0.3% after rejection)
    - Price momentum is FALLING or FLAT (NOT RISING)
-   - 1h trend is not bullish
-   - 4h trend preferably BEARISH
+   - 1h trend is not meaningfully bullish, OR intraday has rolled over and 4h context is not bullish
+   - 4h trend preferably BEARISH; if 4h is bullish, prefer HOLD
 
-3. FORBIDDEN (will lose money):
+3. PULLBACK / REVERSAL LONG entries are allowed when ALL are true:
+   - 4h trend is BULLISH or at least not BEARISH
+   - Price is no more than 0.5% below EMA20, OR has just reclaimed EMA20
+   - Momentum is FLAT or RISING (selling pressure has stopped)
+   - RSI_7 or RSI_14 is depressed enough to show a pullback, but momentum is no longer deteriorating
+   - 1h structure may still be soft, but must not be strongly bearish without recovery
+
+4. PULLBACK / REVERSAL SHORT entries are allowed when ALL are true:
+   - 4h trend is BEARISH or at least not BULLISH
+   - Price is no more than 0.5% above EMA20, OR has just lost EMA20
+   - Momentum is FLAT or FALLING (buying pressure has stopped)
+   - RSI_7 or RSI_14 is elevated enough to show a bounce, but momentum is no longer strengthening
+   - 1h structure may still be firm, but must not be strongly bullish without rollover
+
+5. FORBIDDEN (will lose money):
    - Going LONG when price < EMA20 AND momentum is FALLING
    - Going SHORT when price > EMA20 AND momentum is RISING
    - Buying "oversold" in a downtrend (oversold can get MORE oversold)
    - Shorting "overbought" in an uptrend (overbought can get MORE overbought)
 
-4. RSI CONTEXT MATTERS:
-   - RSI < 30 in DOWNTREND = "can go lower" = prefer SHORT or HOLD
+6. RSI CONTEXT MATTERS:
+   - RSI < 30 in DOWNTREND = "can go lower" = prefer SHORT or HOLD unless 4h context is bullish and momentum has stabilized
    - RSI < 30 in UPTREND = "buy the dip" = consider LONG
-   - RSI > 70 in UPTREND = "momentum strong" = prefer LONG or HOLD
+   - RSI > 70 in UPTREND = "momentum strong" = prefer LONG or HOLD unless momentum is rolling over near EMA rejection
    - RSI > 70 in DOWNTREND = "short opportunity" = consider SHORT
+
+7. SENTIMENT IS CONTEXT, NOT A VETO:
+   - Fear/greed should adjust confidence and sizing, not automatically cancel an otherwise valid setup
+   - Extreme fear does NOT forbid longs by itself
+   - Extreme greed does NOT forbid shorts by itself
+   - If setup quality is equal, sentiment can break the tie toward caution
 
 OUTPUT FORMAT:
 CRITICAL: Your entire response must be a single valid JSON object. Do NOT write any text, explanations, or markdown before or after the JSON. No prose, no commentary — ONLY JSON. Return exactly ONE portfolio-level decision for the account. Format:
@@ -301,6 +323,7 @@ RULES:
 - For HOLD or CLOSE, omit leverage/size_usd/stop_loss/take_profit unless needed
 
 If regime is mixed or you are choosing between a weak long and a weak short, return HOLD.
+If a bullish 4h pullback long or bearish 4h bounce short is clearly better than the alternative, you may trade it even when the 1h is lagging, as long as momentum has stopped moving against the trade.
 `);
 
 // =============================================================================

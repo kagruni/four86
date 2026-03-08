@@ -1184,7 +1184,7 @@ export default function SettingsPage() {
                     <div className="space-y-0.5">
                       <Label htmlFor="require-1h" className="text-foreground">Require 1-Hour Trend Alignment</Label>
                       <p className="text-sm text-muted-foreground">
-                        Block trades that fight the 1-hour EMA structure
+                        Block trades that strongly fight the 1-hour EMA structure while still allowing clear intraday recoveries
                       </p>
                     </div>
                     <Switch
