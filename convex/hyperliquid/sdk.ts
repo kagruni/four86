@@ -718,6 +718,7 @@ export async function getFrontendOpenOrders(
 export async function getUserFillsByTime(
   address: string,
   startTime: number,
+  endTime: number | undefined,
   testnet: boolean
 ): Promise<any[]> {
   try {
@@ -726,9 +727,12 @@ export async function getUserFillsByTime(
       const fills = await infoClient.userFillsByTime({
         user: address,
         startTime,
+        endTime,
         aggregateByTime: false,
       });
-      console.log(`[getUserFillsByTime] Found ${fills.length} fills since ${new Date(startTime).toISOString()}`);
+      console.log(
+        `[getUserFillsByTime] Found ${fills.length} fills between ${new Date(startTime).toISOString()} and ${endTime ? new Date(endTime).toISOString() : "now"}`
+      );
       return fills;
     }, "getUserFillsByTime");
   } catch (error) {

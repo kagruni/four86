@@ -10,7 +10,11 @@ import { recordTradeOutcome } from "../circuitBreaker";
 import { createLogger, withTiming } from "../logger";
 import { recordTradeInMemory } from "../validators/positionValidator";
 import { internal } from "../../fnRefs";
-import { buildCloseTradeFields, resolveCloseSettlement } from "../closeSettlement";
+import {
+  buildCloseTradeFields,
+  resolveCloseSettlement,
+  resolveHistoricalCloseSettlement,
+} from "../closeSettlement";
 import {
   MANAGED_EXIT_MODE,
   LEGACY_EXIT_MODE,
@@ -62,47 +66,26 @@ export async function executeClose(
     if (!actualPosition) {
       log.warn(`No actual position on Hyperliquid for ${decision.symbol}, removing from database`);
       if (positionToClose) {
-        let exitPrice = positionToClose.currentPrice || positionToClose.entryPrice || 0;
-        try {
-          const currentMarket = await ctx.runAction(api.hyperliquid.client.getMarketData, {
-            symbols: [decision.symbol],
-            testnet: credentials.hyperliquidTestnet,
-          });
-          exitPrice = currentMarket[decision.symbol]?.price || exitPrice;
-        } catch {
-          /* use DB fallback */
-        }
-
-        const entryPrice = positionToClose.entryPrice || exitPrice;
-        const estimatedCoinSize =
-          entryPrice > 0 ? Math.abs(positionToClose.size || 0) / entryPrice : 0;
-        const tradeValueUsd = exitPrice * estimatedCoinSize;
-        const estimatedPnl =
-          positionToClose.side === "LONG"
-            ? (exitPrice - entryPrice) * estimatedCoinSize
-            : (entryPrice - exitPrice) * estimatedCoinSize;
-        const notionalEntry = entryPrice * estimatedCoinSize;
-        const estimatedPnlPct =
-          notionalEntry > 0 ? (estimatedPnl / notionalEntry) * 100 : 0;
+        const settlement = await resolveHistoricalCloseSettlement(ctx, api, {
+          userId: bot.userId,
+          address: credentials.hyperliquidAddress,
+          testnet: credentials.hyperliquidTestnet,
+          position: positionToClose,
+          observedAt: Date.now(),
+        });
 
         await ctx.runMutation(api.mutations.saveTrade, {
           userId: bot.userId,
-          symbol: decision.symbol,
-          action: "CLOSE",
-          side: positionToClose.side,
-          size: tradeValueUsd,
-          sizeInCoins: estimatedCoinSize,
-          tradeValueUsd,
-          leverage: positionToClose.leverage || 1,
-          price: exitPrice,
-          pnl: Number.isFinite(estimatedPnl) ? estimatedPnl : 0,
-          pnlPct: Number.isFinite(estimatedPnlPct) ? estimatedPnlPct : 0,
-          grossPnl: Number.isFinite(estimatedPnl) ? estimatedPnl : 0,
-          pnlSource: "reconciled_estimate",
-          aiReasoning: `${decision.reasoning} | reconciled_missing_on_exchange`,
-          aiModel: bot.modelName,
-          confidence: decision.confidence,
-          txHash: "reconciled_missing_on_exchange",
+          ...buildCloseTradeFields({
+            position: positionToClose,
+            settlement,
+            aiReasoning: `${decision.reasoning} | reconciled_missing_on_exchange`,
+            aiModel: bot.modelName,
+            confidence: decision.confidence,
+            txHash: settlement.pnlSource === "reconciled_estimate"
+              ? "reconciled_missing_on_exchange_estimate"
+              : "reconciled_missing_on_exchange_fill",
+          }),
         });
 
         await ctx.runMutation(api.mutations.closePosition, {

@@ -406,6 +406,7 @@ export const syncPositions = mutation({
     hyperliquidSymbols: v.array(v.string()), // Array of symbols that actually exist on Hyperliquid
   },
   handler: async (ctx, args) => {
+    console.warn("[syncPositions] Deprecated mutation invoked; falling back to DB-only cleanup without synthetic close trade");
     console.log(`[syncPositions] Syncing for user ${args.userId}`);
     console.log(`[syncPositions] Hyperliquid has positions: ${args.hyperliquidSymbols.join(", ") || "none"}`);
 
@@ -442,33 +443,6 @@ export const syncPositions = mutation({
     // Remove stale positions
     for (const position of positionsToRemove) {
       console.log(`[syncPositions] Removing stale position: ${position.symbol}`);
-
-      // Preserve lifecycle integrity: when sync removes a DB position that no longer
-      // exists on exchange, record a system CLOSE event instead of silently deleting.
-      await ctx.db.insert("trades", {
-        userId: args.userId,
-        symbol: position.symbol,
-        action: "CLOSE",
-        side: position.side,
-        size: Math.abs(position.size || 0),
-        sizeInCoins: position.entryPrice > 0 ? Math.abs(position.size || 0) / position.entryPrice : undefined,
-        tradeValueUsd: position.currentPrice && position.entryPrice > 0
-          ? (Math.abs(position.size || 0) / position.entryPrice) * position.currentPrice
-          : Math.abs(position.size || 0),
-        leverage: position.leverage || 1,
-        price: position.currentPrice || position.entryPrice || 0,
-        // Uses last known DB unrealized values as best-effort estimate.
-        pnl: position.unrealizedPnl,
-        pnlPct: position.unrealizedPnlPct,
-        grossPnl: position.unrealizedPnl,
-        pnlSource: "reconciled_estimate",
-        aiReasoning: "SYNC_CLOSE: Position not found on exchange during reconciliation",
-        aiModel: "system_sync",
-        confidence: 1.0,
-        txHash: "sync_reconcile_close",
-        executedAt: now,
-      });
-
       await ctx.db.delete(position._id);
     }
 

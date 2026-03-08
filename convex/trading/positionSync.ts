@@ -1,5 +1,67 @@
 import { internalAction } from "../_generated/server";
 import { api, internal } from "../_generated/api";
+import { buildCloseTradeFields, resolveHistoricalCloseSettlement } from "./closeSettlement";
+
+export async function reconcilePositionsWithExchange(
+  ctx: any,
+  params: {
+    userId: string;
+    hyperliquidSymbols: string[];
+    address: string;
+    testnet: boolean;
+    aiModel?: string;
+  }
+) {
+  const { userId, hyperliquidSymbols, address, testnet, aiModel = "system_sync" } = params;
+  const dbPositions = await ctx.runQuery(api.queries.getPositions, {
+    userId,
+  });
+  const now = Date.now();
+  const GRACE_PERIOD_MS = 3 * 60 * 1000;
+
+  const positionsToRemove = (dbPositions || []).filter((dbPos: any) => {
+    if (hyperliquidSymbols.includes(dbPos.symbol)) {
+      return false;
+    }
+
+    const age = now - dbPos.openedAt;
+    return age > GRACE_PERIOD_MS;
+  });
+
+  for (const position of positionsToRemove) {
+    const settlement = await resolveHistoricalCloseSettlement(ctx, api, {
+      userId,
+      address,
+      testnet,
+      position,
+      observedAt: now,
+    });
+
+    await ctx.runMutation(api.mutations.saveTrade, {
+      userId,
+      ...buildCloseTradeFields({
+        position,
+        settlement,
+        aiReasoning: "SYNC_CLOSE: Position not found on exchange during reconciliation",
+        aiModel,
+        confidence: 1.0,
+        txHash: settlement.pnlSource === "reconciled_estimate"
+          ? "sync_reconcile_close_estimate"
+          : "sync_reconcile_close_exchange_fill",
+      }),
+    });
+
+    await ctx.runMutation(api.mutations.closePosition, {
+      userId,
+      symbol: position.symbol,
+    });
+  }
+
+  return {
+    removedCount: positionsToRemove.length,
+    removedSymbols: positionsToRemove.map((position: any) => position.symbol),
+  };
+}
 
 /**
  * Position sync function - runs independently of trading loop
@@ -96,10 +158,11 @@ export const syncAllPositions = internalAction({
             }
           }
 
-          // Sync database with Hyperliquid reality
-          await ctx.runMutation(api.mutations.syncPositions, {
+          await reconcilePositionsWithExchange(ctx, {
             userId,
             hyperliquidSymbols,
+            address: credentials.hyperliquidAddress,
+            testnet: credentials.hyperliquidTestnet,
           });
 
         } catch (error) {

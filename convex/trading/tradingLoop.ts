@@ -35,6 +35,7 @@ import {
   summarizeMarketSnapshot,
   type DecisionContext,
 } from "./decisionContext";
+import { reconcilePositionsWithExchange } from "./positionSync";
 import {
   buildAlphaArenaDecisionTrace,
   formatMarketDataAlphaArena,
@@ -191,9 +192,11 @@ export const runTradingCycle = internalAction({
           // Only sync positions if we successfully fetched from Hyperliquid
           // Syncing with empty data when API is down would wipe all DB positions
           if (hlPositionsFetched) {
-            await ctx.runMutation(api.mutations.syncPositions, {
+            await reconcilePositionsWithExchange(ctx, {
               userId: bot.userId,
               hyperliquidSymbols,
+              address: credentials.hyperliquidAddress,
+              testnet: credentials.hyperliquidTestnet,
             });
           }
 

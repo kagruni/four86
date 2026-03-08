@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { api, internal } from "../fnRefs";
 import { isSymbolSupportedForEnvironment } from "../hyperliquid/candles";
 import { buildCloseTradeFields, resolveCloseSettlement } from "../trading/closeSettlement";
+import { reconcilePositionsWithExchange } from "../trading/positionSync";
 
 /**
  * FORCE CLOSE any position directly on Hyperliquid
@@ -305,10 +306,11 @@ export const syncPositionsWithHyperliquid = action({
 
       console.log(`[Manual Sync] Active positions (non-zero): ${hyperliquidSymbols.join(", ") || "none"}`);
 
-      // Sync database with reality
-      await ctx.runMutation(api.mutations.syncPositions, {
+      await reconcilePositionsWithExchange(ctx, {
         userId: args.userId,
         hyperliquidSymbols,
+        address: credentials.hyperliquidAddress,
+        testnet: credentials.hyperliquidTestnet,
       });
 
       // Get updated positions from database
