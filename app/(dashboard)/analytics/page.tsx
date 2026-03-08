@@ -1334,7 +1334,7 @@ export default function AnalyticsPage() {
                             {log.confidence !== undefined &&
                               log.confidence !== null && (
                                 <div className="mb-2">
-                                  <span className="inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-muted-foreground">
+                                  <span className="inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-foreground">
                                     Confidence:{" "}
                                     {(log.confidence * 100).toFixed(0)}%
                                   </span>
@@ -1346,13 +1346,13 @@ export default function AnalyticsPage() {
                               <AccordionItem value="reasoning" className="border-0">
                                 <AccordionTrigger className="hover:no-underline py-0 [&[data-state=open]>div]:hidden [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground">
                                   <div className="text-left">
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                    <p className="text-xs text-foreground/70 leading-relaxed">
                                       {truncateText(log.reasoning, 200)}
                                     </p>
                                   </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                  <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                                  <p className="text-xs text-foreground/70 leading-relaxed whitespace-pre-wrap">
                                     {log.reasoning}
                                   </p>
                                 </AccordionContent>

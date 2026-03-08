@@ -1397,7 +1397,7 @@ export default function DashboardPage() {
                                 {reasoningText}
                               </p>
                               {log.confidence !== undefined && (
-                                <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                                <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-foreground">
                                   {(log.confidence * 100).toFixed(0)}%
                                 </span>
                               )}
@@ -1423,7 +1423,7 @@ export default function DashboardPage() {
                               {reasoningText}
                             </p>
                             {log.confidence !== undefined && (
-                              <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-gray-700">
+                              <span className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs font-mono tabular-nums text-foreground">
                                 {(log.confidence * 100).toFixed(0)}%
                               </span>
                             )}
