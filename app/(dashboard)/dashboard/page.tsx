@@ -1446,11 +1446,15 @@ export default function DashboardPage() {
                       const executionResult = parsedResponse.executionResult;
                       const blockedBy = executionResult?.blockedBy ?? null;
                       const executionBlocked = Boolean(blockedBy);
-                      const blockReason =
-                        executionResult?.regimeValidation?.reason ||
-                        executionResult?.trendValidation?.reason ||
-                        executionResult?.positionValidation?.reason ||
-                        (blockedBy ? `Execution blocked by ${blockedBy}` : null);
+                      const blockReason = blockedBy === "position_validator"
+                        ? executionResult?.positionValidation?.reason || "Execution blocked by position validator"
+                        : blockedBy === "trend_guard"
+                        ? executionResult?.trendValidation?.reason || "Execution blocked by trend guard"
+                        : blockedBy === "regime_validator"
+                        ? executionResult?.regimeValidation?.reason || "Execution blocked by regime validator"
+                        : blockedBy
+                        ? `Execution blocked by ${blockedBy}`
+                        : null;
                       const reasoningText = log.reasoning && log.reasoning.trim().startsWith("{")
                         ? "AI analysis completed — no high-conviction setups detected."
                         : log.reasoning;
