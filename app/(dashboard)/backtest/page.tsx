@@ -116,6 +116,7 @@ export default function BacktestPage() {
   const effectiveInitialCapital =
     botConfig?.currentCapital ?? botConfig?.startingCapital ?? 0;
   const effectiveMaxLeverage = botConfig?.maxLeverage ?? 0;
+  const effectiveTradingIntervalMinutes = botConfig?.tradingIntervalMinutes ?? 5;
   const effectiveHybridScoreFloor = botConfig?.hybridScoreFloor ?? 64;
   const configuredSymbolsLabel = configuredSymbols.join(", ");
 
@@ -280,6 +281,15 @@ export default function BacktestPage() {
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <Label className="text-sm text-muted-foreground">
+                Live Trading Interval
+              </Label>
+              <div className="flex h-10 items-center rounded-md border border-input px-3 font-mono text-sm text-foreground">
+                Every {effectiveTradingIntervalMinutes} minute{effectiveTradingIntervalMinutes === 1 ? "" : "s"}
+              </div>
+            </div>
+
             <div className="space-y-2 rounded-md border border-input p-3 sm:col-span-2 lg:col-span-2">
               <Label className="text-sm text-muted-foreground">
                 Backtest Overrides
@@ -357,6 +367,13 @@ export default function BacktestPage() {
                   not place orders until it is turned back on.
                 </p>
               )}
+              <p>
+                Backtest decision checkpoints mirror the saved live cadence of{" "}
+                <span className="font-mono text-foreground">
+                  every {effectiveTradingIntervalMinutes} minute{effectiveTradingIntervalMinutes === 1 ? "" : "s"}
+                </span>
+                .
+              </p>
               {botConfig.useHybridSelection && (
                 <p>
                   Hybrid selection is enabled. The model is only called when the

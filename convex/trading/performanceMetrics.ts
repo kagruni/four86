@@ -60,7 +60,8 @@ export const getPerformanceMetrics = internalQuery({
     const invocationCount = aiLogs.length;
 
     // Calculate Sharpe ratio from trade history
-    const sharpeRatio = await calculateSharpeRatio(ctx, args.userId);
+    const tradingIntervalMinutes = botConfig.tradingIntervalMinutes ?? 5;
+    const sharpeRatio = await calculateSharpeRatio(ctx, args.userId, tradingIntervalMinutes);
 
     return {
       totalReturnPct,
@@ -76,9 +77,7 @@ export const getPerformanceMetrics = internalQuery({
  *
  * Sharpe Ratio = (Mean Return) / (Std Dev of Returns) * sqrt(periods per year)
  *
- * For trading bot that runs every 3 minutes:
- * - Periods per year = 365 * 24 * 60 / 3 = 175,200 periods
- * - We use sqrt(175200) ≈ 418.57 for annualization
+ * Annualization uses the configured trading interval in minutes.
  *
  * Returns 0 if:
  * - Less than 2 closed trades (need at least 2 data points for std dev)
@@ -86,7 +85,8 @@ export const getPerformanceMetrics = internalQuery({
  */
 async function calculateSharpeRatio(
   ctx: any,
-  userId: string
+  userId: string,
+  tradingIntervalMinutes: number
 ): Promise<number> {
   // Get last 50 trades with PnL data (enough for Sharpe ratio calculation)
   // IMPORTANT: Drastically reduced limit to avoid "Too many bytes" error
@@ -133,11 +133,9 @@ async function calculateSharpeRatio(
     return 0;
   }
 
-  // Annualization factor for 3-minute trading intervals
-  // Trading bot runs every 3 minutes = 20 times per hour = 480 times per day
-  // Periods per year = 480 * 365 = 175,200
-  // Annualization factor = sqrt(175,200) ≈ 418.57
-  const annualizationFactor = Math.sqrt(175200);
+  const safeTradingIntervalMinutes = Math.max(1, tradingIntervalMinutes);
+  const periodsPerYear = (365 * 24 * 60) / safeTradingIntervalMinutes;
+  const annualizationFactor = Math.sqrt(periodsPerYear);
 
   // Calculate Sharpe ratio
   const sharpeRatio = (meanReturn / stdDev) * annualizationFactor;

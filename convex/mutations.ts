@@ -92,6 +92,7 @@ export const upsertBotConfig = mutation({
     redDayLongBlockPct: v.optional(v.number()),
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
+    tradingIntervalMinutes: v.optional(v.number()),
     useHybridSelection: v.optional(v.boolean()),
     hybridScoreFloor: v.optional(v.number()),
     hybridFourHourTrendThresholdPct: v.optional(v.number()),
@@ -140,6 +141,7 @@ export const upsertBotConfig = mutation({
         managedExitStaleMinutes: args.managedExitStaleMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinutes,
         managedExitStaleMinProfitPct: args.managedExitStaleMinProfitPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitStaleMinProfitPct,
         managedExitMaxHoldMinutes: args.managedExitMaxHoldMinutes ?? DEFAULT_MANAGED_EXIT_RULES.managedExitMaxHoldMinutes,
+        tradingIntervalMinutes: args.tradingIntervalMinutes ?? 5,
         hybridScoreFloor: args.hybridScoreFloor ?? DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
         hybridFourHourTrendThresholdPct: args.hybridFourHourTrendThresholdPct ?? DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
         hybridExtremeRsi7Block: args.hybridExtremeRsi7Block ?? DEFAULT_HYBRID_SELECTION_RULES.hybridExtremeRsi7Block,
@@ -193,6 +195,7 @@ export const toggleBot = mutation({
         redDayLongBlockPct: -1.5,
         greenDayShortBlockPct: 1.5,
         reentryCooldownMinutes: 15,
+        tradingIntervalMinutes: 5,
         useHybridSelection: false,
         hybridScoreFloor: DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
         hybridFourHourTrendThresholdPct: DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
@@ -214,6 +217,25 @@ export const toggleBot = mutation({
         updatedAt: now,
       });
     }
+  },
+});
+
+export const markTradingCycleStarted = mutation({
+  args: {
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const config = await ctx.db
+      .query("botConfig")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!config) return;
+
+    await ctx.db.patch(config._id, {
+      lastTradingCycleStartedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
   },
 });
 
@@ -494,7 +516,7 @@ export const acquireTradingLock = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const LOCK_TIMEOUT_MS = 120000; // 2 minutes
+    const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes to cover slow AI cycles
     
     // Check if active lock exists
     const existingLock = await ctx.db

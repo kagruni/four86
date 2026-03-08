@@ -219,6 +219,7 @@ export default function DashboardPage() {
 
   const isLoading = botConfig === undefined;
   const isBotActive = botConfig?.isActive || false;
+  const effectiveTradingIntervalMinutes = botConfig?.tradingIntervalMinutes ?? 5;
 
   const handleToggleBot = async () => {
     if (!userId) return;
@@ -234,7 +235,7 @@ export default function DashboardPage() {
         title: isBotActive ? "Bot Stopped" : "Bot Started",
         description: isBotActive
           ? "Your trading bot has been deactivated."
-          : "Your trading bot is now active and will execute trades every 3 minutes.",
+          : `Your trading bot is now active and will execute trades every ${effectiveTradingIntervalMinutes} minute${effectiveTradingIntervalMinutes === 1 ? "" : "s"}.`,
       });
     } catch (error) {
       console.log("Error toggling bot:", error instanceof Error ? error.message : String(error));

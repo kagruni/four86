@@ -54,6 +54,7 @@ const AI_MODELS = [
 ] as const;
 
 const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
+const TRADING_INTERVAL_OPTIONS = Array.from({ length: 10 }, (_, index) => index + 1);
 
 function InfoHint({ text }: { text: string }) {
   return (
@@ -108,6 +109,7 @@ const botConfigSchema = z.object({
   redDayLongBlockPct: z.number().min(-10).max(0),
   greenDayShortBlockPct: z.number().min(0).max(10),
   reentryCooldownMinutes: z.number().min(1).max(60),
+  tradingIntervalMinutes: z.number().int().min(1).max(10),
   useHybridSelection: z.boolean(),
   hybridScoreFloor: z.number().min(50).max(90),
   hybridFourHourTrendThresholdPct: z.number().min(0.1).max(3.0),
@@ -206,6 +208,7 @@ export default function SettingsPage() {
     redDayLongBlockPct: -1.5,
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
+    tradingIntervalMinutes: 5,
     useHybridSelection: false,
     hybridScoreFloor: DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
     hybridFourHourTrendThresholdPct: DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
@@ -280,6 +283,7 @@ export default function SettingsPage() {
         redDayLongBlockPct: botConfig.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
+        tradingIntervalMinutes: botConfig.tradingIntervalMinutes ?? 5,
         useHybridSelection: botConfig.useHybridSelection ?? false,
         hybridScoreFloor: botConfig.hybridScoreFloor ?? DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor,
         hybridFourHourTrendThresholdPct: botConfig.hybridFourHourTrendThresholdPct ?? DEFAULT_HYBRID_SELECTION_RULES.hybridFourHourTrendThresholdPct,
@@ -435,6 +439,7 @@ export default function SettingsPage() {
         redDayLongBlockPct: validatedData.redDayLongBlockPct,
         greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
         reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
+        tradingIntervalMinutes: validatedData.tradingIntervalMinutes,
         useHybridSelection: validatedData.useHybridSelection,
         hybridScoreFloor: validatedData.hybridScoreFloor,
         hybridFourHourTrendThresholdPct: validatedData.hybridFourHourTrendThresholdPct,
@@ -821,6 +826,46 @@ export default function SettingsPage() {
                       {tradingPromptMode === "compact" && "Pre-processed signal-based analysis (150-line prompt)"}
                       {tradingPromptMode === "detailed" && "Comprehensive 680-line prompt system with full technical analysis"}
                     </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-background border border-border">
+                <CardHeader>
+                  <CardTitle className="text-foreground">Trading Interval</CardTitle>
+                  <CardDescription className="text-muted-foreground">
+                    Controls how often the AI trading cycle runs
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <Label htmlFor="trading-interval" className="text-foreground">Interval</Label>
+                    <Select
+                      value={String(botConfigData.tradingIntervalMinutes)}
+                      onValueChange={(value) =>
+                        setBotConfigData((prev) => ({
+                          ...prev,
+                          tradingIntervalMinutes: Number(value),
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="trading-interval" className="text-foreground">
+                        <SelectValue placeholder="Select a trading interval" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TRADING_INTERVAL_OPTIONS.map((minutes) => (
+                          <SelectItem key={minutes} value={String(minutes)}>
+                            {minutes === 1 ? "Every 1 minute" : `Every ${minutes} minutes`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Controls how often the AI trading cycle runs. Position sync and managed exits still check every minute.
+                    </p>
+                    {errors.tradingIntervalMinutes && (
+                      <p className="text-sm text-red-600">{errors.tradingIntervalMinutes}</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

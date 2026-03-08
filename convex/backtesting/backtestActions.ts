@@ -43,6 +43,7 @@ export const startBacktest = action({
       botConfig?.startingCapital ??
       args.initialCapital;
     const effectiveMaxLeverage = botConfig?.maxLeverage ?? args.maxLeverage;
+    const effectiveTradingIntervalMinutes = botConfig?.tradingIntervalMinutes ?? 5;
     const botIsActive = botConfig?.isActive ?? false;
     const liveUseHybridSelection = botConfig?.useHybridSelection ?? false;
     const liveHybridScoreFloor =
@@ -83,6 +84,7 @@ export const startBacktest = action({
         tradingPromptMode: effectiveTradingPromptMode,
         initialCapital: effectiveInitialCapital,
         maxLeverage: effectiveMaxLeverage,
+        tradingIntervalMinutes: effectiveTradingIntervalMinutes,
         botIsActive,
         effectiveHybridScoreFloor,
         overrideSummary,
@@ -115,6 +117,7 @@ export const startBacktest = action({
         tradingPromptMode: effectiveTradingPromptMode,
         initialCapital: effectiveInitialCapital,
         maxLeverage: effectiveMaxLeverage,
+        tradingIntervalMinutes: effectiveTradingIntervalMinutes,
         maxPositionSize: botConfig?.maxPositionSize ?? 10,
         maxDailyLoss: botConfig?.maxDailyLoss ?? 5,
         minAccountValue: botConfig?.minAccountValue ?? 100,
@@ -182,6 +185,7 @@ export const createBacktestRun = internalMutation({
     tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    tradingIntervalMinutes: v.optional(v.number()),
     botIsActive: v.optional(v.boolean()),
     effectiveHybridScoreFloor: v.optional(v.number()),
     overrideSummary: v.optional(v.string()),

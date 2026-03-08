@@ -3,10 +3,10 @@ import { internal } from "./fnRefs";
 
 const crons = cronJobs();
 
-// Main trading loop - runs every 5 minutes (reduced from 3 to decrease overtrading)
+// Main trading loop heartbeat - runs every 1 minute and gates per bot interval
 crons.interval(
   "trading-loop",
-  { minutes: 5 },
+  { minutes: 1 },
   internal.trading.tradingLoop.runTradingCycle
 );
 

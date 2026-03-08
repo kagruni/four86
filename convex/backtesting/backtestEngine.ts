@@ -68,7 +68,6 @@ const CHUNK_TIME_BUDGET_MS = 510_000; // 510s = 8.5 minutes
 const AI_FETCH_TIMEOUT_MS = 120_000; // 120s per call
 
 const ONE_MINUTE_MS = 60 * 1000;
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FOUR_HOURS_MS = 4 * ONE_HOUR_MS;
 const ONE_DAY_MS = 24 * ONE_HOUR_MS;
@@ -412,6 +411,7 @@ export const runBacktest = internalAction({
     tradingPromptMode: v.string(),
     initialCapital: v.number(),
     maxLeverage: v.number(),
+    tradingIntervalMinutes: v.optional(v.number()),
     maxPositionSize: v.number(),
     maxDailyLoss: v.number(),
     minAccountValue: v.number(),
@@ -455,9 +455,13 @@ export const runBacktest = internalAction({
   },
   handler: async (ctx, args) => {
     const configuredSymbols = args.symbols?.length ? args.symbols : [args.symbol];
+    const effectiveTradingIntervalMinutes = Math.max(
+      1,
+      Math.min(10, args.tradingIntervalMinutes ?? 5)
+    );
 
     console.log(
-      `[BACKTEST] Starting backtest for ${configuredSymbols.join(", ")} from ${new Date(args.startDate).toISOString()} to ${new Date(args.endDate).toISOString()}, maxLev: ${args.maxLeverage}x`
+      `[BACKTEST] Starting backtest for ${configuredSymbols.join(", ")} from ${new Date(args.startDate).toISOString()} to ${new Date(args.endDate).toISOString()}, maxLev: ${args.maxLeverage}x, cadence: ${effectiveTradingIntervalMinutes}m`
     );
 
     try {
@@ -467,9 +471,13 @@ export const runBacktest = internalAction({
             0,
             args.startDate - 120 * ONE_MINUTE_MS
           );
+          const primaryPeriodLookbackMinutes = Math.max(
+            120,
+            50 * effectiveTradingIntervalMinutes
+          );
           const periodStart = Math.max(
             0,
-            args.startDate - 50 * FIVE_MINUTES_MS
+            args.startDate - primaryPeriodLookbackMinutes * ONE_MINUTE_MS
           );
           const hourlyStart = Math.max(0, args.startDate - 80 * ONE_HOUR_MS);
           const fourHourStart = Math.max(
@@ -477,10 +485,10 @@ export const runBacktest = internalAction({
             args.startDate - 60 * FOUR_HOURS_MS
           );
           const dailyStart = Math.max(0, args.startDate - 7 * ONE_DAY_MS);
-          const [candles5m, candles1m, candles1h, candles4h, candles1d] = await Promise.all([
+          const [periodCandles, candles1m, candles1h, candles4h, candles1d] = await Promise.all([
             fetchCandlesForRangeInternal(
               symbol,
-              "5m",
+              "1m",
               periodStart,
               args.endDate,
               args.testnet
@@ -515,16 +523,16 @@ export const runBacktest = internalAction({
             ),
           ]);
 
-          const simulationCandleCount = candles5m.filter(
+          const simulationCandleCount = periodCandles.filter(
             (c) => c.t >= args.startDate && c.t <= args.endDate
           ).length;
-          const simulationStartIndex = candles5m.findIndex(
+          const simulationStartIndex = periodCandles.findIndex(
             (c) => c.t >= args.startDate
           );
 
           return {
             symbol,
-            periodCandles: candles5m.filter((c) => c.t <= args.endDate),
+            periodCandles: periodCandles.filter((c) => c.t <= args.endDate),
             candles1m: candles1m.filter((c) => c.t <= args.endDate),
             candles1h,
             candles4h,
@@ -574,7 +582,7 @@ export const runBacktest = internalAction({
         activeEntries.map((entry) => [entry.symbol, entry.candles1d])
       );
 
-      const stepSize = 1; // mirror the live trading loop cadence: every 5 minutes
+      const stepSize = effectiveTradingIntervalMinutes;
       const totalSteps = Math.max(
         1,
         Math.ceil((primaryPeriodCandles.length - simulationStartIndex) / stepSize)

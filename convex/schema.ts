@@ -61,6 +61,7 @@ export default defineSchema({
     redDayLongBlockPct: v.optional(v.number()), // default -1.5
     greenDayShortBlockPct: v.optional(v.number()), // default 1.5
     reentryCooldownMinutes: v.optional(v.number()), // default 15
+    tradingIntervalMinutes: v.optional(v.number()), // default 5
     useHybridSelection: v.optional(v.boolean()), // default false
     hybridScoreFloor: v.optional(v.number()),
     hybridFourHourTrendThresholdPct: v.optional(v.number()),
@@ -95,6 +96,7 @@ export default defineSchema({
     circuitBreakerCooldownMinutes: v.optional(v.number()), // default 30
     maxConsecutiveAiFailures: v.optional(v.number()), // default 3
     maxConsecutiveLosses: v.optional(v.number()), // default 5
+    lastTradingCycleStartedAt: v.optional(v.number()), // internal scheduler throttle state
 
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -247,7 +249,7 @@ export default defineSchema({
     userId: v.string(),
     lockId: v.string(), // Unique ID for this lock instance
     acquiredAt: v.number(), // When the lock was acquired
-    expiresAt: v.number(), // Auto-expire after 2 minutes (safety)
+    expiresAt: v.number(), // Auto-expire after 5 minutes (safety)
   }).index("by_userId", ["userId"])
     .index("by_userId_expires", ["userId", "expiresAt"]),
 
@@ -280,6 +282,7 @@ export default defineSchema({
     redDayLongBlockPct: v.optional(v.number()),
     greenDayShortBlockPct: v.optional(v.number()),
     reentryCooldownMinutes: v.optional(v.number()),
+    tradingIntervalMinutes: v.optional(v.number()),
     useHybridSelection: v.optional(v.boolean()),
     botIsActive: v.optional(v.boolean()),
     effectiveHybridScoreFloor: v.optional(v.number()),

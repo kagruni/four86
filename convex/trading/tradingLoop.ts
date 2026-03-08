@@ -81,6 +81,18 @@ export const runTradingCycle = internalAction({
       console.log(`[LOOP-${loopId}] Running trading cycle for ${activeBots.length} active bot(s)`);
 
       for (const bot of activeBots) {
+        const effectiveTradingIntervalMinutes = bot.tradingIntervalMinutes ?? 5;
+        const intervalMs = effectiveTradingIntervalMinutes * 60 * 1000;
+        const lastTradingCycleStartedAt = bot.lastTradingCycleStartedAt ?? 0;
+        const elapsedSinceLastCycle = Date.now() - lastTradingCycleStartedAt;
+
+        if (lastTradingCycleStartedAt > 0 && elapsedSinceLastCycle < intervalMs) {
+          console.log(
+            `[LOOP-${loopId}] Skipping user ${bot.userId}: ${Math.ceil((intervalMs - elapsedSinceLastCycle) / 1000)}s until next ${effectiveTradingIntervalMinutes}m cycle`
+          );
+          continue;
+        }
+
         // ── 1. Circuit Breaker Check ────────────────────────────────
         const cbCheck = shouldAllowTrading(
           {
@@ -133,6 +145,10 @@ export const runTradingCycle = internalAction({
         }
 
         console.log(`[LOOP-${loopId}] 🔒 Lock acquired for user ${bot.userId}`);
+
+        await ctx.runMutation(api.mutations.markTradingCycleStarted, {
+          userId: bot.userId,
+        });
 
         try {
           console.log(`[LOOP-${loopId}] Processing bot ${bot._id} for user ${bot.userId}`);
