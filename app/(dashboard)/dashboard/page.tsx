@@ -80,6 +80,10 @@ export default function DashboardPage() {
   const aiLogs = allAiLogs?.slice(0, aiLogsLimit);
   const hasMoreAiLogs = (allAiLogs?.length ?? 0) > aiLogsLimit;
 
+  const [tradesLimit, setTradesLimit] = useState(5);
+  const visibleTrades = recentTrades?.slice(0, tradesLimit);
+  const hasMoreTrades = (recentTrades?.length ?? 0) > tradesLimit;
+
   // Fetch LIVE positions with real-time prices
   const getLivePositions = useAction(api.liveQueries.getLivePositions);
   const [positions, setPositions] = useState<any[]>([]);
@@ -1351,14 +1355,14 @@ export default function DashboardPage() {
               <CardTitle className="text-foreground">Recent Trades</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[400px]">
-                {!recentTrades || recentTrades.length === 0 ? (
+              <ScrollArea className="h-[400px] pr-4">
+                {!visibleTrades || visibleTrades.length === 0 ? (
                   <div className="py-8 text-center text-sm font-mono text-muted-foreground">
                     No trades yet
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {recentTrades.map((trade: Doc<"trades">) => (
+                    {visibleTrades.map((trade: Doc<"trades">) => (
                       <div key={trade._id} className="border-b border-border pb-4 last:border-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
@@ -1393,6 +1397,18 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 )}
+                {hasMoreTrades && (
+                  <div className="flex justify-center pt-3 pb-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs border-border text-muted-foreground hover:text-foreground"
+                      onClick={() => setTradesLimit((prev) => prev + 10)}
+                    >
+                      Load More
+                    </Button>
+                  </div>
+              )}
               </ScrollArea>
             </CardContent>
           </Card>
