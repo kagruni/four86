@@ -10,6 +10,13 @@ function assertApproxEqual(actual: number, expected: number, epsilon = 1e-9) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${actual} to be within ${epsilon} of ${expected}`);
 }
 
+function assertDefinedNumber(value: number | undefined, label: string): number {
+  if (value === undefined) {
+    throw new Error(`${label} should be defined`);
+  }
+  return value;
+}
+
 function createTestCtx(fills: any[]) {
   const mutationCalls: any[] = [];
 
@@ -77,7 +84,7 @@ test("resolveCloseSettlement falls back to close-fill window when order id does 
   });
 
   assert.equal(settlement.pnlSource, "exchange_fill_window");
-  assertApproxEqual(settlement.pnl, 1.96);
+  assertApproxEqual(assertDefinedNumber(settlement.pnl, "settlement.pnl"), 1.96);
   assertApproxEqual(settlement.grossPnl, 2.09);
   assert.equal(settlement.fee, 0.13);
   assert.equal(settlement.sizeInCoins, 3.7);
@@ -120,7 +127,7 @@ test("resolveHistoricalCloseSettlement prefers exchange closed pnl over stale DB
   });
 
   assert.equal(settlement.pnlSource, "exchange_fill_reconciled");
-  assertApproxEqual(settlement.pnl, 1.96);
+  assertApproxEqual(assertDefinedNumber(settlement.pnl, "settlement.pnl"), 1.96);
   assertApproxEqual(settlement.grossPnl, 2.09);
   assert.equal(settlement.fee, 0.13);
   assertApproxEqual(settlement.tradeValueUsd, 82.43513513513513 * 3.7);
@@ -167,7 +174,7 @@ test("resolveCloseSettlement preserves net pnl when fill payload is already fee-
   });
 
   assert.equal(settlement.pnlSource, "exchange_fill");
-  assertApproxEqual(settlement.pnl, 1.96);
+  assertApproxEqual(assertDefinedNumber(settlement.pnl, "settlement.pnl"), 1.96);
   assertApproxEqual(settlement.grossPnl, 2.09);
   assert.equal(settlement.fee, 0.13);
 });

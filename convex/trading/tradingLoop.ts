@@ -826,9 +826,11 @@ async function executeTradeDecision(
     }
   }
 
-  // ── Trend Guard ───────────────────────────────────────────────
+  const ENFORCE_REGIME_VALIDATOR = false;
+
+  // ── Regime Advisory / Guard ──────────────────────────────────
   const regimeResult = validateDecisionAgainstRegime(bot, decision, decisionContext);
-  if (!regimeResult.allowed) {
+  if (!regimeResult.allowed && ENFORCE_REGIME_VALIDATOR) {
     console.log(`❌ EXECUTION BLOCKED [regime_validator]: ${regimeResult.reason}`);
     await ctx.runMutation(api.mutations.saveSystemLog, {
       userId: bot.userId,
@@ -847,6 +849,19 @@ async function executeTradeDecision(
       trendValidation: null,
       positionValidation: null,
     };
+  }
+  if (!regimeResult.allowed && !ENFORCE_REGIME_VALIDATOR) {
+    console.log(`⚠️ REGIME ADVISORY ONLY [regime_validator bypassed]: ${regimeResult.reason}`);
+    await ctx.runMutation(api.mutations.saveSystemLog, {
+      userId: bot.userId,
+      level: "INFO",
+      message: `Regime validator advisory only: ${decision.decision} on ${decision.symbol}`,
+      data: {
+        reason: regimeResult.reason,
+        checks: regimeResult.checks,
+        snapshot: regimeResult.snapshot,
+      },
+    });
   }
 
   // ── Trend Guard ───────────────────────────────────────────────

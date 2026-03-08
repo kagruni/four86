@@ -95,6 +95,32 @@ function describeTrendContext(trendDirection: TrendDirection, momentum: PriceMom
   return "Context: mixed regime, no directional edge";
 }
 
+function stripConstraintPrefix(reason: string): string {
+  return reason.replace(/^(ALLOWED|FORBIDDEN)\s*-\s*/i, "");
+}
+
+function formatDirectionalBias(constraints: AlphaArenaRuntimeConstraints): string {
+  if (constraints.longAllowed && constraints.shortAllowed) {
+    return "Both directions are still in play. Choose only if the full setup has a real edge.";
+  }
+  if (constraints.longAllowed) {
+    return "Longs have fewer immediate regime headwinds than shorts, but setup quality still matters.";
+  }
+  if (constraints.shortAllowed) {
+    return "Shorts have fewer immediate regime headwinds than longs, but setup quality still matters.";
+  }
+  return "Both directions face meaningful regime headwinds. Demand unusually strong confirmation.";
+}
+
+function formatDirectionalAdvisory(
+  direction: "LONG" | "SHORT",
+  allowed: boolean,
+  reason: string
+): string {
+  const advisoryLabel = allowed ? `${direction} VIEW` : `${direction} CAUTION`;
+  return `${advisoryLabel}: ${stripConstraintPrefix(reason)}`;
+}
+
 export function buildRuntimeConstraints(
   data: DetailedCoinData,
   regimeConfig: AlphaArenaRegimePromptConfig = {}
@@ -196,9 +222,11 @@ export function buildAlphaArenaDecisionTrace(
     };
   });
 
-  const positionTraces = positions.map((position) => {
+  const positionTraces: AlphaArenaPositionDecisionTrace[] = positions.map((position): AlphaArenaPositionDecisionTrace => {
     const market = marketData[position.symbol];
-    const intradayMomentum = market ? calculatePriceMomentum(market.priceHistory) : "UNKNOWN";
+    const intradayMomentum: PriceMomentum | "UNKNOWN" = market
+      ? calculatePriceMomentum(market.priceHistory)
+      : "UNKNOWN";
     const managedExitActive = position.exitMode === "managed_scalp_v2";
     const hasTpSl = Boolean(position.stopLoss && position.takeProfit);
     const unrealizedPnlPct = position.unrealizedPnlPct ?? 0;
@@ -231,7 +259,7 @@ export function buildAlphaArenaDecisionTrace(
       hasTpSl,
       unrealizedPnlPct,
       intradayMomentum,
-      entryPolicy: "HOLD_OR_CLOSE_ONLY" as const,
+      entryPolicy: "HOLD_OR_CLOSE_ONLY",
       closeAllowedByPrompt,
       closeReason,
     };
@@ -527,16 +555,10 @@ export function formatMarketDataAlphaArena(
     lines.push(`Trend: ${trendDirection} | Momentum: ${priceMomentum}`);
     lines.push(`Price vs EMA20: ${priceVsEma20Pct > 0 ? "ABOVE" : "BELOW"} (${priceVsEma20Pct.toFixed(2)}%)`);
     lines.push(`${trendContext}`);
-    lines.push(`[RUNTIME CONSTRAINTS - AUTHORITATIVE]`);
-    lines.push(`Allowed Actions: ${runtimeConstraints.allowedActions === "HOLD_ONLY"
-      ? "ONLY HOLD"
-      : runtimeConstraints.allowedActions === "HOLD_OR_LONG"
-      ? "ONLY HOLD OR OPEN_LONG"
-      : runtimeConstraints.allowedActions === "HOLD_OR_SHORT"
-      ? "ONLY HOLD OR OPEN_SHORT"
-      : "OPEN_LONG or OPEN_SHORT allowed if the rest of the setup is strong"}`);
-    lines.push(`LONG: ${runtimeConstraints.longReason}`);
-    lines.push(`SHORT: ${runtimeConstraints.shortReason}`);
+    lines.push(`[DIRECTIONAL ADVISORY - NON-BINDING]`);
+    lines.push(`Bias Summary: ${formatDirectionalBias(runtimeConstraints)}`);
+    lines.push(formatDirectionalAdvisory("LONG", runtimeConstraints.longAllowed, runtimeConstraints.longReason));
+    lines.push(formatDirectionalAdvisory("SHORT", runtimeConstraints.shortAllowed, runtimeConstraints.shortReason));
     lines.push(``);
     lines.push(`Current Price: $${data.currentPrice.toFixed(2)}`);
     lines.push(`EMA20: $${data.ema20.toFixed(2)} (last: [${data.ema20History.slice(-5).map(v => v.toFixed(2)).join(", ")}])`);
