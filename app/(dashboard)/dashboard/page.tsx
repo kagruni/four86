@@ -49,6 +49,18 @@ import LiveChart from "./LiveChart";
 import TradeDebugExportCard from "./TradeDebugExportCard";
 import PreFlightPanel from "@/components/preflight/PreFlightPanel";
 
+function formatDebugJson(value: unknown) {
+  if (value === undefined) {
+    return "undefined";
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (error) {
+    return `Could not serialize value: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 export default function DashboardPage() {
   const { user } = useUser();
   const userId = user?.id || "";
@@ -1345,6 +1357,7 @@ export default function DashboardPage() {
                   <Accordion type="multiple" className="w-full">
                     {aiLogs.map((log: Doc<"aiLogs">, index: number) => {
                       const parsedResponse = (log.parsedResponse ?? {}) as {
+                        decisionTrace?: unknown;
                         executionResult?: {
                           executed?: boolean;
                           blockedBy?: string | null;
@@ -1427,6 +1440,40 @@ export default function DashboardPage() {
                                 {(log.confidence * 100).toFixed(0)}%
                               </span>
                             )}
+                            <div className="mt-4 space-y-3">
+                              <details className="rounded border border-border bg-muted/30 p-3">
+                                <summary className="cursor-pointer text-xs font-mono uppercase tracking-wide text-muted-foreground">
+                                  Stored Decision Trace
+                                </summary>
+                                <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-3 text-xs text-foreground">
+                                  {formatDebugJson(parsedResponse.decisionTrace ?? null)}
+                                </pre>
+                              </details>
+                              <details className="rounded border border-border bg-muted/30 p-3">
+                                <summary className="cursor-pointer text-xs font-mono uppercase tracking-wide text-muted-foreground">
+                                  Rendered User Prompt
+                                </summary>
+                                <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-3 text-xs text-foreground">
+                                  {log.userPrompt}
+                                </pre>
+                              </details>
+                              <details className="rounded border border-border bg-muted/30 p-3">
+                                <summary className="cursor-pointer text-xs font-mono uppercase tracking-wide text-muted-foreground">
+                                  Raw Model Response
+                                </summary>
+                                <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-3 text-xs text-foreground">
+                                  {log.rawResponse}
+                                </pre>
+                              </details>
+                              <details className="rounded border border-border bg-muted/30 p-3">
+                                <summary className="cursor-pointer text-xs font-mono uppercase tracking-wide text-muted-foreground">
+                                  Parsed Response
+                                </summary>
+                                <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-3 text-xs text-foreground">
+                                  {formatDebugJson(log.parsedResponse ?? null)}
+                                </pre>
+                              </details>
+                            </div>
                           </AccordionContent>
                         </AccordionItem>
                       );

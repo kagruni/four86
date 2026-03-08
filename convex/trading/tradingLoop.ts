@@ -36,6 +36,7 @@ import {
   type DecisionContext,
 } from "./decisionContext";
 import {
+  buildAlphaArenaDecisionTrace,
   formatMarketDataAlphaArena,
   formatPositionsAlphaArena,
   formatSentimentContext,
@@ -489,8 +490,39 @@ export const runTradingCycle = internalAction({
 
           // Build the actual prompt content that was sent to the model
           let renderedUserPrompt: string;
+          let decisionTrace: any = null;
           if (tradingMode === "alpha_arena") {
             if ((bot.useHybridSelection ?? false) && hybridCandidateSet) {
+              decisionTrace = {
+                tradingMode: "alpha_arena",
+                selectionMode: "hybrid_llm_ranked",
+                systemPromptName,
+                accountState: {
+                  accountValue: accountState.accountValue,
+                  withdrawable: accountState.withdrawable,
+                  openPositionCount: positions.length,
+                },
+                hybridSelection: {
+                  scoreFloor: hybridCandidateSet.scoreFloor,
+                  forcedHold: hybridCandidateSet.forcedHold,
+                  holdReason: hybridCandidateSet.holdReason ?? null,
+                  candidateCount: hybridCandidateSet.candidates.length,
+                  blockedCandidateCount: hybridCandidateSet.blockedCandidates.length,
+                  closeCandidateCount: hybridCandidateSet.closeCandidates.length,
+                  topCandidates: hybridCandidateSet.topCandidates,
+                  blockedCandidates: hybridCandidateSet.blockedCandidates,
+                  closeCandidates: hybridCandidateSet.closeCandidates,
+                },
+                marketSnapshotSummary: decisionContext.marketSnapshotSummary,
+                sentiment: marketResearch
+                  ? {
+                      fearGreedIndex: marketResearch.fearGreedIndex,
+                      fearGreedLabel: marketResearch.fearGreedLabel,
+                      overallSentiment: marketResearch.overallSentiment,
+                      recommendedBias: marketResearch.recommendedBias,
+                    }
+                  : null,
+              };
               renderedUserPrompt = [
                 `###[HYBRID CANDIDATE SELECTION - ${new Date().toISOString()}]`,
                 `Score Floor: ${hybridCandidateSet.scoreFloor}`,
@@ -518,6 +550,58 @@ export const runTradingCycle = internalAction({
               );
               const positionsSection = formatPositionsAlphaArena(positions);
               const sentimentSection = formatSentimentContext(marketResearch);
+              decisionTrace = {
+                tradingMode: "alpha_arena",
+                selectionMode: "legacy_llm",
+                systemPromptName,
+                accountState: {
+                  accountValue: accountState.accountValue,
+                  withdrawable: accountState.withdrawable,
+                  openPositionCount: positions.length,
+                },
+                promptConfig: {
+                  maxLeverage: bot.maxLeverage,
+                  maxPositionSizePct: maxPositionSizePct,
+                  perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,
+                  maxTotalPositions: bot.maxTotalPositions ?? 3,
+                  maxSameDirectionPositions: bot.maxSameDirectionPositions ?? 2,
+                  minEntryConfidence: bot.minEntryConfidence ?? 0.60,
+                  stopLossAtrMultiplier: bot.stopLossAtrMultiplier ?? 1.5,
+                  minRiskRewardRatio: bot.minRiskRewardRatio ?? 2.0,
+                  require4hAlignment: bot.require4hAlignment ?? false,
+                  tradeVolatileMarkets: bot.tradeVolatileMarkets ?? true,
+                  volatilitySizeReduction: bot.volatilitySizeReduction ?? 30,
+                  tradingMode: bot.tradingMode ?? "balanced",
+                  consecutiveLosses: bot.consecutiveLosses ?? 0,
+                  consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
+                  enableRegimeFilter: bot.enableRegimeFilter ?? true,
+                  require1hAlignment: bot.require1hAlignment ?? true,
+                  redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
+                  greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
+                  managedExitEnabled: bot.managedExitEnabled ?? false,
+                },
+                alphaArena: buildAlphaArenaDecisionTrace(
+                  detailedMarketData,
+                  positions,
+                  {
+                    enableRegimeFilter: bot.enableRegimeFilter ?? true,
+                    require1hAlignment: bot.require1hAlignment ?? true,
+                    redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
+                    greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
+                  }
+                ),
+                marketSnapshotSummary: decisionContext.marketSnapshotSummary,
+                sentiment: marketResearch
+                  ? {
+                      fearGreedIndex: marketResearch.fearGreedIndex,
+                      fearGreedLabel: marketResearch.fearGreedLabel,
+                      overallSentiment: marketResearch.overallSentiment,
+                      recommendedBias: marketResearch.recommendedBias,
+                      marketNarrative: marketResearch.marketNarrative,
+                      perCoinSentiment: marketResearch.perCoinSentiment ?? null,
+                    }
+                  : null,
+              };
               renderedUserPrompt = [
                 `###[MARKET DATA - ${new Date().toISOString()}]`,
                 marketSection,
@@ -564,6 +648,7 @@ export const runTradingCycle = internalAction({
             ...decision,
             selectionMode,
             selectedCandidateId: (decision as any)._selectedCandidateId ?? null,
+            decisionTrace,
             candidateSet: hybridCandidateSet,
             candidateScoreBreakdown: hybridCandidateSet?.topCandidates.map((candidate) => ({
               candidateId: candidate.id,

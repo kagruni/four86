@@ -14,6 +14,40 @@ type TrendDirection = "BULLISH" | "BEARISH" | "NEUTRAL";
 type PriceMomentum = "RISING" | "FALLING" | "FLAT";
 type AllowedActionLabel = "HOLD_ONLY" | "HOLD_OR_LONG" | "HOLD_OR_SHORT" | "BIDIRECTIONAL";
 
+export interface AlphaArenaRuntimeConstraints {
+  longAllowed: boolean;
+  shortAllowed: boolean;
+  longReason: string;
+  shortReason: string;
+  allowedActions: AllowedActionLabel;
+  longChecks: string[];
+  shortChecks: string[];
+}
+
+export interface AlphaArenaSymbolDecisionTrace {
+  symbol: string;
+  trendDirection: TrendDirection;
+  priceMomentum: PriceMomentum;
+  priceVsEma20Pct: number;
+  hourlyEmaGapPct: number;
+  fourHourEmaGapPct: number;
+  dayChangePct: number;
+  runtimeConstraints: AlphaArenaRuntimeConstraints;
+}
+
+export interface AlphaArenaPositionDecisionTrace {
+  symbol: string;
+  side: string;
+  exitMode: string | null;
+  managedExitActive: boolean;
+  hasTpSl: boolean;
+  unrealizedPnlPct: number;
+  intradayMomentum: PriceMomentum | "UNKNOWN";
+  entryPolicy: "HOLD_OR_CLOSE_ONLY";
+  closeAllowedByPrompt: boolean;
+  closeReason: string;
+}
+
 /**
  * Calculate price momentum from recent price history.
  * Looks at the last 5 candles to determine if price is rising or falling.
@@ -61,16 +95,10 @@ function describeTrendContext(trendDirection: TrendDirection, momentum: PriceMom
   return "Context: mixed regime, no directional edge";
 }
 
-function buildRuntimeConstraints(
+export function buildRuntimeConstraints(
   data: DetailedCoinData,
   regimeConfig: AlphaArenaRegimePromptConfig = {}
-): {
-  longAllowed: boolean;
-  shortAllowed: boolean;
-  longReason: string;
-  shortReason: string;
-  allowedActions: AllowedActionLabel;
-} {
+): AlphaArenaRuntimeConstraints {
   const enableRegimeFilter = regimeConfig.enableRegimeFilter ?? true;
   const require1hAlignment = regimeConfig.require1hAlignment ?? true;
   const redDayLongBlockPct = regimeConfig.redDayLongBlockPct ?? -1.5;
@@ -83,6 +111,8 @@ function buildRuntimeConstraints(
       longReason: "ALLOWED - regime filter disabled",
       shortReason: "ALLOWED - regime filter disabled",
       allowedActions: "BIDIRECTIONAL",
+      longChecks: ["disabled"],
+      shortChecks: ["disabled"],
     };
   }
 
@@ -132,6 +162,84 @@ function buildRuntimeConstraints(
     longReason,
     shortReason,
     allowedActions,
+    longChecks: longEvaluation.checks,
+    shortChecks: shortEvaluation.checks,
+  };
+}
+
+export function buildAlphaArenaDecisionTrace(
+  marketData: Record<string, DetailedCoinData>,
+  positions: any[],
+  regimeConfig: AlphaArenaRegimePromptConfig = {}
+): {
+  symbols: AlphaArenaSymbolDecisionTrace[];
+  positions: AlphaArenaPositionDecisionTrace[];
+} {
+  const symbols = Object.entries(marketData).map(([symbol, data]) => {
+    const priceVsEma20Pct = ((data.currentPrice - data.ema20) / data.ema20) * 100;
+    const fourHourEmaGapPct = ((data.ema20_4h - data.ema50_4h) / data.ema50_4h) * 100;
+    const hourlyEmaGapPct = data.ema50_1h !== 0
+      ? ((data.ema20_1h - data.ema50_1h) / data.ema50_1h) * 100
+      : 0;
+    const priceMomentum = calculatePriceMomentum(data.priceHistory);
+    const trendDirection = calculateTrendDirection(priceVsEma20Pct, fourHourEmaGapPct);
+
+    return {
+      symbol,
+      trendDirection,
+      priceMomentum,
+      priceVsEma20Pct,
+      hourlyEmaGapPct,
+      fourHourEmaGapPct,
+      dayChangePct: data.dayChangePct,
+      runtimeConstraints: buildRuntimeConstraints(data, regimeConfig),
+    };
+  });
+
+  const positionTraces = positions.map((position) => {
+    const market = marketData[position.symbol];
+    const intradayMomentum = market ? calculatePriceMomentum(market.priceHistory) : "UNKNOWN";
+    const managedExitActive = position.exitMode === "managed_scalp_v2";
+    const hasTpSl = Boolean(position.stopLoss && position.takeProfit);
+    const unrealizedPnlPct = position.unrealizedPnlPct ?? 0;
+
+    let closeAllowedByPrompt = false;
+    let closeReason = "Default is hold.";
+
+    if (managedExitActive) {
+      closeReason = "Managed exit is active, so the prompt instructs the model to hold.";
+    } else if (!hasTpSl) {
+      closeAllowedByPrompt = true;
+      closeReason = "TP/SL are missing, so close is allowed to protect capital.";
+    } else if (
+      (position.side === "LONG" && intradayMomentum === "FALLING" && unrealizedPnlPct >= 1) ||
+      (position.side === "SHORT" && intradayMomentum === "RISING" && unrealizedPnlPct >= 1)
+    ) {
+      closeAllowedByPrompt = true;
+      closeReason = `Position is profitable (${unrealizedPnlPct.toFixed(2)}%) and intraday momentum is reversing.`;
+    } else if (unrealizedPnlPct < 1) {
+      closeReason = `Position P&L is ${unrealizedPnlPct.toFixed(2)}%, below the +1.00% discretionary close threshold.`;
+    } else {
+      closeReason = `Position is profitable (${unrealizedPnlPct.toFixed(2)}%) but intraday momentum is not reversing.`;
+    }
+
+    return {
+      symbol: position.symbol,
+      side: position.side,
+      exitMode: position.exitMode ?? null,
+      managedExitActive,
+      hasTpSl,
+      unrealizedPnlPct,
+      intradayMomentum,
+      entryPolicy: "HOLD_OR_CLOSE_ONLY" as const,
+      closeAllowedByPrompt,
+      closeReason,
+    };
+  });
+
+  return {
+    symbols,
+    positions: positionTraces,
   };
 }
 
