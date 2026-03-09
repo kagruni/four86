@@ -618,7 +618,7 @@ export const runBacktest = internalAction({
           volatilitySizeReduction: args.volatilitySizeReduction,
           stopLossAtrMultiplier: args.stopLossAtrMultiplier,
           useHybridSelection: args.useHybridSelection ?? false,
-          enableRegimeFilter: args.enableRegimeFilter ?? true,
+          enableRegimeFilter: args.enableRegimeFilter ?? false,
           require1hAlignment: args.require1hAlignment ?? true,
           redDayLongBlockPct: args.redDayLongBlockPct ?? -1.5,
           greenDayShortBlockPct: args.greenDayShortBlockPct ?? 1.5,

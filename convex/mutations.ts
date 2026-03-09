@@ -130,6 +130,7 @@ export const upsertBotConfig = mutation({
       return await ctx.db.insert("botConfig", {
         ...args,
         currentCapital: args.startingCapital,
+        enableRegimeFilter: args.enableRegimeFilter ?? false,
         managedExitEnabled: args.managedExitEnabled ?? DEFAULT_MANAGED_EXIT_RULES.managedExitEnabled,
         managedExitHardStopLossPct: args.managedExitHardStopLossPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitHardStopLossPct,
         managedExitBreakEvenTriggerPct: args.managedExitBreakEvenTriggerPct ?? DEFAULT_MANAGED_EXIT_RULES.managedExitBreakEvenTriggerPct,
@@ -191,7 +192,7 @@ export const toggleBot = mutation({
         maxSameDirectionPositions: 2,
         minEntryConfidence: 0.6,
         require1hAlignment: true,
-        enableRegimeFilter: true,
+        enableRegimeFilter: false,
         redDayLongBlockPct: -1.5,
         greenDayShortBlockPct: 1.5,
         reentryCooldownMinutes: 15,

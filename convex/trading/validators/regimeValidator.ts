@@ -57,7 +57,7 @@ export function evaluateDirectionalRegime(
   decision: DirectionalDecision,
   input: RegimeEvaluationInput
 ): Pick<RegimeValidationResult, "allowed" | "reason" | "checks"> {
-  const enableRegimeFilter = Boolean(getConfigValue(bot.enableRegimeFilter, true));
+  const enableRegimeFilter = Boolean(getConfigValue(bot.enableRegimeFilter, false));
   if (!enableRegimeFilter) {
     return {
       allowed: true,

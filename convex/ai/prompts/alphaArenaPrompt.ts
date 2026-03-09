@@ -532,6 +532,7 @@ export function formatMarketDataAlphaArena(
 ): string {
   const lines: string[] = [];
   const tpAtrMultiplier = slAtrMultiplier * rrRatio;
+  const includeDirectionalAdvisory = regimeConfig.enableRegimeFilter ?? false;
 
   for (const [symbol, data] of Object.entries(marketData)) {
     // Calculate trend signals
@@ -555,11 +556,13 @@ export function formatMarketDataAlphaArena(
     lines.push(`Trend: ${trendDirection} | Momentum: ${priceMomentum}`);
     lines.push(`Price vs EMA20: ${priceVsEma20Pct > 0 ? "ABOVE" : "BELOW"} (${priceVsEma20Pct.toFixed(2)}%)`);
     lines.push(`${trendContext}`);
-    lines.push(`[DIRECTIONAL ADVISORY - NON-BINDING]`);
-    lines.push(`Bias Summary: ${formatDirectionalBias(runtimeConstraints)}`);
-    lines.push(formatDirectionalAdvisory("LONG", runtimeConstraints.longAllowed, runtimeConstraints.longReason));
-    lines.push(formatDirectionalAdvisory("SHORT", runtimeConstraints.shortAllowed, runtimeConstraints.shortReason));
-    lines.push(``);
+    if (includeDirectionalAdvisory) {
+      lines.push(`[DIRECTIONAL ADVISORY - NON-BINDING]`);
+      lines.push(`Bias Summary: ${formatDirectionalBias(runtimeConstraints)}`);
+      lines.push(formatDirectionalAdvisory("LONG", runtimeConstraints.longAllowed, runtimeConstraints.longReason));
+      lines.push(formatDirectionalAdvisory("SHORT", runtimeConstraints.shortAllowed, runtimeConstraints.shortReason));
+      lines.push(``);
+    }
     lines.push(`Current Price: $${data.currentPrice.toFixed(2)}`);
     lines.push(`EMA20: $${data.ema20.toFixed(2)} (last: [${data.ema20History.slice(-5).map(v => v.toFixed(2)).join(", ")}])`);
     lines.push(`MACD: ${data.macd.toFixed(4)} (last: [${data.macdHistory.slice(-5).map(v => v.toFixed(4)).join(", ")}])`);

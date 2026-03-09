@@ -303,7 +303,7 @@ export default function SettingsPage() {
     tradeVolatileMarkets: true,
     volatilitySizeReduction: 50,
     stopLossAtrMultiplier: 1.5,
-    enableRegimeFilter: true,
+    enableRegimeFilter: false,
     redDayLongBlockPct: -1.5,
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
@@ -378,7 +378,7 @@ export default function SettingsPage() {
         tradeVolatileMarkets: botConfig.tradeVolatileMarkets ?? true,
         volatilitySizeReduction: botConfig.volatilitySizeReduction ?? 50,
         stopLossAtrMultiplier: botConfig.stopLossAtrMultiplier ?? 1.5,
-        enableRegimeFilter: botConfig.enableRegimeFilter ?? true,
+        enableRegimeFilter: botConfig.enableRegimeFilter ?? false,
         redDayLongBlockPct: botConfig.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
@@ -1349,9 +1349,9 @@ export default function SettingsPage() {
                   {/* Enable Regime Filter */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="enable-regime" className="text-foreground">Enable Session Regime Filter</Label>
+                      <Label htmlFor="enable-regime" className="text-foreground">Show Regime Advisory In Prompt</Label>
                       <p className="text-sm text-muted-foreground">
-                        Prevent weak longs on red sessions and weak shorts on green sessions
+                        Adds non-binding long/short advisory text to legacy Alpha Arena prompts. When off, the model sees raw market data only.
                       </p>
                     </div>
                     <Switch
