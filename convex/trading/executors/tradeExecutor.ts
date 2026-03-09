@@ -373,6 +373,7 @@ export async function executeOpen(
   const positionSide = isLongPosition ? "LONG" : "SHORT";
   const managedExitRules = getManagedExitRules(bot);
   const managedExitEnabled = managedExitRules.managedExitEnabled;
+  const targetRiskRewardRatio = bot.minRiskRewardRatio ?? 2.0;
 
   // ═══════════════════════════════════════════════════════════════
   // VALIDATE & FIX TP/SL VALUES
@@ -416,12 +417,12 @@ export async function executeOpen(
   // Validate TP direction: LONG TP must be above entry, SHORT TP must be below entry
   if (decision.take_profit) {
     if (isLongPosition && decision.take_profit <= entryPrice) {
-      const corrected = entryPrice * 1.008;
-      console.log(`⚠️ LONG take_profit ($${decision.take_profit}) <= entry ($${entryPrice}), correcting to 0.8% above: $${corrected.toFixed(2)}`);
+      const corrected = deriveFallbackTakeProfit(entryPrice, decision.stop_loss, true, targetRiskRewardRatio);
+      console.log(`⚠️ LONG take_profit ($${decision.take_profit}) <= entry ($${entryPrice}), correcting with target R:R ${targetRiskRewardRatio.toFixed(2)}:1 → $${corrected.toFixed(2)}`);
       decision.take_profit = corrected;
     } else if (!isLongPosition && decision.take_profit >= entryPrice) {
-      const corrected = entryPrice * 0.992;
-      console.log(`⚠️ SHORT take_profit ($${decision.take_profit}) >= entry ($${entryPrice}), correcting to 0.8% below: $${corrected.toFixed(2)}`);
+      const corrected = deriveFallbackTakeProfit(entryPrice, decision.stop_loss, false, targetRiskRewardRatio);
+      console.log(`⚠️ SHORT take_profit ($${decision.take_profit}) >= entry ($${entryPrice}), correcting with target R:R ${targetRiskRewardRatio.toFixed(2)}:1 → $${corrected.toFixed(2)}`);
       decision.take_profit = corrected;
     }
   }
@@ -438,12 +439,15 @@ export async function executeOpen(
     console.log(`⚠️ No stop loss specified, using default 3%: $${decision.stop_loss.toFixed(2)}`);
   }
 
-  // Default to 0.8% take profit if AI didn't specify one
+  // Derive a fallback take profit from the configured target R:R if AI didn't specify one
   if (!managedExitEnabled && !decision.take_profit) {
-    decision.take_profit = isLongPosition
-      ? entryPrice * 1.008
-      : entryPrice * 0.992;
-    console.log(`⚠️ No take profit specified, using default 0.8%: $${decision.take_profit.toFixed(2)}`);
+    decision.take_profit = deriveFallbackTakeProfit(
+      entryPrice,
+      decision.stop_loss,
+      isLongPosition,
+      targetRiskRewardRatio
+    );
+    console.log(`⚠️ No take profit specified, deriving fallback TP from target R:R ${targetRiskRewardRatio.toFixed(2)}:1 → $${decision.take_profit.toFixed(2)}`);
   }
 
   const filledEntryPrice = result.avgPx;
@@ -679,11 +683,24 @@ function logRiskReward(decision: any, entryPrice: number): void {
     const slPercent = ((riskDistance / entryPrice) * 100).toFixed(2);
 
     console.log(`  Take Profit: ${tpPercent}% from entry | Stop Loss: ${slPercent}% from entry`);
-    console.log(`  Risk/Reward: ${rrRatio.toFixed(2)}:1 (scalping mode - tight TP for high win rate)`);
+    console.log(`  Risk/Reward: ${rrRatio.toFixed(2)}:1`);
     console.log(`    Risk: $${riskDistance.toFixed(2)} | Reward: $${rewardDistance.toFixed(2)}`);
   } else {
     console.log(`⚠️ R:R check skipped: Missing stop_loss or take_profit`);
   }
+}
+
+function deriveFallbackTakeProfit(
+  entryPrice: number,
+  stopLoss: number,
+  isLongPosition: boolean,
+  targetRiskRewardRatio: number
+): number {
+  const riskDistance = Math.abs(entryPrice - stopLoss);
+  const rewardDistance = riskDistance * Math.max(targetRiskRewardRatio, 0.1);
+  return isLongPosition
+    ? entryPrice + rewardDistance
+    : entryPrice - rewardDistance;
 }
 
 async function placeStopLossWithRetry(

@@ -345,6 +345,7 @@ export default function SettingsPage() {
   const [isSavingCredentials, setIsSavingCredentials] = useState(false);
   const [tradingPromptMode, setTradingPromptMode] = useState("alpha_arena");
   const [riskWarnings, setRiskWarnings] = useState<string[]>([]);
+  const isLegacyAlphaArena = tradingPromptMode === "alpha_arena" && !botConfigData.useHybridSelection;
 
   // Load existing bot config
   useEffect(() => {
@@ -1210,7 +1211,9 @@ export default function SettingsPage() {
                   {/* Min Entry Confidence */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="min-confidence" className="text-foreground">Minimum Entry Confidence</Label>
+                      <Label htmlFor="min-confidence" className="text-foreground">
+                        {isLegacyAlphaArena ? "Target Entry Confidence" : "Minimum Entry Confidence"}
+                      </Label>
                       <span className="text-sm text-muted-foreground font-mono">{botConfigData.minEntryConfidence.toFixed(2)}</span>
                     </div>
                     <Slider
@@ -1223,13 +1226,19 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, minEntryConfidence: value }))
                       }
                     />
-                    <p className="text-xs text-muted-foreground">Minimum AI confidence to enter trades</p>
+                    <p className="text-xs text-muted-foreground">
+                      {isLegacyAlphaArena
+                        ? "Advisory confidence target for legacy Alpha Arena prompts. This biases the model but is not a hard execution filter."
+                        : "Minimum AI confidence to enter trades"}
+                    </p>
                   </div>
 
                   {/* Min Risk/Reward Ratio */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <Label htmlFor="min-rr" className="text-foreground">Minimum Risk/Reward Ratio</Label>
+                      <Label htmlFor="min-rr" className="text-foreground">
+                        {isLegacyAlphaArena ? "Target Risk/Reward Ratio" : "Minimum Risk/Reward Ratio"}
+                      </Label>
                       <span className="text-sm text-muted-foreground font-mono">{botConfigData.minRiskRewardRatio.toFixed(1)}:1</span>
                     </div>
                     <Slider
@@ -1242,7 +1251,11 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, minRiskRewardRatio: value }))
                       }
                     />
-                    <p className="text-xs text-muted-foreground">Minimum reward per unit of risk</p>
+                    <p className="text-xs text-muted-foreground">
+                      {isLegacyAlphaArena
+                        ? "Advisory R:R target for legacy Alpha Arena prompts and TP fallback guidance. This is not a hard trade rejection rule."
+                        : "Minimum reward per unit of risk"}
+                    </p>
                   </div>
 
                   {/* Stop-Out Cooldown */}
@@ -1309,15 +1322,23 @@ export default function SettingsPage() {
                         setBotConfigData((prev) => ({ ...prev, minEntrySignals: value }))
                       }
                     />
-                    <p className="text-xs text-muted-foreground">How many indicators must align to enter a trade</p>
+                    <p className="text-xs text-muted-foreground">
+                      {isLegacyAlphaArena
+                        ? "Primarily used by non-legacy modes. Legacy Alpha Arena weighs signal quality more discretionarily."
+                        : "How many indicators must align to enter a trade"}
+                    </p>
                   </div>
 
                   {/* Require 4H Alignment */}
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="require-4h" className="text-foreground">Require 4-Hour Trend Alignment</Label>
+                      <Label htmlFor="require-4h" className="text-foreground">
+                        {isLegacyAlphaArena ? "Prefer 4-Hour Trend Alignment" : "Require 4-Hour Trend Alignment"}
+                      </Label>
                       <p className="text-sm text-muted-foreground">
-                        Only enter trades aligned with 4-hour trend (more conservative)
+                        {isLegacyAlphaArena
+                          ? "Bias legacy Alpha Arena toward 4-hour alignment without turning it into a hard execution gate."
+                          : "Only enter trades aligned with 4-hour trend (more conservative)"}
                       </p>
                     </div>
                     <Switch

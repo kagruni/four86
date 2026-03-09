@@ -579,6 +579,7 @@ export const runTradingCycle = internalAction({
                   openPositionCount: positions.length,
                 },
                 promptConfig: {
+                  legacyModeSemantics: "advisory",
                   maxLeverage: bot.maxLeverage,
                   maxPositionSizePct: maxPositionSizePct,
                   perTradeRiskPct: bot.perTradeRiskPct ?? 2.0,

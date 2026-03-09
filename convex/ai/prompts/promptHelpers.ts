@@ -58,8 +58,8 @@ export function generatePromptVariables(config: BotConfig) {
     : "Volatile markets: Avoid trading, wait for stabilization";
 
   const trend4hRule = config.require4hAlignment
-    ? "MUST have 2m and 4h trends aligned (counter-trend trades forbidden)"
-    : "Counter-trend trades allowed if 2m signals strong (3+ signals, higher confidence)";
+    ? "Prefer 2m and 4h trends aligned; treat counter-trend ideas with extra caution"
+    : "Counter-trend trades are allowed if 2m signals are strong enough";
 
   const trend4hFilterRule = config.require4hAlignment
     ? "2m and 4h trends not aligned (required for this trading mode)"
