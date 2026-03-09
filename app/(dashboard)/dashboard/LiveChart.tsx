@@ -745,18 +745,14 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
       resizeObserver.observe(container);
     }
 
-    // Listen for candle color changes from settings page
+    // Listen for candle color changes from settings page.
+    // Only update state here — the candleColors change effect handles
+    // the chart rebuild, and the re-subscribe effect handles drawing tools.
     const handleStorage = (e: StorageEvent) => {
       if (e.key === CANDLE_STORAGE_KEY) {
         const newVal = (e.newValue === "greenred" ? "greenred" : "bw") as CandleColorScheme;
         setCandleColors(newVal);
         candleColorsRef.current = newVal;
-        // Rebuild chart with new colors
-        buildChart(chartTypeRef.current, showVolumeRef.current);
-        subscribeCrosshairTooltip();
-        fetchAndSetData(symbolRef.current, intervalRef.current, chartTypeRef.current, true).then(() => {
-          applyMarkers(symbolRef.current, intervalRef.current);
-        });
       }
     };
     window.addEventListener("storage", handleStorage);
@@ -971,7 +967,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   }, [chartType, candleColors, chartSize]);
 
   return (
-    <div className="border border-border bg-background overflow-hidden">
+    <div className="border border-border bg-background">
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 sm:px-4 py-2 sm:py-2.5">
         {/* Left — symbol selector or label */}
@@ -1125,7 +1121,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
       </div>
 
       {/* ── Body ── */}
-      <div className="flex flex-col md:flex-row">
+      <div className="flex flex-col md:flex-row relative">
         {/* Drawing tools toolbar — left side, hidden on mobile */}
         <ChartToolbar
           activeTool={drawingTools.activeTool}
@@ -1143,7 +1139,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
 
         {/* Chart */}
         <div
-          className="flex-1 relative min-w-0"
+          className="flex-1 relative min-w-0 overflow-hidden"
           style={{ cursor: drawingTools.activeTool !== "crosshair" ? "crosshair" : undefined }}
         >
           {initialLoading && (

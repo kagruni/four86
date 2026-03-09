@@ -15,6 +15,7 @@ import type { DrawingTool } from "./ChartToolbar";
 
 export type DrawingType =
   | "trendline"
+  | "arrow"
   | "hline"
   | "hray"
   | "vline"
@@ -129,6 +130,44 @@ function drawTrendline(
   ctx.moveTo(p1.x, p1.y);
   ctx.lineTo(p2.x, p2.y);
   ctx.stroke();
+}
+
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  d: Drawing,
+  chart: IChartApi,
+  series: ISeriesApi<"Candlestick"> | ISeriesApi<"Line">
+) {
+  if (d.points.length < 2) return;
+  const p1 = toPixel(chart, series, d.points[0]);
+  const p2 = toPixel(chart, series, d.points[1]);
+  if (!p1 || !p2) return;
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = d.color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.stroke();
+
+  // Arrowhead at p2
+  const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+  const headLen = 10;
+  ctx.beginPath();
+  ctx.fillStyle = d.color;
+  ctx.moveTo(p2.x, p2.y);
+  ctx.lineTo(
+    p2.x - headLen * Math.cos(angle - Math.PI / 6),
+    p2.y - headLen * Math.sin(angle - Math.PI / 6)
+  );
+  ctx.lineTo(
+    p2.x - headLen * Math.cos(angle + Math.PI / 6),
+    p2.y - headLen * Math.sin(angle + Math.PI / 6)
+  );
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawHLine(
@@ -399,6 +438,26 @@ function drawPreview(
       ctx.stroke();
       break;
     }
+    case "arrow": {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.moveTo(startPx.x, startPx.y);
+      ctx.lineTo(currentPx.x, currentPx.y);
+      ctx.stroke();
+      // Arrowhead preview
+      const angle = Math.atan2(currentPx.y - startPx.y, currentPx.x - startPx.x);
+      const hl = 10;
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.moveTo(currentPx.x, currentPx.y);
+      ctx.lineTo(currentPx.x - hl * Math.cos(angle - Math.PI / 6), currentPx.y - hl * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(currentPx.x - hl * Math.cos(angle + Math.PI / 6), currentPx.y - hl * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
     case "hline": {
       ctx.beginPath();
       ctx.strokeStyle = color;
@@ -547,6 +606,9 @@ export function useChartDrawings({
           case "trendline":
             drawTrendline(ctx, d, chart, series);
             break;
+          case "arrow":
+            drawArrow(ctx, d, chart, series);
+            break;
           case "hline":
             drawHLine(ctx, d, series, w);
             break;
@@ -603,6 +665,23 @@ export function useChartDrawings({
           h
         );
       }
+    }
+
+    // In-progress brush strokes — rendered here so they survive rAF redraws
+    if (drawingInProgress.current && activeToolRef.current === "brush" && brushPoints.current.length >= 2) {
+      ctx.beginPath();
+      ctx.strokeStyle = getLineColor();
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.globalAlpha = 0.6;
+      ctx.moveTo(brushPoints.current[0].x, brushPoints.current[0].y);
+      for (let i = 1; i < brushPoints.current.length; i++) {
+        ctx.lineTo(brushPoints.current[i].x, brushPoints.current[i].y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     // Show measure overlays only for hovered measure drawings
@@ -728,7 +807,7 @@ export function useChartDrawings({
     }
 
     // ---- Two-point tools ----
-    if (["trendline", "fib", "measure", "rect"].includes(tool)) {
+    if (["trendline", "arrow", "fib", "measure", "rect"].includes(tool)) {
       if (!drawingInProgress.current) {
         startPoint.current = pt;
         startPxRef.current = { x: chartLocalX, y: chartLocalY };
@@ -765,10 +844,9 @@ export function useChartDrawings({
     const series = seriesRef.current;
     if (!chart || !series) return () => {};
 
-    // Prevent double-subscription
-    if (subscribedChartRef.current === chart) {
-      return cleanupRef.current ?? (() => {});
-    }
+    // Always clean up previous subscription before creating a new one.
+    // (Previously a dedup guard skipped re-subscription for the same chart
+    //  instance, but this caused stale subscriptions after chart rebuilds.)
     if (cleanupRef.current) {
       cleanupRef.current();
       cleanupRef.current = null;
@@ -840,41 +918,31 @@ export function useChartDrawings({
 
     window.addEventListener("click", handleWindowClick, { capture: true });
 
-    // -- Brush tool: DOM events (needs drag) --------------------------------
+    // -- Brush tool: window capture events (needs drag) ---------------------
+    // Uses window capture phase for mousedown (same approach as click handler)
+    // because chartEl's mousedown may be consumed by lightweight-charts internally.
     const handleBrushDown = (e: MouseEvent) => {
       if (isLockedRef.current) return;
       if (activeToolRef.current !== "brush") return;
       const rect = chartEl.getBoundingClientRect();
-      const px = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const localX = e.clientX - rect.left;
+      const localY = e.clientY - rect.top;
+      if (localX < 0 || localY < 0 || localX > rect.width || localY > rect.height) return;
+      // Stop the event so lightweight-charts can't interfere with the drag
+      e.stopPropagation();
+      e.preventDefault();
       drawingInProgress.current = true;
-      brushPoints.current = [{ time: 0, price: 0, x: px.x, y: px.y }];
+      brushPoints.current = [{ time: 0, price: 0, x: localX, y: localY }];
     };
 
     const handleBrushMove = (e: MouseEvent) => {
       if (activeToolRef.current !== "brush" || !drawingInProgress.current) return;
+      e.preventDefault();
       const rect = chartEl.getBoundingClientRect();
       const px = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       brushPoints.current.push({ time: 0, price: 0, x: px.x, y: px.y });
-
-      const canvas = canvasRef.current;
-      if (canvas && brushPoints.current.length >= 2) {
-        redraw();
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.beginPath();
-          ctx.strokeStyle = getLineColor();
-          ctx.lineWidth = 1.5;
-          ctx.lineJoin = "round";
-          ctx.lineCap = "round";
-          ctx.globalAlpha = 0.6;
-          ctx.moveTo(brushPoints.current[0].x, brushPoints.current[0].y);
-          for (let i = 1; i < brushPoints.current.length; i++) {
-            ctx.lineTo(brushPoints.current[i].x, brushPoints.current[i].y);
-          }
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-        }
-      }
+      // redraw() now handles in-progress brush strokes directly
+      redraw();
     };
 
     const handleBrushUp = () => {
@@ -890,7 +958,7 @@ export function useChartDrawings({
       requestAnimationFrame(() => redraw());
     };
 
-    chartEl.addEventListener("mousedown", handleBrushDown);
+    window.addEventListener("mousedown", handleBrushDown, { capture: true });
     window.addEventListener("mousemove", handleBrushMove);
     window.addEventListener("mouseup", handleBrushUp);
 
@@ -901,7 +969,7 @@ export function useChartDrawings({
         chart.timeScale().unsubscribeVisibleTimeRangeChange(handleRangeChange);
       } catch { /* chart may be destroyed */ }
       window.removeEventListener("click", handleWindowClick, { capture: true });
-      chartEl.removeEventListener("mousedown", handleBrushDown);
+      window.removeEventListener("mousedown", handleBrushDown, { capture: true });
       window.removeEventListener("mousemove", handleBrushMove);
       window.removeEventListener("mouseup", handleBrushUp);
       if (subscribedChartRef.current === chart) {
