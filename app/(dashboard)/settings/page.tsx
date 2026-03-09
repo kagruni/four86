@@ -161,6 +161,105 @@ const tabFadeVariants = {
   transition: { duration: 0.2 },
 };
 
+// ---------------------------------------------------------------------------
+// Candle Color Preview SVG — small inline preview of 3 candles
+// ---------------------------------------------------------------------------
+
+function CandlePreview({ upColor, downColor }: { upColor: string; downColor: string }) {
+  return (
+    <svg width="48" height="32" viewBox="0 0 48 32" className="inline-block">
+      {/* Candle 1: up */}
+      <line x1="8" y1="4" x2="8" y2="28" stroke={upColor} strokeWidth="1" />
+      <rect x="4" y="8" width="8" height="12" fill={upColor} rx="0.5" />
+      {/* Candle 2: down */}
+      <line x1="24" y1="2" x2="24" y2="30" stroke={downColor} strokeWidth="1" />
+      <rect x="20" y="6" width="8" height="16" fill={downColor} rx="0.5" />
+      {/* Candle 3: up */}
+      <line x1="40" y1="6" x2="40" y2="26" stroke={upColor} strokeWidth="1" />
+      <rect x="36" y="10" width="8" height="10" fill={upColor} rx="0.5" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Appearance Settings (localStorage only)
+// ---------------------------------------------------------------------------
+
+function AppearanceSettings() {
+  const [candleScheme, setCandleScheme] = useState<"bw" | "greenred">("bw");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("four86-candle-colors");
+    if (stored === "greenred") setCandleScheme("greenred");
+  }, []);
+
+  const handleChange = (scheme: "bw" | "greenred") => {
+    setCandleScheme(scheme);
+    localStorage.setItem("four86-candle-colors", scheme);
+    // Dispatch a storage event so other tabs (and same-tab LiveChart via custom event) pick it up
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "four86-candle-colors",
+        newValue: scheme,
+        storageArea: localStorage,
+      })
+    );
+  };
+
+  return (
+    <Card className="bg-background border border-border">
+      <CardHeader>
+        <CardTitle className="text-foreground">Candle Color Scheme</CardTitle>
+        <CardDescription className="text-muted-foreground">
+          Choose the color scheme for candlestick charts. This setting is stored locally on your device.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => handleChange("bw")}
+            className={`flex items-center gap-4 rounded-lg border-2 p-4 text-left transition-all ${
+              candleScheme === "bw"
+                ? "border-foreground bg-muted/50"
+                : "border-border hover:border-muted-foreground"
+            }`}
+          >
+            <CandlePreview upColor="#171717" downColor="#d4d4d4" />
+            <div>
+              <div className={`text-sm font-medium ${candleScheme === "bw" ? "text-foreground" : "text-muted-foreground"}`}>
+                Black & White
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Default monochrome style
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleChange("greenred")}
+            className={`flex items-center gap-4 rounded-lg border-2 p-4 text-left transition-all ${
+              candleScheme === "greenred"
+                ? "border-foreground bg-muted/50"
+                : "border-border hover:border-muted-foreground"
+            }`}
+          >
+            <CandlePreview upColor="#16a34a" downColor="#dc2626" />
+            <div>
+              <div className={`text-sm font-medium ${candleScheme === "greenred" ? "text-foreground" : "text-muted-foreground"}`}>
+                Green & Red
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Traditional trading colors
+              </div>
+            </div>
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useUser();
   const { toast } = useToast();
@@ -558,7 +657,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="credentials" className="w-full">
-          <TabsList className="bg-muted p-1 w-full grid grid-cols-4">
+          <TabsList className="bg-muted p-1 w-full grid grid-cols-5">
             <TabsTrigger
               value="credentials"
               className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
@@ -582,6 +681,12 @@ export default function SettingsPage() {
               className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
             >
               Telegram
+            </TabsTrigger>
+            <TabsTrigger
+              value="appearance"
+              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
+            >
+              Appearance
             </TabsTrigger>
           </TabsList>
 
@@ -1652,6 +1757,18 @@ export default function SettingsPage() {
               transition={tabFadeVariants.transition}
             >
               <TelegramSettings />
+            </motion.div>
+          </TabsContent>
+
+          {/* Tab 5: Appearance */}
+          <TabsContent value="appearance">
+            <motion.div
+              initial={tabFadeVariants.initial}
+              animate={tabFadeVariants.animate}
+              transition={tabFadeVariants.transition}
+              className="space-y-6 pt-4"
+            >
+              <AppearanceSettings />
             </motion.div>
           </TabsContent>
         </Tabs>

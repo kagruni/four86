@@ -24,9 +24,6 @@ import type {
   ISeriesMarkersPluginApi,
   IPriceLine,
   UTCTimestamp,
-  CandlestickData,
-  LineData,
-  HistogramData,
   SeriesMarker,
 } from "lightweight-charts";
 import {
@@ -40,6 +37,9 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import ChartToolbar from "./ChartToolbar";
+import TextInputModal from "./TextInputModal";
+import { useChartDrawings } from "./useChartDrawings";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 type ChartType = "candles" | "line";
 type Interval = "1m" | "5m" | "15m" | "1h" | "4h";
 type ChartSize = "S" | "M" | "L";
+type CandleColorScheme = "bw" | "greenred";
 
 interface Position {
   _id: string;
@@ -108,6 +109,19 @@ const CANDLE_LIMITS: Record<Interval, number> = {
 };
 
 const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
+
+const CANDLE_COLORS: Record<CandleColorScheme, { dark: { up: string; down: string; borderUp: string; borderDown: string; wickUp: string; wickDown: string }; light: { up: string; down: string; borderUp: string; borderDown: string; wickUp: string; wickDown: string } }> = {
+  bw: {
+    dark:  { up: "#e5e5e5", down: "#404040", borderUp: "#e5e5e5", borderDown: "#525252", wickUp: "#a3a3a3", wickDown: "#525252" },
+    light: { up: "#171717", down: "#d4d4d4", borderUp: "#171717", borderDown: "#a3a3a3", wickUp: "#404040", wickDown: "#a3a3a3" },
+  },
+  greenred: {
+    dark:  { up: "#22c55e", down: "#ef4444", borderUp: "#16a34a", borderDown: "#dc2626", wickUp: "#22c55e", wickDown: "#ef4444" },
+    light: { up: "#16a34a", down: "#dc2626", borderUp: "#15803d", borderDown: "#b91c1c", wickUp: "#16a34a", wickDown: "#dc2626" },
+  },
+};
+
+const CANDLE_STORAGE_KEY = "four86-candle-colors";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -221,6 +235,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   const [showVolume, setShowVolume] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
+  const [candleColors, setCandleColors] = useState<CandleColorScheme>("bw");
 
   // Refs — keep mutable state that shouldn't trigger re-renders
   const containerRef = useRef<HTMLDivElement>(null);
@@ -231,6 +246,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   const markersRef = useRef<ISeriesMarkersPluginApi<UTCTimestamp> | null>(null);
   const markerTooltipsRef = useRef<MarkerTooltipMap>(new Map());
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const candleColorsRef = useRef<CandleColorScheme>("bw");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -254,6 +270,13 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   useEffect(() => { testnetRef.current = testnet; }, [testnet]);
   useEffect(() => { positionsRef.current = positions; }, [positions]);
   useEffect(() => { tradesRef.current = trades; }, [trades]);
+  useEffect(() => { candleColorsRef.current = candleColors; }, [candleColors]);
+
+  // Read candle color preference from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(CANDLE_STORAGE_KEY);
+    if (stored === "greenred") setCandleColors("greenred");
+  }, []);
 
   // Derived — uses ref for positions to avoid recalc on every 10s poll
   const selectedPosition = useMemo(
@@ -370,23 +393,24 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
 
     // Theme-aware colors
     const isDark = document.documentElement.classList.contains("dark");
+    const cc = CANDLE_COLORS[candleColorsRef.current][isDark ? "dark" : "light"];
     const colors = isDark
       ? {
           bg: "#000000", text: "#a3a3a3", grid: "#1a1a1a",
           crosshair: "#404040", crosshairLabel: "#e5e5e5",
           border: "#333333",
-          candleUp: "#e5e5e5", candleDown: "#404040",
-          candleBorderUp: "#e5e5e5", candleBorderDown: "#525252",
-          wickUp: "#a3a3a3", wickDown: "#525252",
+          candleUp: cc.up, candleDown: cc.down,
+          candleBorderUp: cc.borderUp, candleBorderDown: cc.borderDown,
+          wickUp: cc.wickUp, wickDown: cc.wickDown,
           line: "#ffffff", lineBg: "#ffffff", lineBorder: "#000000",
         }
       : {
           bg: "#ffffff", text: "#737373", grid: "#f5f5f5",
           crosshair: "#d4d4d4", crosshairLabel: "#171717",
           border: "#e5e5e5",
-          candleUp: "#171717", candleDown: "#d4d4d4",
-          candleBorderUp: "#171717", candleBorderDown: "#a3a3a3",
-          wickUp: "#404040", wickDown: "#a3a3a3",
+          candleUp: cc.up, candleDown: cc.down,
+          candleBorderUp: cc.borderUp, candleBorderDown: cc.borderDown,
+          wickUp: cc.wickUp, wickDown: cc.wickDown,
           line: "#000000", lineBg: "#000000", lineBorder: "#ffffff",
         };
 
@@ -690,6 +714,9 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
     });
   }, []);
 
+
+
+
   // -----------------------------------------------------------------------
   // EFFECT: Mount — create chart, load data, start WS (once)
   // -----------------------------------------------------------------------
@@ -704,6 +731,7 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
 
     startWebSocket(selectedSymbol, interval);
     subscribeCrosshairTooltip();
+    const unsubDrawings = drawingTools.subscribeToChart();
 
     // Resize observer
     const container = containerRef.current;
@@ -717,8 +745,26 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
       resizeObserver.observe(container);
     }
 
+    // Listen for candle color changes from settings page
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === CANDLE_STORAGE_KEY) {
+        const newVal = (e.newValue === "greenred" ? "greenred" : "bw") as CandleColorScheme;
+        setCandleColors(newVal);
+        candleColorsRef.current = newVal;
+        // Rebuild chart with new colors
+        buildChart(chartTypeRef.current, showVolumeRef.current);
+        subscribeCrosshairTooltip();
+        fetchAndSetData(symbolRef.current, intervalRef.current, chartTypeRef.current, true).then(() => {
+          applyMarkers(symbolRef.current, intervalRef.current);
+        });
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+
     return () => {
       resizeObserver?.disconnect();
+      window.removeEventListener("storage", handleStorage);
+      unsubDrawings();
       stopWebSocket();
       if (chartRef.current) {
         chartRef.current.remove();
@@ -846,6 +892,23 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   }, [buildChart, fetchAndSetData, applyMarkers, subscribeCrosshairTooltip]);
 
   // -----------------------------------------------------------------------
+  // EFFECT: Candle color scheme change — rebuild chart
+  // -----------------------------------------------------------------------
+
+  const prevCandleColorsRef = useRef(candleColors);
+
+  useEffect(() => {
+    if (prevCandleColorsRef.current === candleColors) return;
+    prevCandleColorsRef.current = candleColors;
+
+    buildChart(chartTypeRef.current, showVolumeRef.current);
+    subscribeCrosshairTooltip();
+    fetchAndSetData(symbolRef.current, intervalRef.current, chartTypeRef.current, true).then(() => {
+      applyMarkers(symbolRef.current, intervalRef.current);
+    });
+  }, [candleColors, buildChart, fetchAndSetData, applyMarkers, subscribeCrosshairTooltip]);
+
+  // -----------------------------------------------------------------------
   // EFFECT: Volume toggle — just toggle visibility + adjust margins
   // -----------------------------------------------------------------------
 
@@ -867,6 +930,45 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
   const handleFit = useCallback(() => {
     chartRef.current?.timeScale().fitContent();
   }, []);
+
+  // -----------------------------------------------------------------------
+  // Chart drawing tools (canvas overlay)
+  // -----------------------------------------------------------------------
+
+  const drawingTools = useChartDrawings({
+    chartRef,
+    seriesRef,
+    containerRef,
+    chartSize: SIZE_MAP[chartSize],
+  });
+
+  // Sync magnet mode with chart crosshair mode
+  useEffect(() => {
+    if (!chartRef.current) return;
+    chartRef.current.applyOptions({
+      crosshair: {
+        mode: drawingTools.magnetEnabled ? CrosshairMode.Magnet : CrosshairMode.Normal,
+      },
+    });
+  }, [drawingTools.magnetEnabled]);
+
+  // Disable chart pan/zoom when a drawing tool is active
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const isDrawing = drawingTools.activeTool !== "crosshair";
+    chartRef.current.applyOptions({
+      handleScroll: { mouseWheel: !isDrawing, pressedMouseMove: !isDrawing },
+      handleScale: { mouseWheel: !isDrawing, pinch: !isDrawing },
+    });
+  }, [drawingTools.activeTool]);
+
+  // Re-subscribe drawings to new chart + redraw when chart rebuilds
+  useEffect(() => {
+    const unsub = drawingTools.subscribeToChart();
+    drawingTools.redraw();
+    return () => { unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartType, candleColors, chartSize]);
 
   return (
     <div className="border border-border bg-background overflow-hidden">
@@ -1024,8 +1126,26 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
 
       {/* ── Body ── */}
       <div className="flex flex-col md:flex-row">
+        {/* Drawing tools toolbar — left side, hidden on mobile */}
+        <ChartToolbar
+          activeTool={drawingTools.activeTool}
+          onToolChange={drawingTools.setActiveTool}
+          magnetEnabled={drawingTools.magnetEnabled}
+          onToggleMagnet={drawingTools.toggleMagnet}
+          isLocked={drawingTools.isLocked}
+          onToggleLock={drawingTools.toggleLock}
+          isVisible={drawingTools.isVisible}
+          onToggleVisibility={drawingTools.toggleVisibility}
+          onClearAll={drawingTools.clearAll}
+          onFitChart={handleFit}
+          height={SIZE_MAP[chartSize]}
+        />
+
         {/* Chart */}
-        <div className="flex-1 relative min-w-0">
+        <div
+          className="flex-1 relative min-w-0"
+          style={{ cursor: drawingTools.activeTool !== "crosshair" ? "crosshair" : undefined }}
+        >
           {initialLoading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1034,15 +1154,39 @@ export default function LiveChart({ positions, trades, testnet }: LiveChartProps
               </span>
             </div>
           )}
-          <div
-            ref={containerRef}
-            style={{ height: SIZE_MAP[chartSize] }}
-            className="w-full"
-          />
+          <div className="relative" style={{ height: SIZE_MAP[chartSize] }}>
+            <div
+              ref={containerRef}
+              style={{ height: SIZE_MAP[chartSize] }}
+              className="w-full"
+            />
+            {/* Drawing canvas overlay — rendering only, pointer-events always off.
+                z-10 ensures it renders ABOVE lightweight-charts internal canvases. */}
+            <canvas
+              ref={drawingTools.canvasRef}
+              className="absolute top-0 left-0 w-full h-full pointer-events-none z-10"
+            />
+          </div>
+          {/* Measure result overlays (shown on hover over measure drawings) */}
+          {drawingTools.measureOverlays.map((mo, idx) => (
+            <div
+              key={idx}
+              className="absolute z-20 px-2 py-1 text-[10px] font-mono bg-foreground text-background pointer-events-none whitespace-nowrap"
+              style={{ left: mo.x, top: mo.y - idx * 22 }}
+            >
+              {mo.diff} ({mo.pct}) {mo.bars}
+            </div>
+          ))}
           {/* Marker hover tooltip */}
           <div
             ref={tooltipRef}
             className="absolute z-20 hidden px-2 py-1 text-[10px] font-mono bg-foreground text-background pointer-events-none whitespace-nowrap"
+          />
+          {/* Text annotation input modal */}
+          <TextInputModal
+            open={!!drawingTools.pendingTextPoint}
+            onSubmit={drawingTools.confirmTextDrawing}
+            onClose={drawingTools.cancelTextDrawing}
           />
         </div>
 
