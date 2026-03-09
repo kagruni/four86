@@ -107,6 +107,169 @@ function findBestMatchingAiLog(trade: any, aiLogs: any[]) {
   return bestMatch;
 }
 
+function getExpectedTradeActionForDecision(decision: string | null | undefined) {
+  if (decision === "OPEN_LONG" || decision === "OPEN_SHORT") {
+    return "OPEN";
+  }
+
+  if (decision === "CLOSE") {
+    return "CLOSE";
+  }
+
+  return null;
+}
+
+function findBestMatchingTrade(log: any, trades: any[]) {
+  const parsedResponse = log?.parsedResponse as any;
+  const logSymbol = getAiLogSymbol(log);
+  const expectedAction = getExpectedTradeActionForDecision(log?.decision);
+  let bestMatch: { trade: any; score: number; deltaMs: number; matchReason: string } | null = null;
+
+  for (const trade of trades) {
+    const deltaMs = Math.abs((trade?.executedAt ?? 0) - (log?.createdAt ?? 0));
+    if (deltaMs > AI_LOG_MATCH_WINDOW_MS) {
+      continue;
+    }
+
+    let score = 0;
+    let matchReason = "time_window";
+
+    score -= deltaMs / 60_000;
+
+    if (expectedAction && trade.action === expectedAction) {
+      score += 6;
+      matchReason = "action_and_time";
+    } else if (expectedAction) {
+      score -= 4;
+    }
+
+    if (logSymbol === trade.symbol) {
+      score += 5;
+      matchReason = expectedAction && trade.action === expectedAction
+        ? "action_symbol_time"
+        : "symbol_and_time";
+    } else if (logSymbol) {
+      score -= 3;
+    }
+
+    if (log.reasoning && trade.aiReasoning && log.reasoning === trade.aiReasoning) {
+      score += 12;
+      matchReason = "exact_reasoning";
+    }
+
+    if (typeof log.confidence === "number" && typeof trade.confidence === "number") {
+      const confidenceDelta = Math.abs(log.confidence - trade.confidence);
+      if (confidenceDelta < 0.001) {
+        score += 2;
+      }
+    }
+
+    if (parsedResponse?.selectedCandidateId) {
+      score += 0.5;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        trade,
+        score,
+        deltaMs,
+        matchReason,
+      };
+    }
+  }
+
+  if (!bestMatch || bestMatch.score < 2) {
+    return null;
+  }
+
+  return bestMatch;
+}
+
+function serializeTrade(trade: any) {
+  if (!trade) {
+    return null;
+  }
+
+  return {
+    _id: trade._id,
+    symbol: trade.symbol,
+    action: trade.action,
+    side: trade.side,
+    size: trade.size,
+    sizeInCoins: trade.sizeInCoins ?? null,
+    tradeValueUsd: trade.tradeValueUsd ?? null,
+    leverage: trade.leverage,
+    price: trade.price,
+    pnl: trade.pnl ?? null,
+    pnlPct: trade.pnlPct ?? null,
+    orderId: trade.orderId ?? null,
+    fillTime: trade.fillTime ?? null,
+    fee: trade.fee ?? null,
+    feeToken: trade.feeToken ?? null,
+    grossPnl: trade.grossPnl ?? null,
+    pnlSource: trade.pnlSource ?? null,
+    txHash: trade.txHash ?? null,
+    aiReasoning: trade.aiReasoning,
+    aiModel: trade.aiModel,
+    confidence: trade.confidence ?? null,
+    executedAt: trade.executedAt,
+  };
+}
+
+function serializeAiLog(log: any, matched: { deltaMs: number; score: number; matchReason: string } | null) {
+  if (!log) {
+    return null;
+  }
+
+  const parsedResponse = (log.parsedResponse ?? null) as any;
+
+  return {
+    _id: log._id,
+    createdAt: log.createdAt,
+    decision: log.decision,
+    reasoning: log.reasoning,
+    confidence: log.confidence ?? null,
+    modelName: log.modelName,
+    systemPrompt: log.systemPrompt,
+    userPrompt: log.userPrompt,
+    rawResponse: log.rawResponse,
+    parsedResponse,
+    decisionTrace: parsedResponse?.decisionTrace ?? null,
+    selectionMode: parsedResponse?.selectionMode ?? null,
+    selectedCandidateId: parsedResponse?.selectedCandidateId ?? null,
+    executionResult: parsedResponse?.executionResult ?? null,
+    marketSnapshotSummary: parsedResponse?.marketSnapshotSummary ?? null,
+    match: {
+      deltaMs: matched?.deltaMs ?? null,
+      score: matched?.score ?? null,
+      reason: matched?.matchReason ?? null,
+    },
+  };
+}
+
+function serializeDeterministicFilters(log: any) {
+  const candidateSet = getStoredCandidateSet(log);
+  const parsedResponse = (log?.parsedResponse ?? null) as any;
+  const selectedCandidateId = parsedResponse?.selectedCandidateId ?? null;
+  const selectedCandidate = getMatchedCandidate(candidateSet, selectedCandidateId);
+
+  if (!candidateSet) {
+    return null;
+  }
+
+  return {
+    stored: true,
+    scoreFloor: candidateSet.scoreFloor ?? null,
+    forcedHold: candidateSet.forcedHold ?? null,
+    holdReason: candidateSet.holdReason ?? null,
+    topCandidates: candidateSet.topCandidates ?? [],
+    blockedCandidates: candidateSet.blockedCandidates ?? [],
+    closeCandidates: candidateSet.closeCandidates ?? [],
+    selectedCandidate,
+    candidateScoreBreakdown: parsedResponse?.candidateScoreBreakdown ?? null,
+  };
+}
+
 // Get user credentials (NEVER return private keys to frontend - use internal queries)
 export const getUserCredentials = query({
   args: { userId: v.string() },
@@ -217,88 +380,61 @@ export const getRecentTradeDebugExport = query({
   args: {
     userId: v.string(),
     limit: v.optional(v.number()),
+    decisionScope: v.optional(v.union(v.literal("tradesOnly"), v.literal("all"))),
+    since: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 100;
+    const decisionScope = args.decisionScope ?? "tradesOnly";
 
-    const trades = await ctx.db
-      .query("trades")
-      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
-      .order("desc")
-      .take(limit);
+    const tradesQuery = args.since
+      ? ctx.db
+          .query("trades")
+          .withIndex("by_userId_time", (q) =>
+            q.eq("userId", args.userId).gte("executedAt", args.since!)
+          )
+      : ctx.db
+          .query("trades")
+          .withIndex("by_userId_time", (q) => q.eq("userId", args.userId));
 
-    const aiLogs = await ctx.db
-      .query("aiLogs")
-      .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
-      .order("desc")
-      .take(Math.max(limit * 6, 120));
+    const aiLogsQuery = args.since
+      ? ctx.db
+          .query("aiLogs")
+          .withIndex("by_userId_time", (q) =>
+            q.eq("userId", args.userId).gte("createdAt", args.since!)
+          )
+      : ctx.db
+          .query("aiLogs")
+          .withIndex("by_userId_time", (q) => q.eq("userId", args.userId));
+
+    const trades = await tradesQuery.order("desc").take(limit);
+    const aiLogs = await aiLogsQuery.order("desc").take(Math.max(limit * 6, 120));
+
+    if (decisionScope === "all") {
+      return aiLogs.slice(0, limit).map((log) => {
+        const matched = findBestMatchingTrade(log, trades);
+        const matchedTrade = matched?.trade ?? null;
+
+        return {
+          recordType: matchedTrade ? "trade_decision" : "decision_only",
+          activityAt: matchedTrade?.executedAt ?? log.createdAt,
+          trade: serializeTrade(matchedTrade),
+          aiLog: serializeAiLog(log, matched),
+          deterministicFilters: serializeDeterministicFilters(log),
+        };
+      });
+    }
 
     return trades.map((trade) => {
       const matched = findBestMatchingAiLog(trade, aiLogs);
       const matchedLog = matched?.log ?? null;
-      const parsedResponse = (matchedLog?.parsedResponse ?? null) as any;
-      const candidateSet = getStoredCandidateSet(matchedLog);
-      const selectedCandidateId = parsedResponse?.selectedCandidateId ?? null;
-      const selectedCandidate = getMatchedCandidate(candidateSet, selectedCandidateId);
 
       return {
-        trade: {
-          _id: trade._id,
-          symbol: trade.symbol,
-          action: trade.action,
-          side: trade.side,
-          size: trade.size,
-          sizeInCoins: trade.sizeInCoins ?? null,
-          tradeValueUsd: trade.tradeValueUsd ?? null,
-          leverage: trade.leverage,
-          price: trade.price,
-          pnl: trade.pnl ?? null,
-          pnlPct: trade.pnlPct ?? null,
-          orderId: trade.orderId ?? null,
-          fillTime: trade.fillTime ?? null,
-          fee: trade.fee ?? null,
-          feeToken: trade.feeToken ?? null,
-          grossPnl: trade.grossPnl ?? null,
-          pnlSource: trade.pnlSource ?? null,
-          txHash: trade.txHash ?? null,
-          aiReasoning: trade.aiReasoning,
-          aiModel: trade.aiModel,
-          confidence: trade.confidence ?? null,
-          executedAt: trade.executedAt,
-        },
-        aiLog: matchedLog ? {
-          _id: matchedLog._id,
-          createdAt: matchedLog.createdAt,
-          decision: matchedLog.decision,
-          reasoning: matchedLog.reasoning,
-          confidence: matchedLog.confidence ?? null,
-          modelName: matchedLog.modelName,
-          systemPrompt: matchedLog.systemPrompt,
-          userPrompt: matchedLog.userPrompt,
-          rawResponse: matchedLog.rawResponse,
-          parsedResponse: matchedLog.parsedResponse ?? null,
-          decisionTrace: parsedResponse?.decisionTrace ?? null,
-          selectionMode: parsedResponse?.selectionMode ?? null,
-          selectedCandidateId,
-          executionResult: parsedResponse?.executionResult ?? null,
-          marketSnapshotSummary: parsedResponse?.marketSnapshotSummary ?? null,
-          match: {
-            deltaMs: matched?.deltaMs ?? null,
-            score: matched?.score ?? null,
-            reason: matched?.matchReason ?? null,
-          },
-        } : null,
-        deterministicFilters: candidateSet ? {
-          stored: true,
-          scoreFloor: candidateSet.scoreFloor ?? null,
-          forcedHold: candidateSet.forcedHold ?? null,
-          holdReason: candidateSet.holdReason ?? null,
-          topCandidates: candidateSet.topCandidates ?? [],
-          blockedCandidates: candidateSet.blockedCandidates ?? [],
-          closeCandidates: candidateSet.closeCandidates ?? [],
-          selectedCandidate,
-          candidateScoreBreakdown: parsedResponse?.candidateScoreBreakdown ?? null,
-        } : null,
+        recordType: "trade_decision",
+        activityAt: trade.executedAt,
+        trade: serializeTrade(trade),
+        aiLog: serializeAiLog(matchedLog, matched),
+        deterministicFilters: serializeDeterministicFilters(matchedLog),
       };
     });
   },

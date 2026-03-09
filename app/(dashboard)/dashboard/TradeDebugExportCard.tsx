@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/hooks/use-toast";
@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -19,6 +21,12 @@ import {
 import { Copy, Download, Loader2 } from "lucide-react";
 
 const LIMIT_OPTIONS = [25, 50, 100];
+const DECISION_SCOPE_OPTIONS = [
+  { value: "tradesOnly", label: "Trades only" },
+  { value: "all", label: "All decisions" },
+] as const;
+
+type DecisionScope = (typeof DECISION_SCOPE_OPTIONS)[number]["value"];
 
 function formatTimestamp(timestamp: number) {
   return new Date(timestamp).toLocaleString("en-US", {
@@ -69,7 +77,11 @@ function escapeCsv(value: unknown) {
 
 function buildCsv(rows: any[]) {
   const header = [
+    "record_type",
+    "activity_at",
     "executed_at",
+    "decision_logged_at",
+    "decision",
     "symbol",
     "action",
     "side",
@@ -108,20 +120,27 @@ function buildCsv(rows: any[]) {
     const deterministic = row.deterministicFilters;
 
     return [
-      trade.executedAt,
-      trade.symbol,
-      trade.action,
-      trade.side,
-      trade.price,
-      trade.size,
-      trade.sizeInCoins,
-      trade.tradeValueUsd,
-      trade.leverage,
-      trade.pnl,
-      trade.pnlPct,
-      trade.aiModel,
-      trade.aiReasoning,
-      trade.confidence,
+      row.recordType ?? null,
+      row.activityAt ?? aiLog?.createdAt ?? trade?.executedAt ?? null,
+      trade?.executedAt ?? null,
+      aiLog?.createdAt ?? null,
+      aiLog?.decision ?? null,
+      trade?.symbol ??
+        aiLog?.parsedResponse?.symbol ??
+        aiLog?.parsedResponse?.close_symbol ??
+        null,
+      trade?.action ?? null,
+      trade?.side ?? null,
+      trade?.price ?? null,
+      trade?.size ?? null,
+      trade?.sizeInCoins ?? null,
+      trade?.tradeValueUsd ?? null,
+      trade?.leverage ?? null,
+      trade?.pnl ?? null,
+      trade?.pnlPct ?? null,
+      trade?.aiModel ?? null,
+      trade?.aiReasoning ?? null,
+      trade?.confidence ?? null,
       aiLog?.createdAt ?? null,
       aiLog?.decision ?? null,
       aiLog?.modelName ?? null,
@@ -157,15 +176,31 @@ function downloadFile(filename: string, contents: string, contentType: string) {
 
 export default function TradeDebugExportCard({ userId }: { userId: string }) {
   const [limit, setLimit] = useState(50);
+  const [decisionScope, setDecisionScope] = useState<DecisionScope>("tradesOnly");
+  const [todayOnly, setTodayOnly] = useState(false);
   const { toast } = useToast();
+  const todayStart = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return start.getTime();
+  }, []);
   const rows = useQuery(
     api.queries.getRecentTradeDebugExport,
-    userId ? { userId, limit } : "skip"
+    userId
+      ? {
+          userId,
+          limit,
+          decisionScope,
+          since: todayOnly ? todayStart : undefined,
+        }
+      : "skip"
   );
 
   const matchedAiCount = rows?.filter((row) => row.aiLog).length ?? 0;
   const deterministicCount =
     rows?.filter((row) => row.deterministicFilters?.stored).length ?? 0;
+  const holdCount = rows?.filter((row) => row.aiLog?.decision === "HOLD").length ?? 0;
+  const tradeRowCount = rows?.filter((row) => row.trade).length ?? 0;
 
   const handleExportJson = () => {
     if (!rows) {
@@ -178,6 +213,8 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
         {
           exportedAt: new Date().toISOString(),
           limit,
+          decisionScope,
+          todayOnly,
           records: rows,
         },
         null,
@@ -210,6 +247,8 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
           {
             exportedAt: new Date().toISOString(),
             limit,
+            decisionScope,
+            todayOnly,
             records: rows,
           },
           null,
@@ -240,54 +279,85 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
           <div>
             <CardTitle className="text-foreground">Trade Debug Export</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Recent recorded fills with linked AI reasoning and stored deterministic shortlist context.
+              Export recent trading decisions with AI reasoning, including optional HOLD-only evaluations.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {LIMIT_OPTIONS.map((option) => (
-              <Button
-                key={option}
-                variant={limit === option ? "default" : "outline"}
-                size="sm"
-                className={
-                  limit === option
-                    ? "bg-foreground text-background hover:bg-foreground/80"
-                    : "border-border text-foreground"
-                }
-                onClick={() => setLimit(option)}
-              >
-                {option}
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-border text-foreground"
-              onClick={handleCopyJson}
-              disabled={!rows}
-            >
-              <Copy className="mr-2 h-4 w-4" />
-              Copy JSON
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-border text-foreground"
-              onClick={handleExportCsv}
-              disabled={!rows}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              CSV
-            </Button>
-            <Button
-              size="sm"
-              className="bg-foreground text-background hover:bg-foreground/80"
-              onClick={handleExportJson}
-              disabled={!rows}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              JSON
-            </Button>
+          <div className="flex flex-col gap-3 lg:items-end">
+            <div className="flex flex-wrap items-center gap-2">
+              {DECISION_SCOPE_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  variant={decisionScope === option.value ? "default" : "outline"}
+                  size="sm"
+                  className={
+                    decisionScope === option.value
+                      ? "bg-foreground text-background hover:bg-foreground/80"
+                      : "border-border text-foreground"
+                  }
+                  onClick={() => setDecisionScope(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="trade-debug-today-only"
+                  checked={todayOnly}
+                  onCheckedChange={setTodayOnly}
+                />
+                <Label htmlFor="trade-debug-today-only" className="text-sm text-foreground">
+                  Today only
+                </Label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {LIMIT_OPTIONS.map((option) => (
+                  <Button
+                    key={option}
+                    variant={limit === option ? "default" : "outline"}
+                    size="sm"
+                    className={
+                      limit === option
+                        ? "bg-foreground text-background hover:bg-foreground/80"
+                        : "border-border text-foreground"
+                    }
+                    onClick={() => setLimit(option)}
+                  >
+                    {option}
+                  </Button>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-border text-foreground"
+                  onClick={handleCopyJson}
+                  disabled={!rows}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy JSON
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-border text-foreground"
+                  onClick={handleExportCsv}
+                  disabled={!rows}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  CSV
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-foreground text-background hover:bg-foreground/80"
+                  onClick={handleExportJson}
+                  disabled={!rows}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  JSON
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -299,13 +369,13 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
           </div>
         ) : rows.length === 0 ? (
           <div className="py-10 text-center text-sm font-mono text-muted-foreground">
-            No recorded trades yet
+            No matching debug activity for the selected filters
           </div>
         ) : (
           <>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="border-foreground text-foreground">
-                {rows.length} fills
+                {rows.length} records
               </Badge>
               <Badge variant="outline" className="border-foreground text-foreground">
                 {matchedAiCount} linked AI logs
@@ -313,6 +383,14 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
               <Badge variant="outline" className="border-foreground text-foreground">
                 {deterministicCount} with deterministic context
               </Badge>
+              <Badge variant="outline" className="border-foreground text-foreground">
+                {tradeRowCount} trade-backed
+              </Badge>
+              {decisionScope === "all" && (
+                <Badge variant="outline" className="border-foreground text-foreground">
+                  {holdCount} HOLD decisions
+                </Badge>
+              )}
             </div>
 
             <ScrollArea className="h-[420px]">
@@ -334,16 +412,17 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
                       const reasoningPreview =
                         aiLog?.reasoning && !aiLog.reasoning.trim().startsWith("{")
                           ? aiLog.reasoning
-                          : trade.aiReasoning;
+                          : trade?.aiReasoning;
+                      const timeLabel = trade?.executedAt ?? aiLog?.createdAt ?? row.activityAt;
 
                       return (
                         <TableRow
-                          key={trade._id}
+                          key={trade?._id ?? aiLog?._id ?? `${row.recordType}-${row.activityAt}`}
                           className="border-border even:bg-muted/40 hover:bg-muted/30 align-top"
                         >
                           <TableCell className="min-w-[120px] text-xs text-muted-foreground">
-                            <div>{formatTimestamp(trade.executedAt)}</div>
-                            {trade.fillTime && (
+                            <div>{formatTimestamp(timeLabel)}</div>
+                            {trade?.fillTime && (
                               <div className="mt-1 font-mono text-[11px]">
                                 Fill: {formatTimestamp(trade.fillTime)}
                               </div>
@@ -352,27 +431,44 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
                           <TableCell className="min-w-[240px]">
                             <div className="flex flex-wrap items-center gap-2">
                               <Badge variant="outline" className="border-foreground text-foreground">
-                                {trade.action}
+                                {trade?.action ?? aiLog?.decision ?? row.recordType}
                               </Badge>
                               <span className="font-mono font-semibold text-foreground">
-                                {trade.symbol}
+                                {trade?.symbol ?? aiLog?.parsedResponse?.symbol ?? aiLog?.parsedResponse?.close_symbol ?? "-"}
                               </span>
-                              <span className="text-xs text-muted-foreground">{trade.side}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {trade?.side ?? (aiLog?.decision === "OPEN_SHORT" ? "SHORT" : aiLog?.decision === "OPEN_LONG" ? "LONG" : "No fill")}
+                              </span>
                             </div>
                             <div className="mt-2 space-y-1 text-xs font-mono text-muted-foreground">
-                              <div>
-                                {formatCurrency(trade.size)} @ {formatCurrency(trade.price)}
-                              </div>
-                              <div>
-                                Lev {trade.leverage}x
-                                {trade.pnl !== null ? ` • PnL ${formatCurrency(trade.pnl)} (${formatPercent(trade.pnlPct)})` : ""}
-                              </div>
-                              <div>
-                                Model {trade.aiModel}
-                                {typeof trade.confidence === "number"
-                                  ? ` • ${(trade.confidence * 100).toFixed(0)}%`
-                                  : ""}
-                              </div>
+                              {trade ? (
+                                <>
+                                  <div>
+                                    {formatCurrency(trade.size)} @ {formatCurrency(trade.price)}
+                                  </div>
+                                  <div>
+                                    Lev {trade.leverage}x
+                                    {trade.pnl !== null ? ` • PnL ${formatCurrency(trade.pnl)} (${formatPercent(trade.pnlPct)})` : ""}
+                                  </div>
+                                  <div>
+                                    Model {trade.aiModel}
+                                    {typeof trade.confidence === "number"
+                                      ? ` • ${(trade.confidence * 100).toFixed(0)}%`
+                                      : ""}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div>No executed trade linked</div>
+                                  <div>
+                                    Decision {aiLog?.decision ?? "-"}
+                                    {typeof aiLog?.confidence === "number"
+                                      ? ` • ${(aiLog.confidence * 100).toFixed(0)}%`
+                                      : ""}
+                                  </div>
+                                  <div>Model {aiLog?.modelName ?? "-"}</div>
+                                </>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="min-w-[320px]">
@@ -396,6 +492,11 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
                                   {aiLog.match?.deltaMs !== null && aiLog.match?.deltaMs !== undefined && (
                                     <span className="font-mono text-muted-foreground">
                                       {Math.round(aiLog.match.deltaMs / 1000)}s offset
+                                    </span>
+                                  )}
+                                  {!trade && (
+                                    <span className="font-mono text-muted-foreground">
+                                      No fill recorded
                                     </span>
                                   )}
                                 </>
@@ -443,7 +544,7 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
                               </div>
                             ) : (
                               <div className="text-xs text-muted-foreground">
-                                No deterministic shortlist stored for this trade.
+                                No deterministic shortlist stored for this record.
                               </div>
                             )}
                           </TableCell>
