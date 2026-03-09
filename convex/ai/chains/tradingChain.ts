@@ -290,6 +290,7 @@ export interface CompactBotConfig {
   consecutiveLosses?: number;
   consecutiveLossLimit?: number;
   enableRegimeFilter?: boolean;
+  includeSentimentContext?: boolean;
   require1hAlignment?: boolean;
   redDayLongBlockPct?: number;
   greenDayShortBlockPct?: number;
@@ -772,7 +773,9 @@ export function createAlphaArenaTradingChain(
 
       // Market sentiment context (from research loop)
       sentimentContext: (input: AlphaArenaInput) =>
-        formatSentimentContext(input.marketResearch || null),
+        config.includeSentimentContext
+          ? formatSentimentContext(input.marketResearch || null)
+          : "",
 
       // Account information
       accountValue: (input: AlphaArenaInput) =>

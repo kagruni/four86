@@ -58,6 +58,7 @@ export default defineSchema({
     volatilitySizeReduction: v.optional(v.number()), // 25 - 75, default 50 (percentage)
     stopLossAtrMultiplier: v.optional(v.number()), // 1.0 - 3.0, default 1.5
     enableRegimeFilter: v.optional(v.boolean()), // default false
+    includeSentimentContext: v.optional(v.boolean()), // default false
     redDayLongBlockPct: v.optional(v.number()), // default -1.5
     greenDayShortBlockPct: v.optional(v.number()), // default 1.5
     reentryCooldownMinutes: v.optional(v.number()), // default 15

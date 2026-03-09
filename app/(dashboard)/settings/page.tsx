@@ -106,6 +106,7 @@ const botConfigSchema = z.object({
   volatilitySizeReduction: z.number().min(25).max(75),
   stopLossAtrMultiplier: z.number().min(1.0).max(3.0),
   enableRegimeFilter: z.boolean(),
+  includeSentimentContext: z.boolean(),
   redDayLongBlockPct: z.number().min(-10).max(0),
   greenDayShortBlockPct: z.number().min(0).max(10),
   reentryCooldownMinutes: z.number().min(1).max(60),
@@ -304,6 +305,7 @@ export default function SettingsPage() {
     volatilitySizeReduction: 50,
     stopLossAtrMultiplier: 1.5,
     enableRegimeFilter: false,
+    includeSentimentContext: false,
     redDayLongBlockPct: -1.5,
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
@@ -380,6 +382,7 @@ export default function SettingsPage() {
         volatilitySizeReduction: botConfig.volatilitySizeReduction ?? 50,
         stopLossAtrMultiplier: botConfig.stopLossAtrMultiplier ?? 1.5,
         enableRegimeFilter: botConfig.enableRegimeFilter ?? false,
+        includeSentimentContext: botConfig.includeSentimentContext ?? false,
         redDayLongBlockPct: botConfig.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
@@ -536,6 +539,7 @@ export default function SettingsPage() {
         volatilitySizeReduction: validatedData.volatilitySizeReduction,
         stopLossAtrMultiplier: validatedData.stopLossAtrMultiplier,
         enableRegimeFilter: validatedData.enableRegimeFilter,
+        includeSentimentContext: validatedData.includeSentimentContext,
         redDayLongBlockPct: validatedData.redDayLongBlockPct,
         greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
         reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
@@ -1380,6 +1384,26 @@ export default function SettingsPage() {
                       checked={botConfigData.enableRegimeFilter}
                       onCheckedChange={(checked) =>
                         setBotConfigData((prev) => ({ ...prev, enableRegimeFilter: checked }))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="include-sentiment-context" className="text-foreground">
+                        {isLegacyAlphaArena ? "Show Sentiment Context In Prompt" : "Include Sentiment Context"}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {isLegacyAlphaArena
+                          ? "Adds fear/greed, market narrative, and per-coin news sentiment to legacy Alpha Arena prompts. When off, the model relies on market structure without that macro framing."
+                          : "Includes market research and sentiment context in AI prompts when available."}
+                      </p>
+                    </div>
+                    <Switch
+                      id="include-sentiment-context"
+                      checked={botConfigData.includeSentimentContext}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, includeSentimentContext: checked }))
                       }
                     />
                   </div>

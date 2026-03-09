@@ -391,6 +391,7 @@ export const runTradingCycle = internalAction({
                   consecutiveLosses: bot.consecutiveLosses ?? 0,
                   consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
                   enableRegimeFilter: bot.enableRegimeFilter ?? false,
+                  includeSentimentContext: bot.includeSentimentContext ?? false,
                   require1hAlignment: bot.require1hAlignment ?? true,
                   redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
                   greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
@@ -568,7 +569,10 @@ export const runTradingCycle = internalAction({
                 }
               );
               const positionsSection = formatPositionsAlphaArena(positions);
-              const sentimentSection = formatSentimentContext(marketResearch);
+              const includeSentimentContext = bot.includeSentimentContext ?? false;
+              const sentimentSection = includeSentimentContext
+                ? formatSentimentContext(marketResearch)
+                : "";
               decisionTrace = {
                 tradingMode: "alpha_arena",
                 selectionMode: "legacy_llm",
@@ -595,6 +599,7 @@ export const runTradingCycle = internalAction({
                   consecutiveLosses: bot.consecutiveLosses ?? 0,
                   consecutiveLossLimit: bot.consecutiveLossLimit ?? 3,
                   enableRegimeFilter: bot.enableRegimeFilter ?? false,
+                  includeSentimentContext,
                   require1hAlignment: bot.require1hAlignment ?? true,
                   redDayLongBlockPct: bot.redDayLongBlockPct ?? -1.5,
                   greenDayShortBlockPct: bot.greenDayShortBlockPct ?? 1.5,
