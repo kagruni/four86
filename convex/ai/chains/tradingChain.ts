@@ -291,6 +291,8 @@ export interface CompactBotConfig {
   consecutiveLossLimit?: number;
   enableRegimeFilter?: boolean;
   includeSentimentContext?: boolean;
+  includeSuggestedZones?: boolean;
+  includeLossContext?: boolean;
   require1hAlignment?: boolean;
   redDayLongBlockPct?: number;
   greenDayShortBlockPct?: number;
@@ -330,6 +332,22 @@ function generateCompactPromptVariables(config: CompactBotConfig) {
   const managedExitGuidance = config.managedExitEnabled
     ? "Managed exits are ENABLED for new positions: provide stop_loss, but no fixed take_profit is required. Any position marked MANAGED_EXIT is controlled by system rules and must be held."
     : "Managed exits are DISABLED: new positions must include both stop_loss and take_profit, and TP/SL remain exchange-managed.";
+  const suggestedZonesGuidance = config.includeSuggestedZones
+    ? "Each coin's [SUGGESTED ZONES] shows pre-calculated $ levels you can use as reference"
+    : "If you open a trade, derive stop_loss and take_profit from the market structure and ATR guidance rather than relying on precomputed zone scaffolding";
+  const suggestedZonesAnalysisStep = config.includeSuggestedZones
+    ? "Check [SUGGESTED ZONES] for pre-calculated ATR-based TP/SL levels"
+    : "If you are considering an entry, derive TP/SL from ATR guidance and the live structure yourself";
+  const lossContextSection = config.includeLossContext
+    ? `LOSS CONTEXT:
+- Consecutive losses: {consecutiveLosses} / {consecutiveLossLimit}
+- {lossStreakStatus}
+- After hitting loss limit: reduce risk to {perTradeRiskPct}% × 0.75 until 1 win`
+    : "";
+  const lossContextSummary = config.includeLossContext
+    ? `Consecutive Losses: {consecutiveLosses} / {consecutiveLossLimit}
+Loss Streak Status: {lossStreakStatus}`
+    : "";
 
   return {
     maxLeverage: config.maxLeverage,
@@ -344,6 +362,10 @@ function generateCompactPromptVariables(config: CompactBotConfig) {
     tradingModeDescription,
     volatileTradeRule,
     trend4hRule,
+    suggestedZonesGuidance,
+    suggestedZonesAnalysisStep,
+    lossContextSection,
+    lossContextSummary,
     consecutiveLosses: config.consecutiveLosses ?? 0,
     consecutiveLossLimit: config.consecutiveLossLimit ?? 3,
     managedExitGuidance,
@@ -743,6 +765,7 @@ export function createAlphaArenaTradingChain(
 
   const regimePromptConfig: AlphaArenaRegimePromptConfig = {
     enableRegimeFilter: config.enableRegimeFilter,
+    includeSuggestedZones: config.includeSuggestedZones,
     require1hAlignment: config.require1hAlignment,
     redDayLongBlockPct: config.redDayLongBlockPct,
     greenDayShortBlockPct: config.greenDayShortBlockPct,

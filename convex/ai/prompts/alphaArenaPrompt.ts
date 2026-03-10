@@ -80,6 +80,7 @@ function calculateTrendDirection(priceVsEma20Pct: number, ema20VsEma50Pct: numbe
 
 export interface AlphaArenaRegimePromptConfig {
   enableRegimeFilter?: boolean;
+  includeSuggestedZones?: boolean;
   require1hAlignment?: boolean;
   redDayLongBlockPct?: number;
   greenDayShortBlockPct?: number;
@@ -307,7 +308,7 @@ TP/SL GUIDANCE (ATR-BASED):
 - stop_loss: usually around {stopLossAtrMultiplier}x ATR(14,4h) from entry
 - take_profit: when managed exits are disabled, usually around {takeProfitAtrMultiplier}x ATR(14,4h) from entry
 - Target R:R ratio: {minRiskRewardRatio}:1 when the setup quality supports it
-- Each coin's [SUGGESTED ZONES] shows pre-calculated $ levels you can use as reference
+- {suggestedZonesGuidance}
 - invalidation_condition: Clear technical level that invalidates the thesis
 
 POSITION SIZING (MANDATORY FORMULA):
@@ -319,10 +320,7 @@ POSITION SIZING (MANDATORY FORMULA):
 - If formula gives < minimum, USE the minimum
 - If formula gives > max, CAP at max
 
-LOSS CONTEXT:
-- Consecutive losses: {consecutiveLosses} / {consecutiveLossLimit}
-- {lossStreakStatus}
-- After hitting loss limit: reduce risk to {perTradeRiskPct}% × 0.75 until 1 win
+{lossContextSection}
 
 VOLATILITY-ADAPTIVE LEVERAGE:
 - ATR% < 1.0%  → 5-{maxLeverage}x (low volatility, tighter moves)
@@ -384,7 +382,7 @@ ANALYSIS PROCESS (do this for EACH coin):
 3. Check intraday series trend (is it accelerating or reversing?)
 4. Check 1h context and current session direction (green/red day)
 5. Confirm with 4h context
-6. Check [SUGGESTED ZONES] for pre-calculated ATR-based TP/SL levels
+6. {suggestedZonesAnalysisStep}
 7. If you have a position: check P&L. If profitable (>=+0.5%) and momentum reversing, consider closing to lock gains. If at breakeven or negative, output "hold" — let TP/SL handle it.
 8. If no position: is this a good setup? Use the target R:R as guidance, not a mechanical veto
 
@@ -480,8 +478,7 @@ Minimum Position Size: {minimumPositionSize} USD
 Typical Position Range: {typicalPositionSize} – {maxPositionSizeUsd} USD
 Risk Amount ({perTradeRiskPct}% of cash): {riskAmountExample} USD
 Example: At 1.5% stop distance → size_usd = {sizingExample} USD
-Consecutive Losses: {consecutiveLosses} / {consecutiveLossLimit}
-Loss Streak Status: {lossStreakStatus}
+{lossContextSummary}
 ⚠️ NEVER set size_usd below {minimumPositionSize}. Use the formula above.
 
 ###[CURRENT OPEN POSITIONS - FROM EXCHANGE]
@@ -532,6 +529,7 @@ export function formatMarketDataAlphaArena(
   const lines: string[] = [];
   const tpAtrMultiplier = slAtrMultiplier * rrRatio;
   const includeDirectionalAdvisory = regimeConfig.enableRegimeFilter ?? false;
+  const includeSuggestedZones = regimeConfig.includeSuggestedZones ?? false;
 
   for (const [symbol, data] of Object.entries(marketData)) {
     // Calculate trend signals
@@ -587,12 +585,14 @@ export function formatMarketDataAlphaArena(
     }
 
     lines.push(``);
-    lines.push(`[SUGGESTED ZONES]`);
-    lines.push(`Volatility: ${volatilityClass} (ATR: ${atrPct.toFixed(2)}%)`);
-    lines.push(`LONG → SL: $${(data.currentPrice - slDistance).toFixed(2)} | TP: $${(data.currentPrice + tpDistance).toFixed(2)}`);
-    lines.push(`SHORT → SL: $${(data.currentPrice + slDistance).toFixed(2)} | TP: $${(data.currentPrice - tpDistance).toFixed(2)}`);
-    lines.push(`Suggested Leverage: ${volatilityClass === "LOW" ? "5-7x" : volatilityClass === "NORMAL" ? "3-5x" : "2-3x"}`);
-    lines.push(``);
+    if (includeSuggestedZones) {
+      lines.push(`[SUGGESTED ZONES]`);
+      lines.push(`Volatility: ${volatilityClass} (ATR: ${atrPct.toFixed(2)}%)`);
+      lines.push(`LONG → SL: $${(data.currentPrice - slDistance).toFixed(2)} | TP: $${(data.currentPrice + tpDistance).toFixed(2)}`);
+      lines.push(`SHORT → SL: $${(data.currentPrice + slDistance).toFixed(2)} | TP: $${(data.currentPrice - tpDistance).toFixed(2)}`);
+      lines.push(`Suggested Leverage: ${volatilityClass === "LOW" ? "5-7x" : volatilityClass === "NORMAL" ? "3-5x" : "2-3x"}`);
+      lines.push(``);
+    }
     lines.push(`[Intraday Price Series - last 10]`);
     lines.push(`Prices: [${data.priceHistory.map(p => p.toFixed(2)).join(", ")}]`);
     lines.push(``);

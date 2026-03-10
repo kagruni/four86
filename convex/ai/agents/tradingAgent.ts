@@ -330,6 +330,8 @@ export const makeAlphaArenaTradingDecision = action({
       consecutiveLossLimit: v.optional(v.number()),
       enableRegimeFilter: v.optional(v.boolean()),
       includeSentimentContext: v.optional(v.boolean()),
+      includeSuggestedZones: v.optional(v.boolean()),
+      includeLossContext: v.optional(v.boolean()),
       require1hAlignment: v.optional(v.boolean()),
       redDayLongBlockPct: v.optional(v.number()),
       greenDayShortBlockPct: v.optional(v.number()),

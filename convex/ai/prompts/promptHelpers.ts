@@ -21,6 +21,8 @@ export interface BotConfig {
   volatilitySizeReduction: number;
   stopLossAtrMultiplier: number;
   managedExitEnabled?: boolean;
+  includeSuggestedZones?: boolean;
+  includeLossContext?: boolean;
 }
 
 /**
@@ -81,6 +83,22 @@ export function generatePromptVariables(config: BotConfig) {
   const managedExitGuidance = config.managedExitEnabled
     ? "Managed exits are ENABLED for new positions: provide stop_loss, but do not require a fixed take_profit. Positions marked MANAGED_EXIT are controlled by system rules and must be held."
     : "Managed exits are DISABLED: every new position must include both stop_loss and take_profit, and existing positions rely on exchange TP/SL.";
+  const suggestedZonesGuidance = config.includeSuggestedZones
+    ? "Each coin's [SUGGESTED ZONES] shows pre-calculated $ levels you can use as reference"
+    : "If you open a trade, derive stop_loss and take_profit from the market structure and ATR guidance rather than relying on precomputed zone scaffolding";
+  const suggestedZonesAnalysisStep = config.includeSuggestedZones
+    ? "Check [SUGGESTED ZONES] for pre-calculated ATR-based TP/SL levels"
+    : "If you are considering an entry, derive TP/SL from ATR guidance and the live structure yourself";
+  const lossContextSection = config.includeLossContext
+    ? `LOSS CONTEXT:
+- Consecutive losses: {consecutiveLosses} / {consecutiveLossLimit}
+- {lossStreakStatus}
+- After hitting loss limit: reduce risk to {perTradeRiskPct}% × 0.75 until 1 win`
+    : "";
+  const lossContextSummary = config.includeLossContext
+    ? `Consecutive Losses: {consecutiveLosses} / {consecutiveLossLimit}
+Loss Streak Status: {lossStreakStatus}`
+    : "";
 
   return {
     // Core config
@@ -118,5 +136,9 @@ export function generatePromptVariables(config: BotConfig) {
     confidence4hPenalty,
     confidenceSizingRule,
     managedExitGuidance,
+    suggestedZonesGuidance,
+    suggestedZonesAnalysisStep,
+    lossContextSection,
+    lossContextSummary,
   };
 }

@@ -107,6 +107,8 @@ const botConfigSchema = z.object({
   stopLossAtrMultiplier: z.number().min(1.0).max(3.0),
   enableRegimeFilter: z.boolean(),
   includeSentimentContext: z.boolean(),
+  includeSuggestedZones: z.boolean(),
+  includeLossContext: z.boolean(),
   redDayLongBlockPct: z.number().min(-10).max(0),
   greenDayShortBlockPct: z.number().min(0).max(10),
   reentryCooldownMinutes: z.number().min(1).max(60),
@@ -306,6 +308,8 @@ export default function SettingsPage() {
     stopLossAtrMultiplier: 1.5,
     enableRegimeFilter: false,
     includeSentimentContext: false,
+    includeSuggestedZones: false,
+    includeLossContext: false,
     redDayLongBlockPct: -1.5,
     greenDayShortBlockPct: 1.5,
     reentryCooldownMinutes: 15,
@@ -383,6 +387,8 @@ export default function SettingsPage() {
         stopLossAtrMultiplier: botConfig.stopLossAtrMultiplier ?? 1.5,
         enableRegimeFilter: botConfig.enableRegimeFilter ?? false,
         includeSentimentContext: botConfig.includeSentimentContext ?? false,
+        includeSuggestedZones: botConfig.includeSuggestedZones ?? false,
+        includeLossContext: botConfig.includeLossContext ?? false,
         redDayLongBlockPct: botConfig.redDayLongBlockPct ?? -1.5,
         greenDayShortBlockPct: botConfig.greenDayShortBlockPct ?? 1.5,
         reentryCooldownMinutes: botConfig.reentryCooldownMinutes ?? 15,
@@ -540,6 +546,8 @@ export default function SettingsPage() {
         stopLossAtrMultiplier: validatedData.stopLossAtrMultiplier,
         enableRegimeFilter: validatedData.enableRegimeFilter,
         includeSentimentContext: validatedData.includeSentimentContext,
+        includeSuggestedZones: validatedData.includeSuggestedZones,
+        includeLossContext: validatedData.includeLossContext,
         redDayLongBlockPct: validatedData.redDayLongBlockPct,
         greenDayShortBlockPct: validatedData.greenDayShortBlockPct,
         reentryCooldownMinutes: validatedData.reentryCooldownMinutes,
@@ -1404,6 +1412,46 @@ export default function SettingsPage() {
                       checked={botConfigData.includeSentimentContext}
                       onCheckedChange={(checked) =>
                         setBotConfigData((prev) => ({ ...prev, includeSentimentContext: checked }))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="include-suggested-zones" className="text-foreground">
+                        {isLegacyAlphaArena ? "Show Suggested Zones In Prompt" : "Include Suggested Zones"}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {isLegacyAlphaArena
+                          ? "Adds precomputed ATR-based long/short SL/TP scaffolding to legacy Alpha Arena prompts. When off, the model must derive trade structure from the raw market data and ATR guidance."
+                          : "Includes precomputed suggested stop-loss and take-profit zones in prompts."}
+                      </p>
+                    </div>
+                    <Switch
+                      id="include-suggested-zones"
+                      checked={botConfigData.includeSuggestedZones}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, includeSuggestedZones: checked }))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="include-loss-context" className="text-foreground">
+                        {isLegacyAlphaArena ? "Show Loss Context In Prompt" : "Include Loss Context"}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {isLegacyAlphaArena
+                          ? "Adds consecutive-loss and caution text to legacy Alpha Arena prompts. When off, the model does not see loss-streak coaching."
+                          : "Includes loss-streak context in prompts when available."}
+                      </p>
+                    </div>
+                    <Switch
+                      id="include-loss-context"
+                      checked={botConfigData.includeLossContext}
+                      onCheckedChange={(checked) =>
+                        setBotConfigData((prev) => ({ ...prev, includeLossContext: checked }))
                       }
                     />
                   </div>
