@@ -89,9 +89,9 @@ function calculatePercentageDiff(value: number, reference: number): number {
  * Determine overall trend direction based on EMA alignment.
  *
  * Logic:
- * - BULLISH: Price > EMA20 by >0.5% AND EMA20 > EMA50 by >0.5%
- * - BEARISH: Price < EMA20 by >0.5% AND EMA20 < EMA50 by >0.5%
- * - NEUTRAL: Mixed signals or small deviations
+ * - Strong 4h EMA structure can define direction on its own if price is not fighting it
+ * - Smaller bullish/bearish readings across both measures also count as directional agreement
+ * - Otherwise classify as NEUTRAL
  *
  * @param priceVsEma20Pct - Price position relative to EMA20 (percentage)
  * @param ema20VsEma50Pct - EMA20 position relative to EMA50 4h (percentage)
@@ -103,12 +103,20 @@ export function calculateTrendDirection(
 ): TrendDirection {
   const threshold = 0.5; // 0.5% threshold for trend confirmation
 
-  // Both indicators must agree and exceed threshold
-  if (priceVsEma20Pct > threshold && ema20VsEma50Pct > threshold) {
+  if (ema20VsEma50Pct > threshold && priceVsEma20Pct > -(threshold / 2)) {
     return "BULLISH";
   }
 
-  if (priceVsEma20Pct < -threshold && ema20VsEma50Pct < -threshold) {
+  if (ema20VsEma50Pct < -threshold && priceVsEma20Pct < threshold / 2) {
+    return "BEARISH";
+  }
+
+  const weakThreshold = threshold / 3;
+  if (priceVsEma20Pct > weakThreshold && ema20VsEma50Pct > weakThreshold) {
+    return "BULLISH";
+  }
+
+  if (priceVsEma20Pct < -weakThreshold && ema20VsEma50Pct < -weakThreshold) {
     return "BEARISH";
   }
 

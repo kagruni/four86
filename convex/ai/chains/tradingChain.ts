@@ -16,6 +16,7 @@ import {
   formatHybridCandidateSection,
   formatHybridCloseSection,
   formatHybridDirectionSummary,
+  formatHybridShortlistStatus,
   formatHybridSentimentContext,
   hybridSelectionPrompt,
 } from "../prompts/hybridSelectionPrompt";
@@ -967,7 +968,10 @@ type HybridSelectionInput = {
 export function createHybridAlphaArenaSelectionChain(
   modelType: "zhipuai" | "openrouter",
   modelName: string,
-  apiKey: string
+  apiKey: string,
+  options: {
+    includeSentimentContext?: boolean;
+  } = {}
 ) {
   const model = modelType === "zhipuai"
     ? new ZhipuAI({ apiKey, model: modelName })
@@ -988,10 +992,13 @@ export function createHybridAlphaArenaSelectionChain(
         availableCash: input.accountState.withdrawable.toFixed(2),
         positionCount: (input.positions || []).length,
         scoreFloor: input.candidateSet.scoreFloor,
+        shortlistStatus: formatHybridShortlistStatus(input.candidateSet),
         candidateSection: formatHybridCandidateSection(input.candidateSet),
         closeSection: formatHybridCloseSection(input.candidateSet.closeCandidates),
         directionSummary: formatHybridDirectionSummary(input.candidateSet),
-        sentimentContext: formatHybridSentimentContext(input.marketResearch || null, input.candidateSet),
+        sentimentContext: options.includeSentimentContext
+          ? formatHybridSentimentContext(input.marketResearch || null, input.candidateSet)
+          : "",
       });
 
       const response = await model.invoke(messages);

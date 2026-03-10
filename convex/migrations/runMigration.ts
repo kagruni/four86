@@ -18,3 +18,17 @@ export const runRemoveStopLossEnabledMigration = action({
     return result;
   },
 });
+
+export const runHybridSelectionDefaultsMigration = action({
+  handler: async (ctx) => {
+    console.log("[migration] Running hybrid selection defaults migration...");
+
+    const result = await ctx.runMutation(
+      internal.migrations.updateHybridSelectionDefaults.updateHybridSelectionDefaults
+    );
+
+    console.log("[migration] Migration result:", result);
+
+    return result;
+  },
+});

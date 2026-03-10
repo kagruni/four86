@@ -314,6 +314,7 @@ export const runTradingCycle = internalAction({
           try {
             if (tradingMode === "alpha_arena" && (bot.useHybridSelection ?? false)) {
               console.log(`[LOOP-${loopId}] Using ALPHA ARENA hybrid candidate selector...`);
+              const includeSentimentContext = bot.includeSentimentContext ?? false;
               hybridCandidateSet = buildHybridCandidateSet({
                 decisionContext,
                 accountState,
@@ -361,6 +362,7 @@ export const runTradingCycle = internalAction({
                   accountState,
                   positions,
                   marketResearch: marketResearch || undefined,
+                  includeSentimentContext,
                   candidateSet: hybridCandidateSet,
                 });
               }
@@ -527,6 +529,8 @@ export const runTradingCycle = internalAction({
                 hybridSelection: {
                   scoreFloor: hybridCandidateSet.scoreFloor,
                   forcedHold: hybridCandidateSet.forcedHold,
+                  belowScoreFloor: hybridCandidateSet.belowScoreFloor,
+                  scoreGapToFloor: hybridCandidateSet.scoreGapToFloor,
                   holdReason: hybridCandidateSet.holdReason ?? null,
                   candidateCount: hybridCandidateSet.candidates.length,
                   blockedCandidateCount: hybridCandidateSet.blockedCandidates.length,
@@ -549,6 +553,10 @@ export const runTradingCycle = internalAction({
                 `###[HYBRID CANDIDATE SELECTION - ${new Date().toISOString()}]`,
                 `Score Floor: ${hybridCandidateSet.scoreFloor}`,
                 `Forced Hold: ${hybridCandidateSet.forcedHold ? "yes" : "no"}`,
+                `Below Score Floor: ${hybridCandidateSet.belowScoreFloor ? "yes" : "no"}`,
+                hybridCandidateSet.belowScoreFloor
+                  ? `Score Gap to Floor: ${hybridCandidateSet.scoreGapToFloor.toFixed(1)}`
+                  : null,
                 hybridCandidateSet.holdReason ? `Hold Reason: ${hybridCandidateSet.holdReason}` : null,
                 `###[TOP RANKED ENTRY CANDIDATES]`,
                 formatHybridCandidateSection(hybridCandidateSet),
@@ -556,7 +564,7 @@ export const runTradingCycle = internalAction({
                 formatHybridCloseSection(hybridCandidateSet.closeCandidates),
                 `###[CURRENT OPEN POSITIONS]`,
                 formatPositionsAlphaArena(positions),
-                formatSentimentContext(marketResearch),
+                (bot.includeSentimentContext ?? false) ? formatSentimentContext(marketResearch) : "",
               ].filter(Boolean).join("\n\n");
             } else {
               const marketSection = formatMarketDataAlphaArena(

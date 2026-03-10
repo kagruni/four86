@@ -19,7 +19,8 @@ IMPORTANT PRIORITY:
 - The ranked candidate set is the primary technical truth
 - Sentiment/news is secondary and may only be used as a weak tie-breaker
 - Broad sentiment labels like "risk_on", "risk_off", "bullish", or "bearish" are NOT enough by themselves to force a trade
-- A one-direction shortlist is NOT automatically a trade; it may still be thin, near the floor, or structurally weak
+- A one-direction shortlist is NOT automatically a trade, but do NOT reject it just because every valid setup points the same way
+- Clean pullback longs and clean bounce shorts are valid trade structures when the directional setup is coherent
 - Prefer HOLD when the shortlist is weak, near the score floor, mostly flat/choppy, nearly tied without a clear edge, or when an eligible CLOSE is more compelling
 
 SELECTION RULES:
@@ -29,7 +30,8 @@ SELECTION RULES:
   3. CLOSE using one provided close_symbol
 - Treat sentiment/news only as a tie-breaker between already-valid candidates
 - If the candidate list is weak, mixed, or unclear, choose HOLD
-- If all top candidates point the same way but are only marginally above the floor, choose HOLD
+- Scores are heuristic ranks, not probabilities; a mid-range score can still be tradable when the structure is clean
+- Prefer candidates showing a clean directional pullback or bounce over already-extended continuation entries
 - Never output a candidate_id or close_symbol that is not listed
 - Prefer HOLD over forcing a marginal trade
 
@@ -50,6 +52,7 @@ Account Value: {accountValue} USD
 Available Cash: {availableCash} USD
 Open Positions: {positionCount}
 Candidate Score Floor: {scoreFloor}
+Shortlist Status: {shortlistStatus}
 Direction Summary: {directionSummary}
 
 ###[TOP RANKED ENTRY CANDIDATES]
@@ -64,7 +67,8 @@ REMINDERS:
 - You may only choose HOLD, one listed candidate_id, or one listed close_symbol.
 - The deterministic filters are authoritative.
 - Sentiment may break ties, but sentiment alone must not force a trade.
-- A one-direction shortlist can still be too weak or too thin; choose HOLD when the edge is marginal.
+- A one-direction shortlist can still be too weak or too thin, but do not reject it only because it is one-direction.
+- Prefer clean pullback longs and clean bounce shorts over stretched continuation entries when the higher-timeframe direction still supports the trade.
 Respond with ONLY valid JSON.
 `);
 
@@ -131,6 +135,19 @@ export function formatHybridDirectionSummary(candidateSet: HybridCandidateSet): 
   return `Ranked entry candidates are mixed across directions: ${candidateSet.topCandidates
     .map((candidate) => `${candidate.symbol} ${candidate.decision} (${candidate.score.toFixed(1)})`)
     .join(", ")}.`;
+}
+
+export function formatHybridShortlistStatus(candidateSet: HybridCandidateSet): string {
+  if (candidateSet.topCandidates.length === 0) {
+    return "No valid entry candidates remain after deterministic filtering.";
+  }
+
+  const top = candidateSet.topCandidates[0];
+  if (candidateSet.belowScoreFloor) {
+    return `Top candidate ${top.id} is ${candidateSet.scoreGapToFloor.toFixed(1)} points below the configured floor.`;
+  }
+
+  return `Top candidate ${top.id} is above the configured floor.`;
 }
 
 export function formatHybridSentimentContext(

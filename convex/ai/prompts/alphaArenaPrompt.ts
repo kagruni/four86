@@ -73,8 +73,13 @@ function calculatePriceMomentum(priceHistory: number[]): PriceMomentum {
  */
 function calculateTrendDirection(priceVsEma20Pct: number, ema20VsEma50Pct: number): TrendDirection {
   const threshold = 0.3;
-  if (priceVsEma20Pct > threshold && ema20VsEma50Pct > threshold) return "BULLISH";
-  if (priceVsEma20Pct < -threshold && ema20VsEma50Pct < -threshold) return "BEARISH";
+  if (ema20VsEma50Pct > threshold && priceVsEma20Pct > -(threshold / 2)) return "BULLISH";
+  if (ema20VsEma50Pct < -threshold && priceVsEma20Pct < threshold / 2) return "BEARISH";
+
+  const weakThreshold = threshold / 3;
+  if (priceVsEma20Pct > weakThreshold && ema20VsEma50Pct > weakThreshold) return "BULLISH";
+  if (priceVsEma20Pct < -weakThreshold && ema20VsEma50Pct < -weakThreshold) return "BEARISH";
+
   return "NEUTRAL";
 }
 
@@ -86,14 +91,46 @@ export interface AlphaArenaRegimePromptConfig {
   greenDayShortBlockPct?: number;
 }
 
-function describeTrendContext(trendDirection: TrendDirection, momentum: PriceMomentum): string {
+function describeTrendContext(
+  trendDirection: TrendDirection,
+  momentum: PriceMomentum,
+  fourHourEmaGapPct: number
+): string {
   if (trendDirection === "BULLISH" && momentum === "RISING") return "Context: bullish trend with rising intraday momentum";
   if (trendDirection === "BULLISH" && momentum === "FLAT") return "Context: bullish trend but intraday momentum is flat";
   if (trendDirection === "BULLISH" && momentum === "FALLING") return "Context: bullish higher timeframe, but intraday momentum is fading";
   if (trendDirection === "BEARISH" && momentum === "FALLING") return "Context: bearish trend with falling intraday momentum";
   if (trendDirection === "BEARISH" && momentum === "FLAT") return "Context: bearish trend but intraday momentum is flat";
   if (trendDirection === "BEARISH" && momentum === "RISING") return "Context: bearish higher timeframe, but intraday momentum is rebounding";
-  return "Context: mixed regime, no directional edge";
+
+  const leanThreshold = 0.15;
+  if (fourHourEmaGapPct >= leanThreshold) {
+    if (momentum === "RISING") {
+      return "Context: neutral trigger state, but the 4h structure still leans bullish and intraday momentum is rising";
+    }
+    if (momentum === "FLAT") {
+      return "Context: neutral trigger state, but the 4h structure still leans bullish while intraday momentum stabilizes";
+    }
+    return "Context: neutral trigger state inside a bullish 4h lean; this looks more like a pullback than a breakdown";
+  }
+
+  if (fourHourEmaGapPct <= -leanThreshold) {
+    if (momentum === "FALLING") {
+      return "Context: neutral trigger state, but the 4h structure still leans bearish and intraday momentum is falling";
+    }
+    if (momentum === "FLAT") {
+      return "Context: neutral trigger state, but the 4h structure still leans bearish while intraday momentum stalls";
+    }
+    return "Context: neutral trigger state inside a bearish 4h lean; this looks more like a rebound than a reversal";
+  }
+
+  if (momentum === "RISING") {
+    return "Context: no confirmed trend yet, but intraday momentum is rising and a breakout could be forming";
+  }
+  if (momentum === "FALLING") {
+    return "Context: no confirmed trend yet, but intraday momentum is fading and a breakdown could be forming";
+  }
+  return "Context: no confirmed trend and momentum is flat; treat this as a range or transition state";
 }
 
 function stripConstraintPrefix(reason: string): string {
@@ -286,14 +323,14 @@ export function buildAlphaArenaDecisionTrace(
 // SYSTEM PROMPT - Alpha Arena Style
 // =============================================================================
 
-export const ALPHA_ARENA_SYSTEM_PROMPT = SystemMessagePromptTemplate.fromTemplate(`
+export const ALPHA_ARENA_SYSTEM_PROMPT_TEMPLATE = `
 You are an autonomous crypto trading AI for Hyperliquid DEX perpetual futures.
 Your goal is PROFITABILITY through leveraged trading with disciplined risk management.
 
 TRADING DISCIPLINE:
 - Use LEVERAGE only when the setup is aligned across regime and momentum
 - Always provide a stop_loss for new entries. When managed exits are disabled, also provide a take_profit.
-- Default is HOLD when signals are mixed
+- Default is HOLD when no symbol shows a clear continuation, pullback, or reversal edge
 - Protect winners: If profitable (>=+0.5%) and momentum reverses, close to lock in gains
 - Let stop loss handle losers — do not invent discretionary exits at breakeven
 - Treat pullback longs and pullback shorts symmetrically when higher timeframe context supports mean reversion
@@ -455,9 +492,13 @@ RULES:
 - When managed exits are enabled, OPEN decisions may omit take_profit or set it to null
 - For HOLD or CLOSE, omit leverage/size_usd/stop_loss/take_profit unless needed
 
-If regime is mixed or you are choosing between a weak long and a weak short, return HOLD.
+If no symbol shows a clear continuation, pullback, or reversal edge after weighing intraday, 1h, and 4h context, return HOLD.
 If a bullish 4h pullback long or bearish 4h bounce short is clearly better than the alternative, you may trade it even when the 1h is lagging, as long as momentum has stopped moving against the trade.
-`);
+`;
+
+export const ALPHA_ARENA_SYSTEM_PROMPT = SystemMessagePromptTemplate.fromTemplate(
+  ALPHA_ARENA_SYSTEM_PROMPT_TEMPLATE
+);
 
 // =============================================================================
 // MARKET DATA PROMPT - Alpha Arena Style
@@ -537,7 +578,11 @@ export function formatMarketDataAlphaArena(
     const ema20VsEma50Pct = ((data.ema20_4h - data.ema50_4h) / data.ema50_4h) * 100;
     const priceMomentum = calculatePriceMomentum(data.priceHistory);
     const trendDirection = calculateTrendDirection(priceVsEma20Pct, ema20VsEma50Pct);
-    const trendContext = describeTrendContext(trendDirection, priceMomentum);
+    const trendContext = describeTrendContext(
+      trendDirection,
+      priceMomentum,
+      ema20VsEma50Pct
+    );
     const runtimeConstraints = buildRuntimeConstraints(data, regimeConfig);
 
     // ATR-based volatility classification
@@ -549,7 +594,7 @@ export function formatMarketDataAlphaArena(
     const tpDistance = data.atr14_4h * tpAtrMultiplier;
 
     lines.push(`$${symbol}:`);
-    lines.push(`[TREND ANALYSIS - READ FIRST]`);
+    lines.push(`[TREND SNAPSHOT]`);
     lines.push(`Trend: ${trendDirection} | Momentum: ${priceMomentum}`);
     lines.push(`Price vs EMA20: ${priceVsEma20Pct > 0 ? "ABOVE" : "BELOW"} (${priceVsEma20Pct.toFixed(2)}%)`);
     lines.push(`${trendContext}`);

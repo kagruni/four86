@@ -114,7 +114,7 @@ const botConfigSchema = z.object({
   reentryCooldownMinutes: z.number().min(1).max(60),
   tradingIntervalMinutes: z.number().int().min(1).max(10),
   useHybridSelection: z.boolean(),
-  hybridScoreFloor: z.number().min(50).max(90),
+  hybridScoreFloor: z.number().min(30).max(90),
   hybridFourHourTrendThresholdPct: z.number().min(0.1).max(3.0),
   hybridExtremeRsi7Block: z.number().min(10).max(40),
   hybridMinChopVolumeRatio: z.number().min(0.1).max(2.0),
@@ -1477,7 +1477,7 @@ export default function SettingsPage() {
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <Label htmlFor="hybrid-score-floor" className="text-foreground">Hybrid Score Floor</Label>
-                        <InfoHint text="Minimum deterministic score required before the hybrid selector should consider an entry setup strong enough to trade." />
+                        <InfoHint text="Reference floor for the hybrid shortlist. Scores in the low 40s are normal on the current scale, so setting this too high can suppress trading even when valid candidates exist." />
                       </div>
                       <Input
                         id="hybrid-score-floor"

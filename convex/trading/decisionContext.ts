@@ -98,8 +98,13 @@ export function calculateTrendDirection(
   secondPct: number,
   threshold: number = 0.3
 ): SnapshotTrendDirection {
-  if (firstPct > threshold && secondPct > threshold) return "BULLISH";
-  if (firstPct < -threshold && secondPct < -threshold) return "BEARISH";
+  if (secondPct > threshold && firstPct > -(threshold / 2)) return "BULLISH";
+  if (secondPct < -threshold && firstPct < threshold / 2) return "BEARISH";
+
+  const weakThreshold = threshold / 3;
+  if (firstPct > weakThreshold && secondPct > weakThreshold) return "BULLISH";
+  if (firstPct < -weakThreshold && secondPct < -weakThreshold) return "BEARISH";
+
   return "NEUTRAL";
 }
 

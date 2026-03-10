@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import { format, endOfDay, startOfDay } from "date-fns";
+import type { DateRange } from "react-day-picker";
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { Calendar } from "@/components/ui/calendar";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -18,15 +22,50 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Copy, Download, Loader2 } from "lucide-react";
+import { CalendarIcon, Copy, Download, Loader2 } from "lucide-react";
 
-const LIMIT_OPTIONS = [25, 50, 100];
 const DECISION_SCOPE_OPTIONS = [
   { value: "tradesOnly", label: "Trades only" },
   { value: "all", label: "All decisions" },
 ] as const;
+const DEFAULT_LIMIT = 50;
+const MIN_LIMIT = 1;
+const MAX_LIMIT = 1000;
 
 type DecisionScope = (typeof DECISION_SCOPE_OPTIONS)[number]["value"];
+type DateFilterMode = "today" | "single" | "range";
+
+function createTodayRange(): DateRange {
+  const today = new Date();
+  return {
+    from: today,
+    to: today,
+  };
+}
+
+function getSafeRange(range: DateRange | undefined): { from: Date; to: Date } {
+  const fallback = createTodayRange();
+  return {
+    from: range?.from ?? fallback.from!,
+    to: range?.to ?? range?.from ?? fallback.to!,
+  };
+}
+
+function formatDateFilterLabel(mode: DateFilterMode, range: DateRange | undefined) {
+  if (mode === "today") {
+    return "Today";
+  }
+
+  if (!range?.from) {
+    return mode === "single" ? "Select date" : "Select range";
+  }
+
+  if (mode === "single" || !range.to) {
+    return format(range.from, "PPP");
+  }
+
+  return `${format(range.from, "PPP")} - ${format(range.to, "PPP")}`;
+}
 
 function formatTimestamp(timestamp: number) {
   return new Date(timestamp).toLocaleString("en-US", {
@@ -175,15 +214,35 @@ function downloadFile(filename: string, contents: string, contentType: string) {
 }
 
 export default function TradeDebugExportCard({ userId }: { userId: string }) {
-  const [limit, setLimit] = useState(50);
+  const [limitInput, setLimitInput] = useState(String(DEFAULT_LIMIT));
   const [decisionScope, setDecisionScope] = useState<DecisionScope>("tradesOnly");
-  const [todayOnly, setTodayOnly] = useState(false);
+  const [dateFilterMode, setDateFilterMode] = useState<DateFilterMode>("today");
+  const [selectedRange, setSelectedRange] = useState<DateRange | undefined>(() => createTodayRange());
   const { toast } = useToast();
-  const todayStart = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    return start.getTime();
-  }, []);
+  const limit = useMemo(() => {
+    const parsed = Number.parseInt(limitInput, 10);
+    if (Number.isNaN(parsed)) {
+      return DEFAULT_LIMIT;
+    }
+
+    return Math.min(Math.max(parsed, MIN_LIMIT), MAX_LIMIT);
+  }, [limitInput]);
+  const dateBounds = useMemo(() => {
+    const activeRange =
+      dateFilterMode === "today"
+        ? getSafeRange(createTodayRange())
+        : selectedRange?.from
+          ? getSafeRange(selectedRange)
+          : getSafeRange(undefined);
+    const fromDate = activeRange.from;
+    const toDate = activeRange.to;
+
+    return {
+      since: startOfDay(fromDate).getTime(),
+      until: endOfDay(toDate).getTime(),
+      exportLabel: formatDateFilterLabel(dateFilterMode, activeRange),
+    };
+  }, [dateFilterMode, selectedRange]);
   const rows = useQuery(
     api.queries.getRecentTradeDebugExport,
     userId
@@ -191,7 +250,8 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
           userId,
           limit,
           decisionScope,
-          since: todayOnly ? todayStart : undefined,
+          since: dateBounds.since,
+          until: dateBounds.until,
         }
       : "skip"
   );
@@ -214,7 +274,12 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
           exportedAt: new Date().toISOString(),
           limit,
           decisionScope,
-          todayOnly,
+          dateFilterMode,
+          dateRange: {
+            since: dateBounds.since,
+            until: dateBounds.until,
+            label: dateBounds.exportLabel,
+          },
           records: rows,
         },
         null,
@@ -248,7 +313,12 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
             exportedAt: new Date().toISOString(),
             limit,
             decisionScope,
-            todayOnly,
+            dateFilterMode,
+            dateRange: {
+              since: dateBounds.since,
+              until: dateBounds.until,
+              label: dateBounds.exportLabel,
+            },
             records: rows,
           },
           null,
@@ -300,33 +370,99 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
                 </Button>
               ))}
             </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {([
+                { value: "today", label: "Today" },
+                { value: "single", label: "Single date" },
+                { value: "range", label: "Date range" },
+              ] as const).map((option) => (
+                <Button
+                  key={option.value}
+                  variant={dateFilterMode === option.value ? "default" : "outline"}
+                  size="sm"
+                  className={
+                    dateFilterMode === option.value
+                      ? "bg-foreground text-background hover:bg-foreground/80"
+                      : "border-border text-foreground"
+                  }
+                  onClick={() => {
+                    setDateFilterMode(option.value);
+                    if (option.value === "today") {
+                      setSelectedRange(createTodayRange());
+                    }
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-w-[180px] justify-start border-border text-left font-mono text-foreground"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {formatDateFilterLabel(dateFilterMode, selectedRange)}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  {dateFilterMode === "range" ? (
+                    <Calendar
+                      mode="range"
+                      selected={selectedRange}
+                      onSelect={setSelectedRange}
+                      disabled={(date) => date > new Date()}
+                      defaultMonth={selectedRange?.from ?? new Date()}
+                      numberOfMonths={2}
+                    />
+                  ) : (
+                    <Calendar
+                      mode="single"
+                      selected={selectedRange?.from}
+                      onSelect={(value) => {
+                        if (!value) {
+                          return;
+                        }
+
+                        if (dateFilterMode === "today") {
+                          setDateFilterMode("single");
+                        }
+
+                        setSelectedRange({ from: value, to: value });
+                      }}
+                      disabled={(date) => date > new Date()}
+                      defaultMonth={selectedRange?.from ?? new Date()}
+                    />
+                  )}
+                </PopoverContent>
+              </Popover>
+            </div>
             <div className="flex flex-wrap items-center justify-end gap-3">
               <div className="flex items-center gap-2">
-                <Switch
-                  id="trade-debug-today-only"
-                  checked={todayOnly}
-                  onCheckedChange={setTodayOnly}
-                />
-                <Label htmlFor="trade-debug-today-only" className="text-sm text-foreground">
-                  Today only
-                </Label>
+                <Label className="text-sm text-foreground">Window</Label>
+                <Badge variant="outline" className="border-foreground text-foreground">
+                  {dateBounds.exportLabel}
+                </Badge>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {LIMIT_OPTIONS.map((option) => (
-                  <Button
-                    key={option}
-                    variant={limit === option ? "default" : "outline"}
-                    size="sm"
-                    className={
-                      limit === option
-                        ? "bg-foreground text-background hover:bg-foreground/80"
-                        : "border-border text-foreground"
-                    }
-                    onClick={() => setLimit(option)}
-                  >
-                    {option}
-                  </Button>
-                ))}
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="trade-debug-limit" className="text-sm text-foreground">
+                    Records
+                  </Label>
+                  <Input
+                    id="trade-debug-limit"
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_LIMIT}
+                    max={MAX_LIMIT}
+                    step={1}
+                    value={limitInput}
+                    onChange={(event) => setLimitInput(event.target.value)}
+                    onBlur={() => setLimitInput(String(limit))}
+                    className="h-9 w-24 border-border font-mono text-sm text-foreground"
+                  />
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -526,7 +662,16 @@ export default function TradeDebugExportCard({ userId }: { userId: string }) {
                                   {typeof deterministic.forcedHold === "boolean"
                                     ? ` • Forced hold ${deterministic.forcedHold ? "yes" : "no"}`
                                     : ""}
+                                  {typeof deterministic.belowScoreFloor === "boolean"
+                                    ? ` • Below floor ${deterministic.belowScoreFloor ? "yes" : "no"}`
+                                    : ""}
                                 </div>
+                                {typeof deterministic.scoreGapToFloor === "number" &&
+                                deterministic.scoreGapToFloor > 0 ? (
+                                  <div className="font-mono text-muted-foreground">
+                                    Gap to floor {deterministic.scoreGapToFloor.toFixed(1)}
+                                  </div>
+                                ) : null}
                                 {deterministic.selectedCandidate ? (
                                   <div className="rounded border border-border bg-muted/50 p-2 font-mono text-[11px] text-foreground">
                                     Selected: {deterministic.selectedCandidate.id} • Score{" "}

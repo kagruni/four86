@@ -6,6 +6,7 @@ import { useUser } from "@clerk/nextjs";
 import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { DEFAULT_HYBRID_SELECTION_RULES } from "@/convex/trading/hybridSelectionConfig";
 
 const BacktestChart = dynamic(() => import("./BacktestChart"), { ssr: false });
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,7 +118,9 @@ export default function BacktestPage() {
     botConfig?.currentCapital ?? botConfig?.startingCapital ?? 0;
   const effectiveMaxLeverage = botConfig?.maxLeverage ?? 0;
   const effectiveTradingIntervalMinutes = botConfig?.tradingIntervalMinutes ?? 5;
-  const effectiveHybridScoreFloor = botConfig?.hybridScoreFloor ?? 64;
+  const effectiveHybridScoreFloor =
+    botConfig?.hybridScoreFloor ??
+    DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor;
   const configuredSymbolsLabel = configuredSymbols.join(", ");
 
   const handleStartBacktest = async () => {
@@ -788,7 +791,9 @@ function TradeDetails({ run, results, testnet }: { run: any; results: any; testn
         {run.useHybridSelection && (
           <p className="text-sm text-muted-foreground">
             Hybrid score floor at run start:{" "}
-            {run.effectiveHybridScoreFloor ?? run.hybridScoreFloor ?? 64}
+            {run.effectiveHybridScoreFloor ??
+              run.hybridScoreFloor ??
+              DEFAULT_HYBRID_SELECTION_RULES.hybridScoreFloor}
           </p>
         )}
         {run.diagnosticSummary && (

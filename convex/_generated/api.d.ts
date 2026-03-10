@@ -35,6 +35,7 @@ import type * as indicators_technicalIndicators from "../indicators/technicalInd
 import type * as liveQueries from "../liveQueries.js";
 import type * as migrations_removeStopLossEnabled from "../migrations/removeStopLossEnabled.js";
 import type * as migrations_runMigration from "../migrations/runMigration.js";
+import type * as migrations_updateHybridSelectionDefaults from "../migrations/updateHybridSelectionDefaults.js";
 import type * as mutations from "../mutations.js";
 import type * as preflight_preflightCheck from "../preflight/preflightCheck.js";
 import type * as queries from "../queries.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   liveQueries: typeof liveQueries;
   "migrations/removeStopLossEnabled": typeof migrations_removeStopLossEnabled;
   "migrations/runMigration": typeof migrations_runMigration;
+  "migrations/updateHybridSelectionDefaults": typeof migrations_updateHybridSelectionDefaults;
   mutations: typeof mutations;
   "preflight/preflightCheck": typeof preflight_preflightCheck;
   queries: typeof queries;

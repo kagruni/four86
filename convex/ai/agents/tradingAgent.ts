@@ -403,6 +403,7 @@ export const makeHybridAlphaArenaTradingDecision = action({
     accountState: v.any(),
     positions: v.any(),
     marketResearch: v.optional(v.any()),
+    includeSentimentContext: v.optional(v.boolean()),
     candidateSet: v.any(),
   },
   handler: async (ctx, args): Promise<TradeDecision> => {
@@ -428,7 +429,10 @@ export const makeHybridAlphaArenaTradingDecision = action({
       const chain = createHybridAlphaArenaSelectionChain(
         args.modelType,
         args.modelName,
-        apiKey
+        apiKey,
+        {
+          includeSentimentContext: args.includeSentimentContext ?? false,
+        }
       );
 
       const selection = await chain.invoke({

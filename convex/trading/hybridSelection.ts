@@ -78,6 +78,8 @@ export interface HybridCandidateSet {
   generatedAt: string;
   scoreFloor: number;
   forcedHold: boolean;
+  belowScoreFloor: boolean;
+  scoreGapToFloor: number;
   holdReason?: string;
   candidates: HybridCandidate[];
   blockedCandidates: HybridCandidate[];
@@ -149,6 +151,9 @@ function toCloseId(symbol: string): string {
   return `close_${symbol}`.toLowerCase();
 }
 
+const HARD_LONG_RSI7_BLOCK = 92;
+const HARD_SHORT_RSI7_BLOCK = 8;
+
 function buildSnapshotSummary(snapshot: DecisionContext["marketSnapshot"]["symbols"][string]): HybridCandidateSnapshot {
   return {
     currentPrice: snapshot.currentPrice,
@@ -182,7 +187,10 @@ export function validateHybridCandidateContext(
   const volumeRatio = snapshot.fourHour.volumeRatio;
   const momentum = snapshot.intraday.momentum;
   const rsi7 = snapshot.intraday.rsi7;
+  const dayChangePct = snapshot.dayChangePct;
   const notDirectionallyAligned = isLong ? hourlyEmaGapPct <= 0 : hourlyEmaGapPct >= 0;
+  const fourHourSupportsDirection = isLong ? fourHourTrendPct > 0 : fourHourTrendPct < 0;
+  const lacksDirectionalSupport = notDirectionallyAligned && !fourHourSupportsDirection;
   const fourHourCounterTrend = isLong
     ? fourHourTrendPct <= -rules.hybridFourHourTrendThresholdPct
     : fourHourTrendPct >= rules.hybridFourHourTrendThresholdPct;
@@ -196,26 +204,51 @@ export function validateHybridCandidateContext(
     };
   }
 
-  if (momentum === "FLAT" &&
+  if (
+    Math.abs(dayChangePct) < 2.0 &&
+    momentum === "FLAT" &&
     Math.abs(priceVsEma20Pct) < rules.hybridChopDistanceFromEmaPct &&
-    volumeRatio < rules.hybridMinChopVolumeRatio) {
+    volumeRatio < rules.hybridMinChopVolumeRatio
+  ) {
     return {
       allowed: false,
       reason: `Hybrid ${isLong ? "long" : "short"} blocked: flat low-volume chop (${volumeRatio.toFixed(2)}x volume, ${priceVsEma20Pct.toFixed(2)}% from EMA20).`,
     };
   }
 
-  if (isLong && rsi7 >= 100 - rules.hybridExtremeRsi7Block) {
+  if (isLong && rsi7 >= HARD_LONG_RSI7_BLOCK) {
     return {
       allowed: false,
-      reason: `Hybrid long blocked: RSI7 ${rsi7.toFixed(1)} is too overbought.`,
+      reason: `Hybrid long blocked: RSI7 ${rsi7.toFixed(1)} is at an unsustainably extreme level.`,
     };
   }
 
-  if (!isLong && rsi7 <= rules.hybridExtremeRsi7Block) {
+  if (
+    isLong &&
+    rsi7 >= 100 - rules.hybridExtremeRsi7Block &&
+    lacksDirectionalSupport
+  ) {
     return {
       allowed: false,
-      reason: `Hybrid short blocked: RSI7 ${rsi7.toFixed(1)} is too oversold.`,
+      reason: `Hybrid long blocked: RSI7 ${rsi7.toFixed(1)} is extended without bullish 1h or 4h support.`,
+    };
+  }
+
+  if (!isLong && rsi7 <= HARD_SHORT_RSI7_BLOCK) {
+    return {
+      allowed: false,
+      reason: `Hybrid short blocked: RSI7 ${rsi7.toFixed(1)} is at an unsustainably extreme level.`,
+    };
+  }
+
+  if (
+    !isLong &&
+    rsi7 <= rules.hybridExtremeRsi7Block &&
+    lacksDirectionalSupport
+  ) {
+    return {
+      allowed: false,
+      reason: `Hybrid short blocked: RSI7 ${rsi7.toFixed(1)} is extended without bearish 1h or 4h support.`,
     };
   }
 
@@ -306,14 +339,33 @@ export function calculateCandidateScore(
   const directionalHourlyGapPct = (isLong ? 1 : -1) * hourlyEmaGapPct;
   const directionalFourHourGapPct = (isLong ? 1 : -1) * ema20VsEma50Pct4h;
   const directionalSessionPct = (isLong ? 1 : -1) * dayChangePct;
+  const reversionDistancePct = -directionalPriceVsEma;
+  const reversionSessionPct = -directionalSessionPct;
+  const directionalRsiPullback = isLong ? 50 - rsi7 : rsi7 - 50;
 
-  const intradayAlignment = clamp(directionalPriceVsEma * 18, -12, 12);
+  const intradayAlignment = reversionDistancePct > 1.2
+    ? -8
+    : reversionDistancePct > 0.6
+      ? 4
+      : reversionDistancePct >= -0.15
+        ? 10
+        : reversionDistancePct >= -0.7
+          ? 3
+          : -4;
 
   const hourlyAlignment = clamp(directionalHourlyGapPct * 20, -10, 20);
 
   const fourHourAlignment = clamp(directionalFourHourGapPct * 12, -12, 18);
 
-  const sessionAlignment = clamp(directionalSessionPct * 4, -6, 6);
+  const sessionAlignment = reversionSessionPct > 3
+    ? -4
+    : reversionSessionPct > 1.5
+      ? 1
+      : reversionSessionPct >= -0.5
+        ? 4
+        : reversionSessionPct >= -2.5
+          ? 1
+          : -3;
 
   const volatilityQuality = atrPct < 1
     ? 6
@@ -321,19 +373,23 @@ export function calculateCandidateScore(
       ? 10
       : 7;
 
-  const rsiContext = rsi7 >= 40 && rsi7 <= 60
-    ? 5
-    : (rsi7 >= 35 && rsi7 < 40) || (rsi7 > 60 && rsi7 <= 65)
-      ? 2
-      : (rsi7 >= 25 && rsi7 < 35) || (rsi7 > 65 && rsi7 <= 75)
-        ? -2
-        : -8;
+  const rsiContext = directionalRsiPullback >= 35
+    ? -4
+    : directionalRsiPullback >= 20
+      ? 4
+      : directionalRsiPullback >= 5
+        ? 6
+        : directionalRsiPullback >= -8
+          ? 2
+          : directionalRsiPullback >= -18
+            ? -2
+            : -6;
 
   const volumeQuality = clamp((volumeRatio - 0.9) * 10, -6, 6);
 
   const momentumPenalty = isLong
-    ? momentum === "RISING" ? 0 : momentum === "FLAT" ? -4 : -12
-    : momentum === "FALLING" ? 0 : momentum === "FLAT" ? -4 : -12;
+    ? momentum === "RISING" ? 0 : momentum === "FLAT" ? -1 : -3
+    : momentum === "FALLING" ? 0 : momentum === "FLAT" ? -1 : -3;
 
   const total = clamp(
     intradayAlignment +
@@ -576,18 +632,22 @@ export function buildHybridCandidateSet(args: BuildHybridCandidateSetArgs): Hybr
     })
     .filter((candidate) => candidate.allowed);
 
-  const forcedHold = topCandidates.length === 0 || (topCandidates[0].score < scoreFloor && closeCandidates.length === 0);
-  const holdReason = topCandidates.length === 0
+  const forcedHold = topCandidates.length === 0;
+  const belowScoreFloor = topCandidates.length > 0 && topCandidates[0].score < scoreFloor;
+  const scoreGapToFloor = belowScoreFloor
+    ? Number((scoreFloor - topCandidates[0].score).toFixed(1))
+    : 0;
+  const holdReason = forcedHold
     ? "No valid open candidates remain after deterministic filtering."
-    : topCandidates[0].score < scoreFloor
-      ? `Best deterministic setup scored ${topCandidates[0].score.toFixed(1)} below the ${scoreFloor} floor.`
-      : undefined;
+    : undefined;
 
   return {
     selectionMode: "hybrid_llm_ranked",
     generatedAt,
     scoreFloor,
     forcedHold,
+    belowScoreFloor,
+    scoreGapToFloor,
     holdReason,
     candidates: validCandidates,
     blockedCandidates,

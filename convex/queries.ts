@@ -1,5 +1,6 @@
 import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { normalizeHybridSelectionConfig } from "./trading/hybridSelectionConfig";
 
 const AI_LOG_MATCH_WINDOW_MS = 10 * 60 * 1000;
 
@@ -262,6 +263,8 @@ function serializeDeterministicFilters(log: any) {
     scoreFloor: candidateSet.scoreFloor ?? null,
     forcedHold: candidateSet.forcedHold ?? null,
     holdReason: candidateSet.holdReason ?? null,
+    belowScoreFloor: candidateSet.belowScoreFloor ?? null,
+    scoreGapToFloor: candidateSet.scoreGapToFloor ?? null,
     topCandidates: candidateSet.topCandidates ?? [],
     blockedCandidates: candidateSet.blockedCandidates ?? [],
     closeCandidates: candidateSet.closeCandidates ?? [],
@@ -315,20 +318,24 @@ export const hasCredentials = query({
 export const getBotConfig = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const config = await ctx.db
       .query("botConfig")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
+
+    return config ? normalizeHybridSelectionConfig(config) : null;
   },
 });
 
 // Get all active bots (for cron jobs)
 export const getActiveBots = query({
   handler: async (ctx) => {
-    return await ctx.db
+    const configs = await ctx.db
       .query("botConfig")
       .filter((q) => q.eq(q.field("isActive"), true))
       .collect();
+
+    return configs.map((config) => normalizeHybridSelectionConfig(config));
   },
 });
 
@@ -382,30 +389,61 @@ export const getRecentTradeDebugExport = query({
     limit: v.optional(v.number()),
     decisionScope: v.optional(v.union(v.literal("tradesOnly"), v.literal("all"))),
     since: v.optional(v.number()),
+    until: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 100;
     const decisionScope = args.decisionScope ?? "tradesOnly";
 
-    const tradesQuery = args.since
-      ? ctx.db
-          .query("trades")
-          .withIndex("by_userId_time", (q) =>
-            q.eq("userId", args.userId).gte("executedAt", args.since!)
-          )
-      : ctx.db
-          .query("trades")
-          .withIndex("by_userId_time", (q) => q.eq("userId", args.userId));
+    const tradesQuery =
+      args.since !== undefined && args.until !== undefined
+        ? ctx.db
+            .query("trades")
+            .withIndex("by_userId_time", (q) =>
+              q.eq("userId", args.userId)
+                .gte("executedAt", args.since!)
+                .lte("executedAt", args.until!)
+            )
+        : args.since !== undefined
+          ? ctx.db
+              .query("trades")
+              .withIndex("by_userId_time", (q) =>
+                q.eq("userId", args.userId).gte("executedAt", args.since!)
+              )
+          : args.until !== undefined
+            ? ctx.db
+                .query("trades")
+                .withIndex("by_userId_time", (q) =>
+                  q.eq("userId", args.userId).lte("executedAt", args.until!)
+                )
+            : ctx.db
+                .query("trades")
+                .withIndex("by_userId_time", (q) => q.eq("userId", args.userId));
 
-    const aiLogsQuery = args.since
-      ? ctx.db
-          .query("aiLogs")
-          .withIndex("by_userId_time", (q) =>
-            q.eq("userId", args.userId).gte("createdAt", args.since!)
-          )
-      : ctx.db
-          .query("aiLogs")
-          .withIndex("by_userId_time", (q) => q.eq("userId", args.userId));
+    const aiLogsQuery =
+      args.since !== undefined && args.until !== undefined
+        ? ctx.db
+            .query("aiLogs")
+            .withIndex("by_userId_time", (q) =>
+              q.eq("userId", args.userId)
+                .gte("createdAt", args.since!)
+                .lte("createdAt", args.until!)
+            )
+        : args.since !== undefined
+          ? ctx.db
+              .query("aiLogs")
+              .withIndex("by_userId_time", (q) =>
+                q.eq("userId", args.userId).gte("createdAt", args.since!)
+              )
+          : args.until !== undefined
+            ? ctx.db
+                .query("aiLogs")
+                .withIndex("by_userId_time", (q) =>
+                  q.eq("userId", args.userId).lte("createdAt", args.until!)
+                )
+            : ctx.db
+                .query("aiLogs")
+                .withIndex("by_userId_time", (q) => q.eq("userId", args.userId));
 
     const trades = await tradesQuery.order("desc").take(limit);
     const aiLogs = await aiLogsQuery.order("desc").take(Math.max(limit * 6, 120));
