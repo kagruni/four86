@@ -32,6 +32,10 @@ export interface DetailedCoinData {
   rsi14History: number[];
 
   // 4-hour context
+  ema20_15m: number;
+  ema50_15m: number;
+  rsi7_15m: number;
+  priceHistory_15m: number[];
   ema20_1h: number;
   ema50_1h: number;
   priceHistory_1h: number[];
@@ -123,6 +127,7 @@ function averageLast(values: number[], periods: number, fallback: number): numbe
 export function buildDetailedCoinDataFromCandles(
   symbol: string,
   candles1m: Candle[],
+  candles15m: Candle[],
   candles1h: Candle[],
   candles4h: Candle[],
   candles1d: Candle[]
@@ -131,10 +136,12 @@ export function buildDetailedCoinDataFromCandles(
 
   const intradayIndicators = calculateHistoricalIndicators(candles2m, 10);
   const closePrices2m = extractClosePrices(candles2m);
+  const closePrices15m = extractClosePrices(candles15m);
   const closePrices1h = extractClosePrices(candles1h);
   const closePrices4h = extractClosePrices(candles4h);
   const fallbackPrice =
     closePrices2m[closePrices2m.length - 1] ??
+    closePrices15m[closePrices15m.length - 1] ??
     closePrices1h[closePrices1h.length - 1] ??
     closePrices4h[closePrices4h.length - 1] ??
     candles1d[candles1d.length - 1]?.c ??
@@ -155,6 +162,15 @@ export function buildDetailedCoinDataFromCandles(
     : 50;
 
   const fourHourIndicators = calculateHistoricalIndicators(candles4h, 10);
+  const ema20_15m = closePrices15m.length >= 20
+    ? calculateEMA(closePrices15m, 20)
+    : averageLast(closePrices15m, 20, currentPrice);
+  const ema50_15m = closePrices15m.length >= 50
+    ? calculateEMA(closePrices15m, 50)
+    : averageLast(closePrices15m, 50, currentPrice);
+  const rsi7_15m = closePrices15m.length >= 8
+    ? calculateRSI(closePrices15m, 7)
+    : 50;
   const ema20_1h = closePrices1h.length >= 20
     ? calculateEMA(closePrices1h, 20)
     : averageLast(closePrices1h, 20, currentPrice);
@@ -199,6 +215,10 @@ export function buildDetailedCoinDataFromCandles(
     macdHistory: intradayIndicators.macdHistory,
     rsi7History: intradayIndicators.rsi7History,
     rsi14History: intradayIndicators.rsi14History,
+    ema20_15m,
+    ema50_15m,
+    rsi7_15m,
+    priceHistory_15m: closePrices15m.slice(-10),
     ema20_1h,
     ema50_1h,
     priceHistory_1h: closePrices1h.slice(-10),
@@ -225,16 +245,18 @@ async function getDetailedCoinData(
   symbol: string,
   testnet: boolean
 ): Promise<DetailedCoinData> {
-  // Fetch 1-minute candles and aggregate to 2-minute (need at least 50 for calculations + 10 for history)
-  const candles1m = await fetchCandlesInternal(symbol, "1m", 120, testnet); // Fetch 120 1m candles
+  const [candles1m, candles15m, candles1h, candles4h, candles1d] = await Promise.all([
+    fetchCandlesInternal(symbol, "1m", 120, testnet),
+    fetchCandlesInternal(symbol, "15m", 80, testnet),
+    fetchCandlesInternal(symbol, "1h", 80, testnet),
+    fetchCandlesInternal(symbol, "4h", 60, testnet),
+    fetchCandlesInternal(symbol, "1d", 7, testnet),
+  ]);
 
-  const candles1h = await fetchCandlesInternal(symbol, "1h", 80, testnet);
-  // Fetch 4-hour candles (need at least 50 + 10 for history)
-  const candles4h = await fetchCandlesInternal(symbol, "4h", 60, testnet);
-  const candles1d = await fetchCandlesInternal(symbol, "1d", 7, testnet);
   return buildDetailedCoinDataFromCandles(
     symbol,
     candles1m,
+    candles15m,
     candles1h,
     candles4h,
     candles1d
@@ -274,6 +296,10 @@ export const getDetailedMarketData = action({
             macdHistory: [],
             rsi7History: [],
             rsi14History: [],
+            ema20_15m: 0,
+            ema50_15m: 0,
+            rsi7_15m: 0,
+            priceHistory_15m: [],
             ema20_1h: 0,
             ema50_1h: 0,
             priceHistory_1h: [],

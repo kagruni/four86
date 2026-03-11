@@ -14,6 +14,7 @@ export type HybridSelectionMode = "legacy_llm" | "hybrid_llm_ranked";
 
 export interface HybridScoreBreakdown {
   intradayAlignment: number;
+  fifteenMinuteAlignment: number;
   hourlyAlignment: number;
   fourHourAlignment: number;
   sessionAlignment: number;
@@ -42,11 +43,16 @@ export interface HybridCandidateSnapshot {
   dayChangePct: number;
   intradayMomentum: string;
   intradayTrend: string;
+  fifteenMinuteMomentum: string;
+  fifteenMinuteTrend: string;
   hourlyTrend: string;
   fourHourTrend: string;
   priceVsEma20Pct: number;
+  priceVsEma20Pct15m: number;
+  ema20VsEma50Pct15m: number;
   ema20VsEma50Pct4h: number;
   rsi7: number;
+  rsi7_15m: number;
   volumeRatio: number;
 }
 
@@ -160,11 +166,16 @@ function buildSnapshotSummary(snapshot: DecisionContext["marketSnapshot"]["symbo
     dayChangePct: snapshot.dayChangePct,
     intradayMomentum: snapshot.intraday.momentum,
     intradayTrend: snapshot.intraday.trendDirection,
+    fifteenMinuteMomentum: snapshot.fifteenMinute.momentum,
+    fifteenMinuteTrend: snapshot.fifteenMinute.trendDirection,
     hourlyTrend: snapshot.hourly.trendDirection,
     fourHourTrend: snapshot.fourHour.trendDirection,
     priceVsEma20Pct: snapshot.intraday.priceVsEma20Pct,
+    priceVsEma20Pct15m: snapshot.fifteenMinute.priceVsEma20Pct,
+    ema20VsEma50Pct15m: snapshot.fifteenMinute.ema20VsEma50Pct,
     ema20VsEma50Pct4h: snapshot.fourHour.ema20VsEma50Pct,
     rsi7: snapshot.intraday.rsi7,
+    rsi7_15m: snapshot.fifteenMinute.rsi7,
     volumeRatio: snapshot.fourHour.volumeRatio,
   };
 }
@@ -175,6 +186,12 @@ function getHourlyEmaGapPct(snapshot: DecisionContext["marketSnapshot"]["symbols
   return ((snapshot.hourly.ema20 - hourlyEma50) / hourlyEma50) * 100;
 }
 
+function getFifteenMinuteEmaGapPct(snapshot: DecisionContext["marketSnapshot"]["symbols"][string]): number {
+  const fifteenMinuteEma50 = snapshot.fifteenMinute.ema50;
+  if (!fifteenMinuteEma50) return 0;
+  return ((snapshot.fifteenMinute.ema20 - fifteenMinuteEma50) / fifteenMinuteEma50) * 100;
+}
+
 export function validateHybridCandidateContext(
   snapshot: DecisionContext["marketSnapshot"]["symbols"][string],
   decision: HybridDirectionDecision,
@@ -182,37 +199,44 @@ export function validateHybridCandidateContext(
 ): { allowed: boolean; reason: string } {
   const isLong = decision === "OPEN_LONG";
   const hourlyEmaGapPct = getHourlyEmaGapPct(snapshot);
+  const fifteenMinuteEmaGapPct = getFifteenMinuteEmaGapPct(snapshot);
   const fourHourTrendPct = snapshot.fourHour.ema20VsEma50Pct;
   const priceVsEma20Pct = snapshot.intraday.priceVsEma20Pct;
+  const fifteenMinutePriceVsEma20Pct = snapshot.fifteenMinute.priceVsEma20Pct;
   const volumeRatio = snapshot.fourHour.volumeRatio;
   const momentum = snapshot.intraday.momentum;
+  const fifteenMinuteMomentum = snapshot.fifteenMinute.momentum;
   const rsi7 = snapshot.intraday.rsi7;
+  const fifteenMinuteRsi7 = snapshot.fifteenMinute.rsi7;
   const dayChangePct = snapshot.dayChangePct;
   const notDirectionallyAligned = isLong ? hourlyEmaGapPct <= 0 : hourlyEmaGapPct >= 0;
+  const setupNotDirectionallyAligned = isLong ? fifteenMinuteEmaGapPct <= 0 : fifteenMinuteEmaGapPct >= 0;
   const fourHourSupportsDirection = isLong ? fourHourTrendPct > 0 : fourHourTrendPct < 0;
-  const lacksDirectionalSupport = notDirectionallyAligned && !fourHourSupportsDirection;
+  const lacksDirectionalSupport = notDirectionallyAligned && setupNotDirectionallyAligned && !fourHourSupportsDirection;
   const fourHourCounterTrend = isLong
     ? fourHourTrendPct <= -rules.hybridFourHourTrendThresholdPct
     : fourHourTrendPct >= rules.hybridFourHourTrendThresholdPct;
 
-  if (fourHourCounterTrend && notDirectionallyAligned) {
+  if (fourHourCounterTrend && notDirectionallyAligned && setupNotDirectionallyAligned) {
     return {
       allowed: false,
       reason: isLong
-        ? `Hybrid long blocked: 4h EMA gap is ${fourHourTrendPct.toFixed(2)}% bearish and 1h is not bullish.`
-        : `Hybrid short blocked: 4h EMA gap is ${fourHourTrendPct.toFixed(2)}% bullish and 1h is not bearish.`,
+        ? `Hybrid long blocked: 4h EMA gap is ${fourHourTrendPct.toFixed(2)}% bearish and 1h/15m are not bullish.`
+        : `Hybrid short blocked: 4h EMA gap is ${fourHourTrendPct.toFixed(2)}% bullish and 1h/15m are not bearish.`,
     };
   }
 
   if (
     Math.abs(dayChangePct) < 2.0 &&
     momentum === "FLAT" &&
+    fifteenMinuteMomentum === "FLAT" &&
     Math.abs(priceVsEma20Pct) < rules.hybridChopDistanceFromEmaPct &&
+    Math.abs(fifteenMinutePriceVsEma20Pct) < rules.hybridChopDistanceFromEmaPct * 1.5 &&
     volumeRatio < rules.hybridMinChopVolumeRatio
   ) {
     return {
       allowed: false,
-      reason: `Hybrid ${isLong ? "long" : "short"} blocked: flat low-volume chop (${volumeRatio.toFixed(2)}x volume, ${priceVsEma20Pct.toFixed(2)}% from EMA20).`,
+      reason: `Hybrid ${isLong ? "long" : "short"} blocked: flat low-volume chop across 2m/15m (${volumeRatio.toFixed(2)}x volume).`,
     };
   }
 
@@ -225,12 +249,12 @@ export function validateHybridCandidateContext(
 
   if (
     isLong &&
-    rsi7 >= 100 - rules.hybridExtremeRsi7Block &&
+    fifteenMinuteRsi7 >= 100 - rules.hybridExtremeRsi7Block &&
     lacksDirectionalSupport
   ) {
     return {
       allowed: false,
-      reason: `Hybrid long blocked: RSI7 ${rsi7.toFixed(1)} is extended without bullish 1h or 4h support.`,
+      reason: `Hybrid long blocked: 15m RSI7 ${fifteenMinuteRsi7.toFixed(1)} is extended without bullish 15m/1h/4h support.`,
     };
   }
 
@@ -243,12 +267,12 @@ export function validateHybridCandidateContext(
 
   if (
     !isLong &&
-    rsi7 <= rules.hybridExtremeRsi7Block &&
+    fifteenMinuteRsi7 <= rules.hybridExtremeRsi7Block &&
     lacksDirectionalSupport
   ) {
     return {
       allowed: false,
-      reason: `Hybrid short blocked: RSI7 ${rsi7.toFixed(1)} is extended without bearish 1h or 4h support.`,
+      reason: `Hybrid short blocked: 15m RSI7 ${fifteenMinuteRsi7.toFixed(1)} is extended without bearish 15m/1h/4h support.`,
     };
   }
 
@@ -328,37 +352,58 @@ export function calculateCandidateScore(
 ): HybridScoreBreakdown {
   const isLong = decision === "OPEN_LONG";
   const priceVsEma20Pct = snapshot.intraday.priceVsEma20Pct;
+  const fifteenMinutePriceVsEma20Pct = snapshot.fifteenMinute.priceVsEma20Pct;
+  const fifteenMinuteEmaGapPct = getFifteenMinuteEmaGapPct(snapshot);
   const ema20VsEma50Pct4h = snapshot.fourHour.ema20VsEma50Pct;
   const momentum = snapshot.intraday.momentum;
+  const fifteenMinuteMomentum = snapshot.fifteenMinute.momentum;
   const hourlyEmaGapPct = getHourlyEmaGapPct(snapshot);
   const dayChangePct = snapshot.dayChangePct;
   const atrPct = snapshot.currentPrice > 0 ? (snapshot.fourHour.atr14 / snapshot.currentPrice) * 100 : 0;
-  const rsi7 = snapshot.intraday.rsi7;
+  const rsi7 = snapshot.fifteenMinute.rsi7;
   const volumeRatio = snapshot.fourHour.volumeRatio;
   const directionalPriceVsEma = (isLong ? 1 : -1) * priceVsEma20Pct;
+  const directionalFifteenMinutePriceVsEma = (isLong ? 1 : -1) * fifteenMinutePriceVsEma20Pct;
+  const directionalFifteenMinuteGapPct = (isLong ? 1 : -1) * fifteenMinuteEmaGapPct;
   const directionalHourlyGapPct = (isLong ? 1 : -1) * hourlyEmaGapPct;
   const directionalFourHourGapPct = (isLong ? 1 : -1) * ema20VsEma50Pct4h;
   const directionalSessionPct = (isLong ? 1 : -1) * dayChangePct;
-  const reversionDistancePct = -directionalPriceVsEma;
+  const reversionDistancePct = -directionalFifteenMinutePriceVsEma;
   const reversionSessionPct = -directionalSessionPct;
   const directionalRsiPullback = isLong ? 50 - rsi7 : rsi7 - 50;
 
-  const intradayAlignment = reversionDistancePct > 1.2
-    ? -8
-    : reversionDistancePct > 0.6
-      ? 4
-      : reversionDistancePct >= -0.15
-        ? 10
-        : reversionDistancePct >= -0.7
-          ? 3
+  const intradayAlignment = directionalPriceVsEma > 0.7
+    ? 4
+    : directionalPriceVsEma >= 0.1
+      ? 10
+      : directionalPriceVsEma >= -0.15
+        ? 7
+        : directionalPriceVsEma >= -0.6
+          ? 2
           : -4;
 
-  const hourlyAlignment = clamp(directionalHourlyGapPct * 20, -10, 20);
+  const fifteenMinuteAlignmentBase = clamp(directionalFifteenMinuteGapPct * 14, -10, 10);
+  const fifteenMinutePullbackBonus = reversionDistancePct > 1.2
+    ? -4
+    : reversionDistancePct > 0.6
+      ? 6
+      : reversionDistancePct >= 0
+        ? 4
+        : reversionDistancePct >= -0.5
+          ? 0
+          : -4;
+  const fifteenMinuteAlignment = clamp(
+    fifteenMinuteAlignmentBase + fifteenMinutePullbackBonus,
+    -12,
+    16
+  );
 
-  const fourHourAlignment = clamp(directionalFourHourGapPct * 12, -12, 18);
+  const hourlyAlignment = clamp(directionalHourlyGapPct * 14, -8, 14);
+
+  const fourHourAlignment = clamp(directionalFourHourGapPct * 10, -8, 12);
 
   const sessionAlignment = reversionSessionPct > 3
-    ? -4
+    ? -3
     : reversionSessionPct > 1.5
       ? 1
       : reversionSessionPct >= -0.5
@@ -376,7 +421,7 @@ export function calculateCandidateScore(
   const rsiContext = directionalRsiPullback >= 35
     ? -4
     : directionalRsiPullback >= 20
-      ? 4
+      ? 6
       : directionalRsiPullback >= 5
         ? 6
         : directionalRsiPullback >= -8
@@ -387,12 +432,19 @@ export function calculateCandidateScore(
 
   const volumeQuality = clamp((volumeRatio - 0.9) * 10, -6, 6);
 
-  const momentumPenalty = isLong
+  const setupMomentumPenalty = isLong
+    ? fifteenMinuteMomentum === "RISING" ? 0 : fifteenMinuteMomentum === "FLAT" ? -1 : -2
+    : fifteenMinuteMomentum === "FALLING" ? 0 : fifteenMinuteMomentum === "FLAT" ? -1 : -2;
+
+  const triggerMomentumPenalty = isLong
     ? momentum === "RISING" ? 0 : momentum === "FLAT" ? -1 : -3
     : momentum === "FALLING" ? 0 : momentum === "FLAT" ? -1 : -3;
 
+  const momentumPenalty = setupMomentumPenalty + triggerMomentumPenalty;
+
   const total = clamp(
     intradayAlignment +
+      fifteenMinuteAlignment +
       hourlyAlignment +
       fourHourAlignment +
       sessionAlignment +
@@ -406,6 +458,7 @@ export function calculateCandidateScore(
 
   return {
     intradayAlignment,
+    fifteenMinuteAlignment,
     hourlyAlignment,
     fourHourAlignment,
     sessionAlignment,
@@ -433,6 +486,7 @@ function buildBlockedCandidate(
     blockReason,
     scoreBreakdown: {
       intradayAlignment: 0,
+      fifteenMinuteAlignment: 0,
       hourlyAlignment: 0,
       fourHourAlignment: 0,
       sessionAlignment: 0,

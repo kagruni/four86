@@ -22,6 +22,16 @@ export interface SymbolMarketSnapshot {
     rsi14: number;
     rsi14History: number[];
   };
+  fifteenMinute: {
+    ema20: number;
+    ema50: number;
+    priceVsEma20Pct: number;
+    ema20VsEma50Pct: number;
+    rsi7: number;
+    momentum: PriceMomentum;
+    trendDirection: SnapshotTrendDirection;
+    priceHistory: number[];
+  };
   hourly: {
     ema20: number;
     ema50: number;
@@ -61,9 +71,13 @@ export interface MarketSnapshotSummary {
       dayChangePct: number;
       intradayMomentum: PriceMomentum;
       intradayTrend: SnapshotTrendDirection;
+      fifteenMinuteMomentum: PriceMomentum;
+      fifteenMinuteTrend: SnapshotTrendDirection;
       hourlyTrend: SnapshotTrendDirection;
       fourHourTrend: SnapshotTrendDirection;
       priceVsEma20Pct: number;
+      priceVsEma20Pct15m: number;
+      ema20VsEma50Pct15m: number;
       ema20VsEma50Pct4h: number;
     }
   >;
@@ -116,6 +130,12 @@ export function buildMarketSnapshot(
       const priceVsEma20Pct = data.ema20 > 0
         ? ((data.currentPrice - data.ema20) / data.ema20) * 100
         : 0;
+      const priceVsEma20Pct15m = data.ema20_15m > 0
+        ? ((data.currentPrice - data.ema20_15m) / data.ema20_15m) * 100
+        : 0;
+      const ema20VsEma50Pct15m = data.ema50_15m > 0
+        ? ((data.ema20_15m - data.ema50_15m) / data.ema50_15m) * 100
+        : 0;
       const ema20VsEma50Pct4h = data.ema50_4h > 0
         ? ((data.ema20_4h - data.ema50_4h) / data.ema50_4h) * 100
         : 0;
@@ -123,7 +143,8 @@ export function buildMarketSnapshot(
         ? ((data.ema20_1h - data.ema50_1h) / data.ema50_1h) * 100
         : 0;
 
-      const intradayTrend = calculateTrendDirection(priceVsEma20Pct, ema20VsEma50Pct4h);
+      const intradayTrend = calculateTrendDirection(priceVsEma20Pct, ema20VsEma50Pct15m, 0.12);
+      const fifteenMinuteTrend = calculateTrendDirection(ema20VsEma50Pct15m, ema20VsEma50Pct1h, 0.1);
       const hourlyTrend = calculateTrendDirection(ema20VsEma50Pct1h, ema20VsEma50Pct4h, 0.15);
       const fourHourTrend = calculateTrendDirection(ema20VsEma50Pct4h, ema20VsEma50Pct4h);
 
@@ -145,6 +166,16 @@ export function buildMarketSnapshot(
           rsi7History: data.rsi7History,
           rsi14: data.rsi14,
           rsi14History: data.rsi14History,
+        },
+        fifteenMinute: {
+          ema20: data.ema20_15m,
+          ema50: data.ema50_15m,
+          priceVsEma20Pct: priceVsEma20Pct15m,
+          ema20VsEma50Pct: ema20VsEma50Pct15m,
+          rsi7: data.rsi7_15m,
+          momentum: calculatePriceMomentum(data.priceHistory_15m),
+          trendDirection: fifteenMinuteTrend,
+          priceHistory: data.priceHistory_15m,
         },
         hourly: {
           ema20: data.ema20_1h,
@@ -192,9 +223,13 @@ export function summarizeMarketSnapshot(snapshot: MarketSnapshot): MarketSnapsho
           dayChangePct: data.dayChangePct,
           intradayMomentum: data.intraday.momentum,
           intradayTrend: data.intraday.trendDirection,
+          fifteenMinuteMomentum: data.fifteenMinute.momentum,
+          fifteenMinuteTrend: data.fifteenMinute.trendDirection,
           hourlyTrend: data.hourly.trendDirection,
           fourHourTrend: data.fourHour.trendDirection,
           priceVsEma20Pct: data.intraday.priceVsEma20Pct,
+          priceVsEma20Pct15m: data.fifteenMinute.priceVsEma20Pct,
+          ema20VsEma50Pct15m: data.fifteenMinute.ema20VsEma50Pct,
           ema20VsEma50Pct4h: data.fourHour.ema20VsEma50Pct,
         },
       ])

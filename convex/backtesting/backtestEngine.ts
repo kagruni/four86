@@ -68,6 +68,7 @@ const CHUNK_TIME_BUDGET_MS = 510_000; // 510s = 8.5 minutes
 const AI_FETCH_TIMEOUT_MS = 120_000; // 120s per call
 
 const ONE_MINUTE_MS = 60 * 1000;
+const FIFTEEN_MINUTES_MS = 15 * ONE_MINUTE_MS;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FOUR_HOURS_MS = 4 * ONE_HOUR_MS;
 const ONE_DAY_MS = 24 * ONE_HOUR_MS;
@@ -207,6 +208,7 @@ function normalizeMaxPositionSizePct(rawMaxPositionSize: number): number {
 function buildHistoricalDetailedCoinData(
   symbol: string,
   recent1m: any[],
+  recent15m: any[],
   recent1h: any[],
   recent4h: any[],
   recent1d: any[]
@@ -214,6 +216,7 @@ function buildHistoricalDetailedCoinData(
   return buildDetailedCoinDataFromCandles(
     symbol,
     recent1m,
+    recent15m,
     recent1h,
     recent4h,
     recent1d
@@ -337,6 +340,7 @@ function buildHistoricalMarketDataForSymbols(
   symbols: string[],
   currentTime: number,
   candles1mBySymbol: Record<string, any[]>,
+  candles15mBySymbol: Record<string, any[]>,
   candles1hBySymbol: Record<string, any[]>,
   candles4hBySymbol: Record<string, any[]>,
   candles1dBySymbol: Record<string, any[]>
@@ -347,6 +351,9 @@ function buildHistoricalMarketDataForSymbols(
     const recent1m = (candles1mBySymbol[symbol] ?? [])
       .filter((c: any) => c.t <= currentTime)
       .slice(-120);
+    const recent15m = (candles15mBySymbol[symbol] ?? [])
+      .filter((c: any) => c.t <= currentTime)
+      .slice(-80);
     const recent1h = (candles1hBySymbol[symbol] ?? [])
       .filter((c: any) => c.t <= currentTime)
       .slice(-80);
@@ -364,6 +371,7 @@ function buildHistoricalMarketDataForSymbols(
     marketData[symbol] = buildHistoricalDetailedCoinData(
       symbol,
       recent1m,
+      recent15m,
       recent1h,
       recent4h,
       recent1d
@@ -480,12 +488,16 @@ export const runBacktest = internalAction({
             args.startDate - primaryPeriodLookbackMinutes * ONE_MINUTE_MS
           );
           const hourlyStart = Math.max(0, args.startDate - 80 * ONE_HOUR_MS);
+          const fifteenMinuteStart = Math.max(
+            0,
+            args.startDate - 80 * FIFTEEN_MINUTES_MS
+          );
           const fourHourStart = Math.max(
             0,
             args.startDate - 60 * FOUR_HOURS_MS
           );
           const dailyStart = Math.max(0, args.startDate - 7 * ONE_DAY_MS);
-          const [periodCandles, candles1m, candles1h, candles4h, candles1d] = await Promise.all([
+          const [periodCandles, candles1m, candles15m, candles1h, candles4h, candles1d] = await Promise.all([
             fetchCandlesForRangeInternal(
               symbol,
               "1m",
@@ -497,6 +509,13 @@ export const runBacktest = internalAction({
               symbol,
               "1m",
               intradayStart,
+              args.endDate,
+              args.testnet
+            ),
+            fetchCandlesForRangeInternal(
+              symbol,
+              "15m",
+              fifteenMinuteStart,
               args.endDate,
               args.testnet
             ),
@@ -534,6 +553,7 @@ export const runBacktest = internalAction({
             symbol,
             periodCandles: periodCandles.filter((c) => c.t <= args.endDate),
             candles1m: candles1m.filter((c) => c.t <= args.endDate),
+            candles15m: candles15m.filter((c) => c.t <= args.endDate),
             candles1h,
             candles4h,
             candles1d,
@@ -571,6 +591,9 @@ export const runBacktest = internalAction({
       );
       const candles1mBySymbol = Object.fromEntries(
         activeEntries.map((entry) => [entry.symbol, entry.candles1m])
+      );
+      const candles15mBySymbol = Object.fromEntries(
+        activeEntries.map((entry) => [entry.symbol, entry.candles15m])
       );
       const candles1hBySymbol = Object.fromEntries(
         activeEntries.map((entry) => [entry.symbol, entry.candles1h])
@@ -648,6 +671,7 @@ export const runBacktest = internalAction({
           // Candle data (serialized)
           periodCandlesJson: JSON.stringify(periodCandlesBySymbol),
           candles1mJson: JSON.stringify(candles1mBySymbol),
+          candles15mJson: JSON.stringify(candles15mBySymbol),
           candles1hJson: JSON.stringify(candles1hBySymbol),
           candles4hJson: JSON.stringify(candles4hBySymbol),
           candles1dJson: JSON.stringify(candles1dBySymbol),
@@ -748,6 +772,7 @@ export const processBacktestChunk = internalAction({
     // Candle data
     periodCandlesJson: v.string(),
     candles1mJson: v.string(),
+    candles15mJson: v.string(),
     candles1hJson: v.string(),
     candles4hJson: v.string(),
     candles1dJson: v.string(),
@@ -791,6 +816,7 @@ export const processBacktestChunk = internalAction({
       // Deserialize state
       const periodCandlesBySymbol = JSON.parse(args.periodCandlesJson) as Record<string, any[]>;
       const candles1mBySymbol = JSON.parse(args.candles1mJson) as Record<string, any[]>;
+      const candles15mBySymbol = JSON.parse(args.candles15mJson) as Record<string, any[]>;
       const candles1hBySymbol = JSON.parse(args.candles1hJson) as Record<string, any[]>;
       const candles4hBySymbol = JSON.parse(args.candles4hJson) as Record<string, any[]>;
       const candles1dBySymbol = JSON.parse(args.candles1dJson) as Record<string, any[]>;
@@ -1272,6 +1298,7 @@ export const processBacktestChunk = internalAction({
           symbols,
           currentCandle.t,
           candles1mBySymbol,
+          candles15mBySymbol,
           candles1hBySymbol,
           candles4hBySymbol,
           candles1dBySymbol

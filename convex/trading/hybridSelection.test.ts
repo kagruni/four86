@@ -20,6 +20,16 @@ function makeSnapshot(overrides: Record<string, any> = {}) {
       rsi7: 50,
       rsi14: 50,
     },
+    fifteenMinute: {
+      ema20: 100,
+      ema50: 100,
+      priceVsEma20Pct: 0,
+      ema20VsEma50Pct: 0,
+      rsi7: 50,
+      momentum: "FLAT",
+      trendDirection: "NEUTRAL",
+      priceHistory: [100, 100, 100, 100, 100],
+    },
     hourly: {
       ema20: 100,
       ema50: 100,
@@ -41,6 +51,10 @@ function makeSnapshot(overrides: Record<string, any> = {}) {
     intraday: {
       ...base.intraday,
       ...(overrides.intraday ?? {}),
+    },
+    fifteenMinute: {
+      ...base.fifteenMinute,
+      ...(overrides.fifteenMinute ?? {}),
     },
     hourly: {
       ...base.hourly,
@@ -92,7 +106,7 @@ test("blocks bullish 4h short when 1h is not bearish", () => {
   );
 
   assert.equal(result.allowed, false);
-  assert.match(result.reason, /4h EMA gap/i);
+  assert.match(result.reason, /1h\/15m/i);
 });
 
 test("blocks bearish 4h long when 1h is not bullish", () => {
@@ -106,7 +120,7 @@ test("blocks bearish 4h long when 1h is not bullish", () => {
   );
 
   assert.equal(result.allowed, false);
-  assert.match(result.reason, /1h is not bullish/i);
+  assert.match(result.reason, /1h\/15m/i);
 });
 
 test("blocks flat low-volume chop equally for both directions", () => {
@@ -120,8 +134,8 @@ test("blocks flat low-volume chop equally for both directions", () => {
 
   assert.equal(longResult.allowed, false);
   assert.equal(shortResult.allowed, false);
-  assert.match(longResult.reason, /flat low-volume chop/i);
-  assert.match(shortResult.reason, /flat low-volume chop/i);
+  assert.match(longResult.reason, /2m\/15m/i);
+  assert.match(shortResult.reason, /2m\/15m/i);
 });
 
 test("strong session day bypasses the chop filter", () => {
@@ -156,6 +170,7 @@ test("unsupported elevated RSI still blocks continuation longs", () => {
   const result = validateHybridCandidateContext(
     makeSnapshot({
       intraday: { rsi7: 80 },
+      fifteenMinute: { rsi7: 80, ema20: 99.9, ema50: 100 },
       hourly: { ema20: 99.9, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -0.1 },
     }) as any,
@@ -164,7 +179,7 @@ test("unsupported elevated RSI still blocks continuation longs", () => {
   );
 
   assert.equal(result.allowed, false);
-  assert.match(result.reason, /without bullish 1h or 4h support/i);
+  assert.match(result.reason, /15m\/1h\/4h support/i);
 });
 
 test("absolute RSI extremes still block even with directional support", () => {
@@ -187,6 +202,7 @@ test("mirrored long and short snapshots receive mirrored scores", () => {
     makeSnapshot({
       dayChangePct: -0.6,
       intraday: { priceVsEma20Pct: -0.35, momentum: "FLAT", rsi7: 42 },
+      fifteenMinute: { priceVsEma20Pct: -0.35, ema20: 100.8, ema50: 100, rsi7: 42, momentum: "FLAT" },
       hourly: { ema20: 101, ema50: 100 },
       fourHour: { ema20VsEma50Pct: 1.1, volumeRatio: 1.3 },
     }) as any,
@@ -196,6 +212,7 @@ test("mirrored long and short snapshots receive mirrored scores", () => {
     makeSnapshot({
       dayChangePct: 0.6,
       intraday: { priceVsEma20Pct: 0.35, momentum: "FLAT", rsi7: 58 },
+      fifteenMinute: { priceVsEma20Pct: 0.35, ema20: 99.2, ema50: 100, rsi7: 58, momentum: "FLAT" },
       hourly: { ema20: 99, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -1.1, volumeRatio: 1.3 },
     }) as any,
@@ -203,6 +220,7 @@ test("mirrored long and short snapshots receive mirrored scores", () => {
   );
 
   assert.equal(longScore.intradayAlignment, shortScore.intradayAlignment);
+  assert.equal(longScore.fifteenMinuteAlignment, shortScore.fifteenMinuteAlignment);
   assert.equal(longScore.hourlyAlignment, shortScore.hourlyAlignment);
   assert.equal(longScore.fourHourAlignment, shortScore.fourHourAlignment);
   assert.equal(longScore.sessionAlignment, shortScore.sessionAlignment);
@@ -216,6 +234,7 @@ test("flat momentum scores worse than aligned momentum", () => {
   const falling = calculateCandidateScore(
     makeSnapshot({
       intraday: { priceVsEma20Pct: 0.4, momentum: "FALLING", rsi7: 58 },
+      fifteenMinute: { priceVsEma20Pct: 0.25, ema20: 99.4, ema50: 100, rsi7: 58, momentum: "FALLING" },
       hourly: { ema20: 99, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -0.8, volumeRatio: 1.1 },
     }) as any,
@@ -224,6 +243,7 @@ test("flat momentum scores worse than aligned momentum", () => {
   const flat = calculateCandidateScore(
     makeSnapshot({
       intraday: { priceVsEma20Pct: 0.4, momentum: "FLAT", rsi7: 58 },
+      fifteenMinute: { priceVsEma20Pct: 0.25, ema20: 99.4, ema50: 100, rsi7: 58, momentum: "FALLING" },
       hourly: { ema20: 99, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -0.8, volumeRatio: 1.1 },
     }) as any,
@@ -239,6 +259,7 @@ test("counter-momentum penalty is reduced to -3", () => {
   const score = calculateCandidateScore(
     makeSnapshot({
       intraday: { priceVsEma20Pct: 0.4, momentum: "RISING", rsi7: 58 },
+      fifteenMinute: { priceVsEma20Pct: 0.25, ema20: 99.4, ema50: 100, rsi7: 58, momentum: "FALLING" },
       hourly: { ema20: 99, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -0.8, volumeRatio: 1.1 },
     }) as any,
@@ -253,6 +274,7 @@ test("directional pullbacks score better than stretched continuation entries", (
     makeSnapshot({
       dayChangePct: -0.4,
       intraday: { priceVsEma20Pct: -0.25, momentum: "FLAT", rsi7: 41 },
+      fifteenMinute: { priceVsEma20Pct: -0.45, ema20: 100.7, ema50: 100, rsi7: 41, momentum: "FLAT" },
       hourly: { ema20: 101, ema50: 100 },
       fourHour: { ema20VsEma50Pct: 0.9, volumeRatio: 1.2 },
     }) as any,
@@ -262,6 +284,7 @@ test("directional pullbacks score better than stretched continuation entries", (
     makeSnapshot({
       dayChangePct: 2.4,
       intraday: { priceVsEma20Pct: 0.95, momentum: "RISING", rsi7: 72 },
+      fifteenMinute: { priceVsEma20Pct: 0.95, ema20: 101.2, ema50: 100, rsi7: 72, momentum: "RISING" },
       hourly: { ema20: 101, ema50: 100 },
       fourHour: { ema20VsEma50Pct: 0.9, volumeRatio: 1.2 },
     }) as any,
@@ -269,7 +292,7 @@ test("directional pullbacks score better than stretched continuation entries", (
   );
 
   assert.ok(pullbackLong.total > chaseLong.total);
-  assert.ok(pullbackLong.intradayAlignment > chaseLong.intradayAlignment);
+  assert.ok(pullbackLong.fifteenMinuteAlignment > chaseLong.fifteenMinuteAlignment);
   assert.ok(pullbackLong.rsiContext > chaseLong.rsiContext);
 });
 
@@ -278,6 +301,7 @@ test("short bounces score better than already-extended downside entries", () => 
     makeSnapshot({
       dayChangePct: 0.4,
       intraday: { priceVsEma20Pct: 0.25, momentum: "FLAT", rsi7: 59 },
+      fifteenMinute: { priceVsEma20Pct: 0.45, ema20: 99.3, ema50: 100, rsi7: 59, momentum: "FLAT" },
       hourly: { ema20: 99, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -0.9, volumeRatio: 1.2 },
     }) as any,
@@ -287,6 +311,7 @@ test("short bounces score better than already-extended downside entries", () => 
     makeSnapshot({
       dayChangePct: -2.4,
       intraday: { priceVsEma20Pct: -0.95, momentum: "FALLING", rsi7: 28 },
+      fifteenMinute: { priceVsEma20Pct: -0.95, ema20: 98.8, ema50: 100, rsi7: 28, momentum: "FALLING" },
       hourly: { ema20: 99, ema50: 100 },
       fourHour: { ema20VsEma50Pct: -0.9, volumeRatio: 1.2 },
     }) as any,
@@ -294,7 +319,7 @@ test("short bounces score better than already-extended downside entries", () => 
   );
 
   assert.ok(bounceShort.total > chaseShort.total);
-  assert.ok(bounceShort.intradayAlignment > chaseShort.intradayAlignment);
+  assert.ok(bounceShort.fifteenMinuteAlignment > chaseShort.fifteenMinuteAlignment);
   assert.ok(bounceShort.rsiContext > chaseShort.rsiContext);
 });
 
