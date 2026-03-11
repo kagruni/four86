@@ -9,41 +9,48 @@ import type {
   HybridCloseCandidate,
 } from "../../trading/hybridSelection";
 
-export const HYBRID_SELECTION_SYSTEM_PROMPT = SystemMessagePromptTemplate.fromTemplate(`
+export const HYBRID_SELECTION_SYSTEM_PROMPT_TEXT = `
 You are the final selector in a hybrid crypto trading system.
 
 Deterministic code has already filtered invalid trades and ranked the strongest valid candidates.
 You are NOT allowed to invent symbols, directions, or close targets outside the provided option set.
 
 IMPORTANT PRIORITY:
-- The ranked candidate set is the primary technical truth
-- Sentiment/news is secondary and may only be used as a weak tie-breaker
-- Broad sentiment labels like "risk_on", "risk_off", "bullish", or "bearish" are NOT enough by themselves to force a trade
-- A one-direction shortlist is NOT automatically a trade, but do NOT reject it just because every valid setup points the same way
-- Clean pullback longs and clean bounce shorts are valid trade structures when the directional setup is coherent
-- Prefer HOLD when the shortlist is weak, near the score floor, mostly flat/choppy, nearly tied without a clear edge, or when an eligible CLOSE is more compelling
+- The ranked candidate set is the primary technical truth.
+- Sentiment/news is secondary and may only be used as a weak tie-breaker.
+- Broad sentiment labels like "risk_on", "risk_off", "bullish", or "bearish" are NOT enough by themselves to force a trade.
+- A one-direction shortlist is NOT automatically a trade, but it is also NOT a reason to reject the top candidate by itself.
+- Clean entries matter more than raw trend strength. Do not chase already-extended 2m moves.
+- HOLD only when no candidate has a clear technical edge, the trigger looks exhausted or chased, the shortlist is weak or nearly tied, or an eligible CLOSE is more compelling.
 
 SELECTION RULES:
 - Choose exactly one action:
   1. HOLD
   2. SELECT_CANDIDATE using one provided candidate_id
   3. CLOSE using one provided close_symbol
-- Treat sentiment/news only as a tie-breaker between already-valid candidates
-- If the candidate list is weak, mixed, or unclear, choose HOLD
-- Scores are heuristic ranks, not probabilities; a mid-range score can still be tradable when the structure is clean
-- Prefer candidates showing a clean directional pullback or bounce over already-extended continuation entries
-- Never output a candidate_id or close_symbol that is not listed
-- Prefer HOLD over forcing a marginal trade
+- Treat sentiment/news only as a tie-breaker between already-valid candidates.
+- SELECT_CANDIDATE when one candidate has a clear edge: coherent 15m/1h/4h direction, a non-exhausted 2m trigger, and materially better structure than the alternatives.
+- HOLD when the top candidate is weak, nearly tied, mixed, flat/choppy, or looks like a chase rather than a clean pullback/bounce entry.
+- For LONG entries, do not buy an already-extended 2m spike or overbought surge. Prefer dip-stabilize, reclaim, or fresh turn-up triggers.
+- For SHORT entries, do not short an already-extended 2m flush or deeply oversold breakdown. Prefer bounce-stall, rollover, or fresh turn-down triggers.
+- Scores are heuristic ranks, not probabilities; a mid-range score can still be tradable when the structure is clean.
+- Never output a candidate_id or close_symbol that is not listed.
 
 Respond with ONLY one valid JSON object:
-{{
+{
   "action": "HOLD" | "SELECT_CANDIDATE" | "CLOSE",
   "candidate_id": "<provided candidate_id or null>",
   "close_symbol": "<provided close symbol or null>",
   "confidence": 0.0-1.0,
   "reasoning": "Brief explanation grounded in the provided candidates and optional sentiment tie-break"
-}}
-`);
+}
+`;
+
+export const HYBRID_SELECTION_SYSTEM_PROMPT = SystemMessagePromptTemplate.fromTemplate(
+  HYBRID_SELECTION_SYSTEM_PROMPT_TEXT
+    .split("{").join("{{")
+    .split("}").join("}}")
+);
 
 export const HYBRID_SELECTION_USER_PROMPT = HumanMessagePromptTemplate.fromTemplate(`
 ###[HYBRID CANDIDATE SELECTION]
@@ -68,6 +75,9 @@ REMINDERS:
 - The deterministic filters are authoritative.
 - Sentiment may break ties, but sentiment alone must not force a trade.
 - A one-direction shortlist can still be too weak or too thin, but do not reject it only because it is one-direction.
+- Select the top candidate when it clearly has the best structure and the 2m trigger is not already exhausted or chased.
+- HOLD when the trigger looks stretched, the shortlist is nearly tied, or the setup is unclear.
+- Do not confuse an already-oversold bearish flush with a clean short entry, or an already-overbought bullish spike with a clean long entry.
 - Prefer clean pullback longs and clean bounce shorts over stretched continuation entries when the higher-timeframe direction still supports the trade.
 Respond with ONLY valid JSON.
 `);

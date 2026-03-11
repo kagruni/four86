@@ -32,8 +32,11 @@ import {
   tightenManagedStop,
 } from "../trading/managedExitUtils";
 import {
+  HYBRID_SELECTION_SYSTEM_PROMPT_TEXT,
   formatHybridCandidateSection,
   formatHybridCloseSection,
+  formatHybridDirectionSummary,
+  formatHybridShortlistStatus,
 } from "../ai/prompts/hybridSelectionPrompt";
 import { parseHybridSelectionOutput } from "../ai/chains/tradingChain";
 import {
@@ -2029,31 +2032,18 @@ async function callHybridAIForBacktest(
   candidateSet: ReturnType<typeof buildHybridCandidateSet>,
   capital: number
 ): Promise<any> {
-  const systemPrompt = `You are the final selector in a hybrid crypto trading backtest.
-
-Choose exactly one action:
-- HOLD
-- SELECT_CANDIDATE using one provided candidate_id
-- CLOSE using one provided close_symbol
-
-You may only choose from the provided options. Prefer HOLD over forcing a weak trade.
-
-Respond ONLY with valid JSON:
-{
-  "action": "HOLD" | "SELECT_CANDIDATE" | "CLOSE",
-  "candidate_id": "<provided candidate_id or null>",
-  "close_symbol": "<provided close symbol or null>",
-  "confidence": 0.0 to 1.0,
-  "reasoning": "<brief reason>"
-}`;
+  const systemPrompt = HYBRID_SELECTION_SYSTEM_PROMPT_TEXT;
 
   const userPrompt = [
     `Account Balance: $${capital.toFixed(2)}`,
     `Score Floor: ${candidateSet.scoreFloor}`,
+    `Shortlist Status: ${formatHybridShortlistStatus(candidateSet)}`,
+    `Direction Summary: ${formatHybridDirectionSummary(candidateSet)}`,
     `Top Entry Candidates:`,
     formatHybridCandidateSection(candidateSet),
     `Eligible Close Options:`,
     formatHybridCloseSection(candidateSet.closeCandidates),
+    `Reminder: select the top candidate when it clearly has the best structure and the 2m trigger is not exhausted or chased. Hold when the setup looks stretched, nearly tied, or unclear.`,
   ].join("\n\n");
 
   const startMs = Date.now();
