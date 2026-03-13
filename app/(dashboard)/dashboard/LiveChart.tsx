@@ -98,7 +98,7 @@ interface CandleRaw {
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h"];
 const SIZES: ChartSize[] = ["S", "M", "L"];
-const SIZE_MAP: Record<ChartSize, number> = { S: 240, M: 380, L: 520 };
+const SIZE_MAP: Record<ChartSize, number> = { S: 260, M: 400, L: 540 };
 
 const CANDLE_LIMITS: Record<Interval, number> = {
   "1m": 200,
@@ -148,12 +148,21 @@ function fmtPct(val: number) {
 }
 
 function toTimestamp(ms: number): UTCTimestamp {
-  return Math.floor(ms / 1000) as UTCTimestamp;
+  return timeToLocal(Math.floor(ms / 1000)) as UTCTimestamp;
+}
+
+/** Shift a UTC epoch (seconds) so the chart displays it in the user's local timezone */
+function timeToLocal(utcSeconds: number): number {
+  const d = new Date(utcSeconds * 1000);
+  return Date.UTC(
+    d.getFullYear(), d.getMonth(), d.getDate(),
+    d.getHours(), d.getMinutes(), d.getSeconds()
+  ) / 1000;
 }
 
 /** Snap a ms timestamp down to the nearest candle boundary for a given interval */
 function snapToCandle(ms: number, tf: Interval): UTCTimestamp {
-  const s = Math.floor(ms / 1000);
+  const s = timeToLocal(Math.floor(ms / 1000));
   const INTERVAL_SECONDS: Record<Interval, number> = {
     "1m": 60,
     "5m": 300,

@@ -458,8 +458,8 @@ export default function ChartToolbar({
 
   return (
     <div
-      className="hidden md:flex flex-col items-center w-[54px] border-r border-border bg-background py-1 gap-0 shrink-0 overflow-y-auto scrollbar-none"
-      style={height ? { maxHeight: height, height } : undefined}
+      className="hidden md:flex flex-col items-center w-[62px] border-r border-border bg-background py-1 gap-0 shrink-0"
+      style={height ? { height } : undefined}
     >
       {TOOL_GROUPS.map((group, idx) => (
         <div key={group.id}>
