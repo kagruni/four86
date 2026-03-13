@@ -253,6 +253,8 @@ export const markTradingCycleStarted = mutation({
 export const saveTrade = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
+    executionGroupId: v.optional(v.string()),
     symbol: v.string(),
     action: v.string(),
     side: v.string(),
@@ -310,6 +312,7 @@ export const saveAILog = mutation({
 export const savePosition = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
     side: v.string(),
     size: v.number(),
@@ -341,12 +344,19 @@ export const savePosition = mutation({
     stopLossOrderId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("positions")
-      .withIndex("by_symbol", (q) =>
-        q.eq("userId", args.userId).eq("symbol", args.symbol)
-      )
-      .first();
+    const existing = args.walletId
+      ? await ctx.db
+          .query("positions")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .first()
+      : await ctx.db
+          .query("positions")
+          .withIndex("by_symbol", (q) =>
+            q.eq("userId", args.userId).eq("symbol", args.symbol)
+          )
+          .first();
 
     const now = Date.now();
 
@@ -370,15 +380,23 @@ export const savePosition = mutation({
 export const closePosition = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
   },
   handler: async (ctx, args) => {
-    const position = await ctx.db
-      .query("positions")
-      .withIndex("by_symbol", (q) =>
-        q.eq("userId", args.userId).eq("symbol", args.symbol)
-      )
-      .first();
+    const position = args.walletId
+      ? await ctx.db
+          .query("positions")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .first()
+      : await ctx.db
+          .query("positions")
+          .withIndex("by_symbol", (q) =>
+            q.eq("userId", args.userId).eq("symbol", args.symbol)
+          )
+          .first();
 
     if (position) {
       await ctx.db.delete(position._id);
@@ -389,6 +407,7 @@ export const closePosition = mutation({
 export const updatePositionRuntime = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
     currentPrice: v.optional(v.number()),
     unrealizedPnl: v.optional(v.number()),
@@ -404,12 +423,19 @@ export const updatePositionRuntime = mutation({
     exitRulesSnapshot: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const position = await ctx.db
-      .query("positions")
-      .withIndex("by_symbol", (q) =>
-        q.eq("userId", args.userId).eq("symbol", args.symbol)
-      )
-      .first();
+    const position = args.walletId
+      ? await ctx.db
+          .query("positions")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .first()
+      : await ctx.db
+          .query("positions")
+          .withIndex("by_symbol", (q) =>
+            q.eq("userId", args.userId).eq("symbol", args.symbol)
+          )
+          .first();
 
     if (!position) {
       return { updated: false };
@@ -420,7 +446,7 @@ export const updatePositionRuntime = mutation({
     };
 
     for (const [key, value] of Object.entries(args)) {
-      if (key === "userId" || key === "symbol" || value === undefined) {
+      if (key === "userId" || key === "walletId" || key === "symbol" || value === undefined) {
         continue;
       }
       patch[key] = value;
@@ -487,6 +513,7 @@ export const syncPositions = mutation({
 export const saveAccountSnapshot = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     accountValue: v.number(),
     totalPnl: v.number(),
     totalPnlPct: v.number(),
@@ -609,6 +636,7 @@ export const cleanupExpiredLocks = mutation({
 export const acquireSymbolTradeLock = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
     side: v.string(),
   },
@@ -617,22 +645,38 @@ export const acquireSymbolTradeLock = mutation({
     const LOCK_DURATION_MS = 120000; // 120 seconds - increased to prevent duplicates during slow AI responses
 
     // Step 1: Clean up ALL expired locks for this user/symbol first
-    const expiredLocks = await ctx.db
-      .query("symbolTradeLocks")
-      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
-      .filter((q) => q.lte(q.field("expiresAt"), now))
-      .collect();
+    const expiredLocks = args.walletId
+      ? await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .filter((q) => q.lte(q.field("expiresAt"), now))
+          .collect()
+      : await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+          .filter((q) => q.lte(q.field("expiresAt"), now))
+          .collect();
 
     for (const lock of expiredLocks) {
       await ctx.db.delete(lock._id);
     }
 
     // Step 2: Check if an active lock already exists
-    const existingLock = await ctx.db
-      .query("symbolTradeLocks")
-      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
-      .filter((q) => q.gt(q.field("expiresAt"), now))
-      .first();
+    const existingLock = args.walletId
+      ? await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .filter((q) => q.gt(q.field("expiresAt"), now))
+          .first()
+      : await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+          .filter((q) => q.gt(q.field("expiresAt"), now))
+          .first();
 
     if (existingLock) {
       const secondsRemaining = Math.ceil((existingLock.expiresAt - now) / 1000);
@@ -649,6 +693,7 @@ export const acquireSymbolTradeLock = mutation({
     const lockToken = `${args.userId}-${args.symbol}-${now}-${Math.random().toString(36).slice(2, 8)}`;
     const newLockId = await ctx.db.insert("symbolTradeLocks", {
       userId: args.userId,
+      walletId: args.walletId,
       symbol: args.symbol,
       side: args.side,
       attemptedAt: now,
@@ -657,11 +702,19 @@ export const acquireSymbolTradeLock = mutation({
 
     // Step 4: RACE CONDITION CHECK - Verify we're the only lock holder
     // Get ALL active locks for this user/symbol (including ours)
-    const allActiveLocks = await ctx.db
-      .query("symbolTradeLocks")
-      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
-      .filter((q) => q.gt(q.field("expiresAt"), now))
-      .collect();
+    const allActiveLocks = args.walletId
+      ? await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .filter((q) => q.gt(q.field("expiresAt"), now))
+          .collect()
+      : await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+          .filter((q) => q.gt(q.field("expiresAt"), now))
+          .collect();
 
     // If there are multiple locks, only the OLDEST one (by attemptedAt) wins
     if (allActiveLocks.length > 1) {
@@ -699,14 +752,22 @@ export const acquireSymbolTradeLock = mutation({
 export const releaseSymbolTradeLock = mutation({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
   },
   handler: async (ctx, args) => {
     // Find and delete the lock
-    const lock = await ctx.db
-      .query("symbolTradeLocks")
-      .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
-      .first();
+    const lock = args.walletId
+      ? await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_walletId_symbol", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).eq("symbol", args.symbol)
+          )
+          .first()
+      : await ctx.db
+          .query("symbolTradeLocks")
+          .withIndex("by_userId_symbol", (q) => q.eq("userId", args.userId).eq("symbol", args.symbol))
+          .first();
 
     if (lock) {
       await ctx.db.delete(lock._id);

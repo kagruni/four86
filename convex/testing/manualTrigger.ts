@@ -2,7 +2,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../fnRefs";
 import { isSymbolSupportedForEnvironment } from "../hyperliquid/candles";
-import { buildCloseTradeFields, resolveCloseSettlement } from "../trading/closeSettlement";
+import { closeSymbolAcrossWalletsInternal } from "../trading/manualCloseService";
 import { reconcilePositionsWithExchange } from "../trading/positionSync";
 
 /**
@@ -513,104 +513,14 @@ export const manualClosePosition = action({
   },
   handler: async (ctx, args) => {
     try {
-      console.log(`[Manual Close] Closing ${args.symbol} position for user ${args.userId}`);
-      console.log(`[Manual Close] Size: ${args.size}, Side: ${args.side}`);
-
-      // Get credentials securely on the server
-      const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
-        userId: args.userId,
-      });
-
-      if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
-        console.error("[Manual Close] Missing credentials");
-        return { success: false, error: "Missing Hyperliquid credentials" };
-      }
-
-      // Get position data BEFORE closing for PnL calculation
-      const positions = await ctx.runQuery(api.queries.getPositions, { userId: args.userId });
-      const dbPosition = (positions || []).find((p: any) => p.symbol === args.symbol);
-      const entryPrice = dbPosition?.entryPrice || 0;
-      const leverage = dbPosition?.leverage || 1;
-
-      await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
-        privateKey: credentials.hyperliquidPrivateKey,
-        address: credentials.hyperliquidAddress,
-        symbol: args.symbol,
-        testnet: credentials.hyperliquidTestnet,
-      });
-      await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
-        privateKey: credentials.hyperliquidPrivateKey,
-        address: credentials.hyperliquidAddress,
-        symbol: args.symbol,
-        testnet: credentials.hyperliquidTestnet,
-      });
-
-      // Close the position on Hyperliquid
-      // To close a LONG position, we SELL (isBuy=false)
-      // To close a SHORT position, we BUY (isBuy=true)
-      const closeSubmittedAt = Date.now();
-      const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
-        privateKey: credentials.hyperliquidPrivateKey,
-        address: credentials.hyperliquidAddress,
-        symbol: args.symbol,
-        size: args.size,
-        isBuy: args.side === "SHORT", // Opposite of position side
-        testnet: credentials.hyperliquidTestnet,
-      });
-
-      if (result.status !== "filled") {
-        throw new Error(`Close order was not filled immediately (status: ${result.status})`);
-      }
-
-      console.log(`[Manual Close] Position closed on Hyperliquid:`, result);
-
-      const settlement = await resolveCloseSettlement(ctx, api, {
-        userId: args.userId,
-        address: credentials.hyperliquidAddress,
-        testnet: credentials.hyperliquidTestnet,
-        symbol: args.symbol,
-        side: args.side,
-        entryPrice,
-        position: {
-          symbol: args.symbol,
-          side: args.side,
-          size: entryPrice * args.size,
-          leverage,
-          entryPrice,
-          currentPrice: result.avgPx || result.price || entryPrice,
-        },
-        closeResult: result,
-        submittedAt: closeSubmittedAt,
-      });
-
-      await ctx.runMutation(api.mutations.saveTrade, {
-        userId: args.userId,
-        ...buildCloseTradeFields({
-          position: {
-            symbol: args.symbol,
-            side: args.side,
-            leverage,
-          },
-          settlement,
-          aiReasoning: "Manual close from dashboard",
-          aiModel: "manual",
-          confidence: 1,
-          txHash: result.txHash,
-        }),
-      });
-
-      // Remove position from database
-      await ctx.runMutation(api.mutations.closePosition, {
+      const result = await closeSymbolAcrossWalletsInternal(ctx, {
         userId: args.userId,
         symbol: args.symbol,
+        source: "testing_manual_trigger",
       });
-
-      console.log(`[Manual Close] Position removed from database`);
-
       return {
-        success: true,
-        message: `Successfully closed ${args.symbol} position`,
-        txHash: result.txHash,
+        success: (result.closedWalletCount ?? 0) > 0,
+        ...result,
       };
 
     } catch (error) {

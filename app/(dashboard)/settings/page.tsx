@@ -26,6 +26,7 @@ import { Loader2, AlertTriangle, AlertCircle, Eye, EyeOff, Info } from "lucide-r
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { motion } from "framer-motion";
 import TelegramSettings from "./TelegramSettings";
+import ConnectedWalletSettings from "./ConnectedWalletSettings";
 import { DEFAULT_MANAGED_EXIT_RULES } from "@/convex/trading/managedExitUtils";
 import { DEFAULT_HYBRID_SELECTION_RULES } from "@/convex/trading/hybridSelectionConfig";
 
@@ -917,6 +918,8 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <ConnectedWalletSettings />
             </motion.div>
           </TabsContent>
 

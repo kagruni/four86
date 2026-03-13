@@ -24,11 +24,19 @@ export const sendPositionUpdates = internalAction({
     for (const settings of eligibleUsers) {
       try {
         if (!settings.chatId) continue;
+        const mainWallet = await ctx.runQuery(
+          internal.wallets.queries.getTelegramMainWalletInternal,
+          { userId: settings.userId }
+        );
+        if (!mainWallet) continue;
 
         // Fetch live positions
         const positions = await ctx.runAction(
           api.liveQueries.getLivePositions,
-          { userId: settings.userId }
+          {
+            userId: settings.userId,
+            ...(mainWallet.walletId ? { walletId: mainWallet.walletId } : {}),
+          }
         );
 
         // Only send if there are open positions
@@ -48,7 +56,7 @@ export const sendPositionUpdates = internalAction({
         );
 
         const intervalLabel = `${settings.positionUpdateInterval}min`;
-        const header = `\u{1F504} *Position Update* (every ${intervalLabel})\n\n`;
+        const header = `\u{1F504} *Position Update* (${mainWallet.label}, every ${intervalLabel})\n\n`;
 
         await ctx.runAction(internal.telegram.telegramApi.sendMessage, {
           chatId: settings.chatId,

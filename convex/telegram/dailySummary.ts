@@ -30,6 +30,11 @@ export const sendDailySummaries = internalAction({
 
     for (const user of users) {
       try {
+        const mainWallet = await ctx.runQuery(
+          internal.wallets.queries.getTelegramMainWalletInternal,
+          { userId: user.userId }
+        );
+
         // Fetch data in parallel for each user
         const [botConfig, recentTrades, snapshots, positions] =
           await Promise.all([
@@ -38,14 +43,17 @@ export const sendDailySummaries = internalAction({
             }),
             ctx.runQuery(api.queries.getRecentTrades, {
               userId: user.userId,
+              ...(mainWallet?.walletId ? { walletId: mainWallet.walletId } : {}),
               limit: 100,
             }),
             ctx.runQuery(api.queries.getAccountSnapshots, {
               userId: user.userId,
+              ...(mainWallet?.walletId ? { walletId: mainWallet.walletId } : {}),
               limit: 1,
             }),
             ctx.runQuery(api.queries.getPositions, {
               userId: user.userId,
+              ...(mainWallet?.walletId ? { walletId: mainWallet.walletId } : {}),
             }),
           ]);
 

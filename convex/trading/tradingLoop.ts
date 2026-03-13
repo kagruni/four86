@@ -19,13 +19,14 @@
  */
 
 import { internalAction } from "../_generated/server";
-import { api, internal } from "../_generated/api";
+import { api, internal } from "../fnRefs";
 import {
   shouldAllowTrading,
   recordAiFailure,
   recordAiSuccess,
+  recordTradeOutcome,
 } from "./circuitBreaker";
-import { convertHyperliquidPositions, extractHyperliquidSymbols } from "./converters/positionConverter";
+import { extractHyperliquidSymbols } from "./converters/positionConverter";
 import { checkTrendGuard } from "./validators/trendGuard";
 import { validateDecisionAgainstRegime } from "./validators/regimeValidator";
 import { validateOpenPosition } from "./validators/positionValidator";
@@ -51,6 +52,7 @@ import {
   buildHybridHoldDecision,
   type HybridCandidateSet,
 } from "./hybridSelection";
+import { buildStrategyState } from "../wallets/strategyState";
 
 function normalizeMaxPositionSizePct(rawMaxPositionSize: number | undefined): number {
   const fallbackPct = 10;
@@ -63,6 +65,132 @@ function normalizeMaxPositionSizePct(rawMaxPositionSize: number | undefined): nu
   // - current configs store percent integers (10 = 10%)
   const pct = rawMaxPositionSize <= 1 ? rawMaxPositionSize * 100 : rawMaxPositionSize;
   return Math.max(1, Math.min(100, pct));
+}
+
+function getAccountValue(accountState: any): number {
+  const accountValue = accountState?.accountValue;
+  if (typeof accountValue !== "number" || !Number.isFinite(accountValue)) {
+    return 0;
+  }
+
+  return accountValue;
+}
+
+function cloneDecision(decision: any) {
+  return { ...decision };
+}
+
+function buildExecutionGroupId(decision: any) {
+  const symbol = decision.symbol ?? "account";
+  return `ai-${decision.decision.toLowerCase()}-${symbol}-${Date.now()}`;
+}
+
+function scaleDecisionForWallet(
+  decision: any,
+  strategyAccountState: any,
+  walletAccountState: any
+) {
+  if (decision.decision !== "OPEN_LONG" && decision.decision !== "OPEN_SHORT") {
+    return cloneDecision(decision);
+  }
+
+  const scaledDecision = cloneDecision(decision);
+  const strategyAccountValue = getAccountValue(strategyAccountState);
+  const walletAccountValue = getAccountValue(walletAccountState);
+
+  if (
+    strategyAccountValue > 0 &&
+    walletAccountValue > 0 &&
+    typeof decision.size_usd === "number" &&
+    Number.isFinite(decision.size_usd)
+  ) {
+    const sizePct = decision.size_usd / strategyAccountValue;
+    scaledDecision.size_usd = walletAccountValue * sizePct;
+  }
+
+  return scaledDecision;
+}
+
+async function syncWalletPositionsForLoop(
+  ctx: any,
+  bot: any,
+  detailedMarketData: Record<string, any>,
+  executionWallets: any[],
+  loopId: number
+) {
+  for (const wallet of executionWallets) {
+    const walletId = wallet.walletId ?? undefined;
+    let hyperliquidPositions: any[] = [];
+
+    try {
+      hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+        address: wallet.hyperliquidAddress,
+        testnet: wallet.hyperliquidTestnet,
+      });
+    } catch (error) {
+      console.warn(
+        `[LOOP-${loopId}] Position sync skipped for wallet ${wallet.label}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      continue;
+    }
+
+    await reconcilePositionsWithExchange(ctx, {
+      userId: bot.userId,
+      ...(walletId ? { walletId } : {}),
+      hyperliquidSymbols: extractHyperliquidSymbols(hyperliquidPositions),
+      address: wallet.hyperliquidAddress,
+      testnet: wallet.hyperliquidTestnet,
+    });
+
+    const dbPositions = await ctx.runQuery(api.queries.getPositions, {
+      userId: bot.userId,
+      ...(walletId ? { walletId } : {}),
+    });
+    const trackedSymbols = new Set((dbPositions || []).map((position: any) => position.symbol));
+
+    for (const hyperliquidPosition of hyperliquidPositions || []) {
+      const position = hyperliquidPosition.position || hyperliquidPosition;
+      const coin = position.coin;
+      const szi = parseFloat(position.szi || "0");
+      if (!coin || szi === 0 || trackedSymbols.has(coin)) {
+        continue;
+      }
+
+      const entryPx = parseFloat(position.entryPx || "0");
+      const leverage = parseFloat(position.leverage?.value || position.leverage || "1");
+      const unrealizedPnl = parseFloat(position.unrealizedPnl || "0");
+      const positionValue = Math.abs(parseFloat(position.positionValue || "0"));
+      const liquidationPx = parseFloat(position.liquidationPx || "0");
+      const currentPrice = detailedMarketData[coin]?.currentPrice || entryPx;
+
+      try {
+        await ctx.runMutation(api.mutations.savePosition, {
+          userId: bot.userId,
+          ...(walletId ? { walletId } : {}),
+          symbol: coin,
+          side: szi > 0 ? "LONG" : "SHORT",
+          size: positionValue,
+          leverage,
+          entryPrice: entryPx,
+          currentPrice,
+          unrealizedPnl,
+          unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / Math.abs(positionValue)) * 100 : 0,
+          liquidationPrice: liquidationPx,
+        });
+        console.log(
+          `[LOOP-${loopId}] Backfilled ${coin} ${szi > 0 ? "LONG" : "SHORT"} into DB for wallet ${wallet.label}`
+        );
+      } catch (error) {
+        console.warn(
+          `[LOOP-${loopId}] Failed to backfill ${coin} for wallet ${wallet.label}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  }
 }
 
 export const runTradingCycle = internalAction({
@@ -158,120 +286,68 @@ export const runTradingCycle = internalAction({
           const tradingMode: "alpha_arena" | "compact" | "detailed" =
             (bot.tradingPromptMode as "alpha_arena" | "compact" | "detailed") || "alpha_arena";
 
-          // ── 3. Credentials ────────────────────────────────────────
-          const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
-            userId: bot.userId,
-          });
+          // ── 3. Wallet Resolution ───────────────────────────────────
+          const [primaryWallet, executionWallets] = await Promise.all([
+            ctx.runQuery(internal.wallets.queries.getPrimaryWalletInternal, {
+              userId: bot.userId,
+            }),
+            ctx.runQuery(internal.wallets.queries.getActiveConnectedWalletsInternal, {
+              userId: bot.userId,
+            }),
+          ]);
 
-          if (!credentials || !credentials.hyperliquidPrivateKey || !credentials.hyperliquidAddress) {
-            console.error(`Missing credentials for user ${bot.userId}`);
+          if (
+            !primaryWallet ||
+            !primaryWallet.hyperliquidPrivateKey ||
+            !primaryWallet.hyperliquidAddress ||
+            !executionWallets ||
+            executionWallets.length === 0
+          ) {
+            console.error(`Missing active wallet configuration for user ${bot.userId}`);
             await ctx.runMutation(api.mutations.saveSystemLog, {
               userId: bot.userId,
               level: "ERROR",
-              message: "Trading cycle skipped: Missing credentials",
+              message: "Trading cycle skipped: Missing active wallet configuration",
               data: { botId: bot._id },
             });
             continue;
           }
 
           // ── 4. Market Data ────────────────────────────────────────
-          const symbols = credentials.hyperliquidTestnet
+          const symbols = primaryWallet.hyperliquidTestnet
             ? bot.symbols.filter((s: string) => s !== "XRP")
             : bot.symbols;
 
           const detailedMarketData = await ctx.runAction(api.hyperliquid.detailedMarketData.getDetailedMarketData, {
             symbols,
-            testnet: credentials.hyperliquidTestnet,
-          });
-
-          const accountState = await ctx.runAction(api.hyperliquid.client.getAccountState, {
-            address: credentials.hyperliquidAddress,
-            testnet: credentials.hyperliquidTestnet,
+            testnet: primaryWallet.hyperliquidTestnet,
           });
 
           // ── 5. Position Sync ──────────────────────────────────────
-          let hyperliquidPositions: any[] = [];
-          let hlPositionsFetched = false;
+          await syncWalletPositionsForLoop(ctx, bot, detailedMarketData, executionWallets, loopId);
 
-          try {
-            hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
-              address: credentials.hyperliquidAddress,
-              testnet: credentials.hyperliquidTestnet,
-            });
-            hlPositionsFetched = true;
-          } catch (error) {
-            console.warn(`[LOOP-${loopId}] Hyperliquid positions API unavailable, skipping sync: ${error instanceof Error ? error.message : String(error)}`);
-          }
-
-          const hyperliquidSymbols = extractHyperliquidSymbols(hyperliquidPositions);
-
-          // Only sync positions if we successfully fetched from Hyperliquid
-          // Syncing with empty data when API is down would wipe all DB positions
-          if (hlPositionsFetched) {
-            await reconcilePositionsWithExchange(ctx, {
-              userId: bot.userId,
-              hyperliquidSymbols,
-              address: credentials.hyperliquidAddress,
-              testnet: credentials.hyperliquidTestnet,
-            });
-          }
-
-          let dbPositions = await ctx.runQuery(api.queries.getPositions, {
+          const strategyState = await buildStrategyState(ctx, {
             userId: bot.userId,
+            detailedMarketData,
           });
-
-          // ── Backfill: Save HL positions missing from DB ───────────
-          // Positions opened before DB tracking (or externally) need to be
-          // saved so executeClose can find them.
-          if (hlPositionsFetched && dbPositions.length === 0 && hyperliquidPositions.length > 0) {
-            console.log(`[LOOP-${loopId}] Backfilling ${hyperliquidPositions.length} Hyperliquid position(s) into DB`);
-            for (const hlPos of hyperliquidPositions) {
-              const pos = hlPos.position || hlPos;
-              const coin = pos.coin;
-              const szi = parseFloat(pos.szi || "0");
-              if (szi === 0) continue;
-
-              const entryPx = parseFloat(pos.entryPx || "0");
-              const leverage = parseFloat(pos.leverage?.value || pos.leverage || "1");
-              const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
-              const positionValue = Math.abs(parseFloat(pos.positionValue || "0"));
-              const liquidationPx = parseFloat(pos.liquidationPx || "0");
-              const currentPrice = detailedMarketData[coin]?.currentPrice || entryPx;
-
-              try {
-                await ctx.runMutation(api.mutations.savePosition, {
-                  userId: bot.userId,
-                  symbol: coin,
-                  side: szi > 0 ? "LONG" : "SHORT",
-                  size: positionValue,
-                  leverage,
-                  entryPrice: entryPx,
-                  currentPrice,
-                  unrealizedPnl,
-                  unrealizedPnlPct: positionValue > 0 ? (unrealizedPnl / Math.abs(positionValue)) * 100 : 0,
-                  liquidationPrice: liquidationPx,
-                });
-                console.log(`[LOOP-${loopId}] Backfilled ${coin} ${szi > 0 ? "LONG" : "SHORT"} into DB`);
-              } catch (e) {
-                console.warn(`[LOOP-${loopId}] Failed to backfill ${coin}:`, e instanceof Error ? e.message : String(e));
-              }
-            }
-
-            // Re-fetch DB positions after backfill
-            dbPositions = await ctx.runQuery(api.queries.getPositions, {
-              userId: bot.userId,
-            });
-          }
-
-          const positions = convertHyperliquidPositions(hyperliquidPositions, dbPositions, detailedMarketData);
+          const accountState = strategyState.strategyAccountState ?? {
+            accountValue: 0,
+            withdrawable: 0,
+          };
+          const positions = strategyState.positions;
+          const openOrders = strategyState.openOrders;
+          const recentTrades = strategyState.recentTrades;
           const marketSnapshot = buildMarketSnapshot(detailedMarketData);
           const decisionContext: DecisionContext = {
             marketSnapshot,
             marketSnapshotSummary: summarizeMarketSnapshot(marketSnapshot),
           };
 
-          console.log(`[LOOP-${loopId}] Hyperliquid has ${positions.length} active positions: ${positions.map((p: any) => `${p.symbol} ${p.side}`).join(", ") || "none"}`);
-          console.log(`[LOOP-${loopId}] Database has ${dbPositions.length} positions`);
+          console.log(
+            `[LOOP-${loopId}] Strategy state has ${positions.length} active symbols across ${strategyState.executionWallets.length} wallet(s): ${
+              positions.map((p: any) => `${p.symbol} ${p.side}`).join(", ") || "none"
+            }`
+          );
 
           // ── 6. Performance Metrics + Sentiment ─────────────────────
           const performanceMetrics = await ctx.runQuery(internal.trading.performanceMetrics.getPerformanceMetrics, {
@@ -295,21 +371,6 @@ export const runTradingCycle = internalAction({
           let decision;
           let systemPromptName: string;
           let hybridCandidateSet: HybridCandidateSet | null = null;
-
-          let openOrders: any[] = [];
-          try {
-            openOrders = await ctx.runAction(api.hyperliquid.client.getUserOpenOrders, {
-              address: credentials.hyperliquidAddress,
-              testnet: credentials.hyperliquidTestnet,
-            });
-          } catch (error) {
-            console.warn(`[LOOP-${loopId}] Open orders fetch skipped: ${error instanceof Error ? error.message : String(error)}`);
-          }
-
-          const recentTrades = await ctx.runQuery(api.queries.getRecentTrades, {
-            userId: bot.userId,
-            limit: 50,
-          });
 
           try {
             if (tradingMode === "alpha_arena" && (bot.useHybridSelection ?? false)) {
@@ -341,7 +402,7 @@ export const runTradingCycle = internalAction({
                   hybridChopDistanceFromEmaPct: bot.hybridChopDistanceFromEmaPct,
                 },
                 allowedSymbols: symbols,
-                testnet: credentials.hyperliquidTestnet,
+                testnet: primaryWallet.hyperliquidTestnet,
               });
 
               if (hybridCandidateSet.forcedHold && hybridCandidateSet.closeCandidates.length === 0) {
@@ -501,7 +562,7 @@ export const runTradingCycle = internalAction({
               console.log(`[LOOP-${loopId}] [CIRCUIT BREAKER] TRIPPED after ${aiFailState.consecutiveAiFailures} AI failures`);
               // Telegram risk alert (fire-and-forget)
               try {
-                ctx.runAction(internal.telegram.notifier.notifyRiskAlert, {
+	                ctx.runAction(internal.telegram.notifier.notifyRiskAlert, {
                   userId: bot.userId,
                   type: "circuit_breaker",
                   message: `Circuit breaker tripped after ${aiFailState.consecutiveAiFailures} consecutive AI failures`,
@@ -668,16 +729,15 @@ export const runTradingCycle = internalAction({
           };
 
           // ── 8. Execute Trade ──────────────────────────────────────
-          if (decision.decision !== "HOLD") {
-            executionResult = await executeTradeDecision(
-              ctx,
-              bot,
-              credentials,
-              decision,
-              accountState,
-              decisionContext
-            );
-          }
+	          if (decision.decision !== "HOLD") {
+	            executionResult = await executeTradeDecision(
+	              ctx,
+	              bot,
+	              decision,
+	              strategyState,
+	              decisionContext
+	            );
+	          }
 
           // ── 9. Save AI Log ────────────────────────────────────────
           // Include parser warnings and decision context for dashboard visibility
@@ -708,8 +768,8 @@ export const runTradingCycle = internalAction({
             parsedResponse: parsedResponseWithWarnings,
             decision: decision.decision,
             reasoning: decision.reasoning,
-            confidence: decision.confidence,
-            accountValue: accountState.accountValue,
+	            confidence: decision.confidence,
+	            accountValue: accountState.accountValue,
             marketData: {
               detailedMarketData,
               marketSnapshotSummary: decisionContext.marketSnapshotSummary,
@@ -767,9 +827,8 @@ export const runTradingCycle = internalAction({
 async function executeTradeDecision(
   ctx: any,
   bot: any,
-  credentials: any,
   decision: any,
-  accountState: any,
+  strategyState: any,
   decisionContext: DecisionContext
 ) {
   console.log(`\n┌─────────────────────────────────────────────────────────────┐`);
@@ -778,6 +837,27 @@ async function executeTradeDecision(
   console.log(`│ Confidence: ${(decision.confidence * 100).toFixed(0)}%`);
   console.log(`└─────────────────────────────────────────────────────────────┘`);
 
+  const accountState = strategyState.strategyAccountState ?? {
+    accountValue: 0,
+    withdrawable: 0,
+  };
+  const executionWallets = strategyState.executionWallets ?? [];
+  const walletStates = strategyState.walletStates ?? [];
+  const positions = strategyState.positions ?? [];
+  const openOrders = strategyState.openOrders ?? [];
+  const recentTrades = strategyState.recentTrades ?? [];
+
+  if (executionWallets.length === 0) {
+    return {
+      executed: false,
+      blockedBy: "no_active_wallets",
+      regimeValidation: null,
+      trendValidation: null,
+      positionValidation: null,
+      walletResults: [],
+    };
+  }
+
   // ── Breakeven Close Guard (CLOSE only) ───────────────────────
   // Prevent AI from closing positions at ~$0 P&L. Only allow close if:
   // 1. Position is meaningfully profitable (>= +0.5% P&L), OR
@@ -785,80 +865,124 @@ async function executeTradeDecision(
   if (decision.decision === "CLOSE" && decision.symbol) {
     const MIN_CLOSE_PNL_PCT = 0.5; // Must be at least +0.5% profitable to manually close
 
-    const dbPositions = await ctx.runQuery(api.queries.getPositions, {
-      userId: bot.userId,
-    });
-    const posToCheck = dbPositions.find((p: any) => p.symbol === decision.symbol);
-
-    if (posToCheck) {
-      if (posToCheck.exitMode === "managed_scalp_v2") {
-        console.log(`⚠️ CLOSE ignored for ${decision.symbol}: position is using managed exits`);
-        await ctx.runMutation(api.mutations.saveSystemLog, {
-          userId: bot.userId,
-          level: "INFO",
-          message: `AI close skipped: ${decision.symbol} is managed by system exits`,
-          data: { symbol: decision.symbol, reasoning: decision.reasoning },
-        });
-        return {
-          executed: false,
-          blockedBy: "managed_exit",
-          regimeValidation: null,
-          trendValidation: null,
-          positionValidation: null,
-        };
-      }
-
-      const hasTpSl = Boolean(posToCheck.stopLoss && posToCheck.takeProfit);
-      let pnlPct = posToCheck.unrealizedPnlPct ?? 0;
-
-      // Prefer live exchange P&L over stale DB P&L for anti-churn close checks.
-      try {
-        const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
-          address: credentials.hyperliquidAddress,
-          testnet: credentials.hyperliquidTestnet,
-        });
-        const livePos = hyperliquidPositions.find((p: any) => {
-          const pos = p.position || p;
-          return pos.coin === decision.symbol && parseFloat(pos.szi || "0") !== 0;
-        });
-        if (livePos) {
-          const pos = livePos.position || livePos;
-          const unrealized = parseFloat(pos.unrealizedPnl || "0");
-          const positionValue = Math.abs(parseFloat(pos.positionValue || "0"));
-          if (positionValue > 0) {
-            pnlPct = (unrealized / positionValue) * 100;
-          }
-        }
-      } catch (error) {
-        console.warn(
-          `⚠️ Could not fetch live P&L for close guard on ${decision.symbol}, using DB value: ${
-            error instanceof Error ? error.message : String(error)
-          }`
+    const closeTargets = walletStates
+      .map((walletState: any) => {
+        const dbPosition = (walletState.dbPositions || []).find(
+          (position: any) => position.symbol === decision.symbol
         );
-      }
-
-      if (pnlPct < MIN_CLOSE_PNL_PCT && hasTpSl) {
-        console.log(`❌ CLOSE rejected: ${decision.symbol} P&L is ${pnlPct.toFixed(2)}% (need >= +${MIN_CLOSE_PNL_PCT}%). TP/SL are set — let exchange handle exit.`);
-        await ctx.runMutation(api.mutations.saveSystemLog, {
-          userId: bot.userId,
-          level: "INFO",
-          message: `AI close blocked: ${decision.symbol} P&L ${pnlPct.toFixed(2)}% below +${MIN_CLOSE_PNL_PCT}% threshold`,
-          data: { symbol: decision.symbol, pnlPct, reasoning: decision.reasoning },
+        const strategyPosition = (walletState.positions || []).find(
+          (position: any) => position.symbol === decision.symbol
+        );
+        const livePosition = (walletState.hyperliquidPositions || []).find((position: any) => {
+          const nextPosition = position.position || position;
+          return nextPosition.coin === decision.symbol && parseFloat(nextPosition.szi || "0") !== 0;
         });
+
+        if (!dbPosition && !strategyPosition && !livePosition) {
+          return null;
+        }
+
         return {
-          executed: false,
-          blockedBy: "close_guard",
-          regimeValidation: null,
-          trendValidation: null,
-          positionValidation: null,
+          wallet: walletState.wallet,
+          walletId: walletState.walletId ?? undefined,
+          position: dbPosition ?? strategyPosition ?? null,
+          livePosition,
         };
+      })
+      .filter(Boolean);
+
+    if (closeTargets.length === 0) {
+      return {
+        executed: false,
+        blockedBy: "no_position",
+        regimeValidation: null,
+        trendValidation: null,
+        positionValidation: null,
+        walletResults: [],
+      };
+    }
+
+    if (closeTargets.some((target: any) => target.position?.exitMode === "managed_scalp_v2")) {
+      console.log(`⚠️ CLOSE ignored for ${decision.symbol}: position is using managed exits`);
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "INFO",
+        message: `AI close skipped: ${decision.symbol} is managed by system exits`,
+        data: { symbol: decision.symbol, reasoning: decision.reasoning },
+      });
+      return {
+        executed: false,
+        blockedBy: "managed_exit",
+        regimeValidation: null,
+        trendValidation: null,
+        positionValidation: null,
+        walletResults: closeTargets.map((target: any) => ({
+          walletId: target.walletId ?? null,
+          walletLabel: target.wallet.label,
+          address: target.wallet.hyperliquidAddress,
+          success: false,
+          blockedBy: "managed_exit",
+        })),
+      };
+    }
+
+    const closeGuardState = closeTargets.map((target: any) => {
+      let pnlPct = target.position?.unrealizedPnlPct ?? 0;
+      if (target.livePosition) {
+        const livePosition = target.livePosition.position || target.livePosition;
+        const unrealized = parseFloat(livePosition.unrealizedPnl || "0");
+        const positionValue = Math.abs(parseFloat(livePosition.positionValue || "0"));
+        if (positionValue > 0) {
+          pnlPct = (unrealized / positionValue) * 100;
+        }
       }
 
-      if (!hasTpSl) {
-        console.log(`⚠️ ${decision.symbol} TP/SL missing — allowing close for safety (P&L: ${pnlPct.toFixed(2)}%)`);
-      } else {
-        console.log(`✅ ${decision.symbol} profitable at ${pnlPct.toFixed(2)}% — allowing AI close to lock gains`);
-      }
+      return {
+        walletId: target.walletId ?? null,
+        walletLabel: target.wallet.label,
+        address: target.wallet.hyperliquidAddress,
+        hasTpSl: Boolean(target.position?.stopLoss && target.position?.takeProfit),
+        pnlPct,
+      };
+    });
+
+    const allowClose = closeGuardState.some(
+      (walletState: any) => !walletState.hasTpSl || walletState.pnlPct >= MIN_CLOSE_PNL_PCT
+    );
+
+    if (!allowClose) {
+      console.log(
+        `❌ CLOSE rejected: ${decision.symbol} remains below +${MIN_CLOSE_PNL_PCT}% on all wallets with TP/SL protection`
+      );
+      await ctx.runMutation(api.mutations.saveSystemLog, {
+        userId: bot.userId,
+        level: "INFO",
+        message: `AI close blocked: ${decision.symbol} below +${MIN_CLOSE_PNL_PCT}% threshold across wallets`,
+        data: {
+          symbol: decision.symbol,
+          closeGuardState,
+          reasoning: decision.reasoning,
+        },
+      });
+      return {
+        executed: false,
+        blockedBy: "close_guard",
+        regimeValidation: null,
+        trendValidation: null,
+        positionValidation: null,
+        walletResults: closeGuardState.map((walletState: any) => ({
+          ...walletState,
+          success: false,
+          blockedBy: "close_guard",
+        })),
+      };
+    }
+
+    if (closeGuardState.some((walletState: any) => !walletState.hasTpSl)) {
+      console.log(`⚠️ ${decision.symbol} has wallets missing TP/SL — allowing close for safety`);
+    } else {
+      const bestPnlPct = Math.max(...closeGuardState.map((walletState: any) => walletState.pnlPct));
+      console.log(`✅ ${decision.symbol} profitable at up to ${bestPnlPct.toFixed(2)}% — allowing AI close`);
     }
   }
 
@@ -946,77 +1070,310 @@ async function executeTradeDecision(
       console.log(`📐 Leverage normalized: ${decision.leverage}x → ${bot.maxLeverage}x (cap)`);
       decision.leverage = bot.maxLeverage;
     }
-  }
 
-  // ── Position Validation ───────────────────────────────────────
-  if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
-    const validation = await validateOpenPosition(ctx, api, bot, credentials, decision, accountState);
-    if (!validation.allowed) {
-      console.log(`❌ EXECUTION BLOCKED [position_validator/${validation.checkName}]: ${validation.reason}`);
+    const requestedSide = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
+    const existingPosition = positions.find((position: any) => position.symbol === decision.symbol);
+    if (existingPosition) {
       return {
         executed: false,
-        blockedBy: "position_validator",
+        blockedBy: "duplicate_position",
         regimeValidation: regimeResult,
         trendValidation: trendResult,
-        positionValidation: validation,
+        positionValidation: {
+          allowed: false,
+          checkName: "ACCOUNT_DUPLICATE_POSITION",
+          reason: `Already have ${existingPosition.side} position on ${decision.symbol} across wallets`,
+        },
+        walletResults: [],
       };
     }
 
-    // Legacy risk checks (normalization above already handled sizing, these are now redundant safety nets)
-    const maxPositionSizePct_check = normalizeMaxPositionSizePct(bot.maxPositionSize);
-    const maxPositionSizeUsd_check = accountState.accountValue * (maxPositionSizePct_check / 100);
-    if (decision.size_usd && decision.size_usd > maxPositionSizeUsd_check * 1.01) {
-      console.log(`❌ Trade rejected: position size ${decision.size_usd} still exceeds max ${maxPositionSizeUsd_check} after normalization`);
+    const existingOpenOrder = openOrders.find(
+      (order: any) => (order.coin || order.symbol) === decision.symbol
+    );
+    if (existingOpenOrder) {
       return {
         executed: false,
-        blockedBy: "size_cap",
+        blockedBy: "open_orders",
         regimeValidation: regimeResult,
         trendValidation: trendResult,
-        positionValidation: validation,
+        positionValidation: {
+          allowed: false,
+          checkName: "ACCOUNT_OPEN_ORDER",
+          reason: `Open order already exists on ${decision.symbol} across wallets`,
+        },
+        walletResults: [],
       };
     }
-    if (decision.leverage && decision.leverage > bot.maxLeverage) {
-      console.log(`❌ Trade rejected: leverage ${decision.leverage} still exceeds max ${bot.maxLeverage} after normalization`);
+
+    const maxTotalPositions = bot.maxTotalPositions ?? 3;
+    if (positions.length >= maxTotalPositions) {
       return {
         executed: false,
-        blockedBy: "leverage_cap",
+        blockedBy: "max_positions",
         regimeValidation: regimeResult,
         trendValidation: trendResult,
-        positionValidation: validation,
+        positionValidation: {
+          allowed: false,
+          checkName: "ACCOUNT_MAX_POSITIONS",
+          reason: `Position limit reached: ${positions.length}/${maxTotalPositions}`,
+        },
+        walletResults: [],
+      };
+    }
+
+    const maxSameDirectionPositions = bot.maxSameDirectionPositions ?? 2;
+    const sameDirectionCount = positions.filter((position: any) => position.side === requestedSide).length;
+    if (sameDirectionCount >= maxSameDirectionPositions) {
+      return {
+        executed: false,
+        blockedBy: "same_direction",
+        regimeValidation: regimeResult,
+        trendValidation: trendResult,
+        positionValidation: {
+          allowed: false,
+          checkName: "ACCOUNT_SAME_DIRECTION",
+          reason: `Same-direction limit reached: ${sameDirectionCount}/${maxSameDirectionPositions} ${requestedSide}`,
+        },
+        walletResults: [],
+      };
+    }
+
+    const reentryCooldownMinutes = bot.reentryCooldownMinutes ?? 15;
+    const cooldownCutoff = Date.now() - reentryCooldownMinutes * 60 * 1000;
+    const recentTradeOnSymbol = recentTrades.find(
+      (trade: any) => trade.symbol === decision.symbol && trade.executedAt > cooldownCutoff
+    );
+    if (recentTradeOnSymbol) {
+      const minutesAgo = Math.floor((Date.now() - recentTradeOnSymbol.executedAt) / 60000);
+      return {
+        executed: false,
+        blockedBy: "cooldown",
+        regimeValidation: regimeResult,
+        trendValidation: trendResult,
+        positionValidation: {
+          allowed: false,
+          checkName: "ACCOUNT_COOLDOWN",
+          reason: `Symbol cooldown active: traded ${minutesAgo}min ago`,
+        },
+        walletResults: [],
+      };
+    }
+
+    const oneMinuteAgo = Date.now() - 60 * 1000;
+    const veryRecentTrade = recentTrades.find(
+      (trade: any) =>
+        trade.symbol === decision.symbol &&
+        trade.action === "OPEN" &&
+        trade.executedAt > oneMinuteAgo
+    );
+    if (veryRecentTrade) {
+      const secondsAgo = Math.floor((Date.now() - veryRecentTrade.executedAt) / 1000);
+      return {
+        executed: false,
+        blockedBy: "duplicate_guard",
+        regimeValidation: regimeResult,
+        trendValidation: trendResult,
+        positionValidation: {
+          allowed: false,
+          checkName: "ACCOUNT_DUPLICATE_GUARD",
+          reason: `Duplicate guard: opened ${secondsAgo}s ago`,
+        },
+        walletResults: [],
       };
     }
   }
 
   // ── Execute ───────────────────────────────────────────────────
-  try {
-    console.log(`✅ EXECUTING ORDER: ${decision.decision} ${decision.symbol || "N/A"}`);
-    if (decision.decision === "CLOSE") {
-      await executeClose(ctx, api, bot, credentials, decision);
-    } else if (decision.decision === "OPEN_LONG" || decision.decision === "OPEN_SHORT") {
-      await executeOpen(ctx, api, bot, credentials, decision, accountState);
+  console.log(`✅ EXECUTING ORDER: ${decision.decision} ${decision.symbol || "N/A"} across ${executionWallets.length} wallet(s)`);
+  const executionGroupId = buildExecutionGroupId(decision);
+  const walletResults = await Promise.all(
+    executionWallets.map(async (wallet: any) => {
+      const walletId = wallet.walletId ?? undefined;
+      const walletState =
+        walletStates.find((state: any) => state.wallet?.walletKey === wallet.walletKey) ?? null;
+      const walletAccountState = walletState?.accountState ?? accountState;
+      const walletDecision = scaleDecisionForWallet(decision, accountState, walletAccountState);
+      let validation: any = null;
+
+      try {
+        if (walletDecision.decision === "OPEN_LONG" || walletDecision.decision === "OPEN_SHORT") {
+          validation = await validateOpenPosition(
+            ctx,
+            api,
+            bot,
+            wallet,
+            walletDecision,
+            walletAccountState,
+            {
+              walletId,
+              walletKey: wallet.walletKey,
+            }
+          );
+
+          if (!validation.allowed) {
+            return {
+              walletId: walletId ?? null,
+              walletLabel: wallet.label,
+              address: wallet.hyperliquidAddress,
+              success: false,
+              blockedBy: `position_validator/${validation.checkName}`,
+              validation,
+              sizeUsd: walletDecision.size_usd ?? null,
+              leverage: walletDecision.leverage ?? null,
+            };
+          }
+
+          const walletMaxPositionSizePct = normalizeMaxPositionSizePct(bot.maxPositionSize);
+          const walletMaxPositionSizeUsd = getAccountValue(walletAccountState) * (walletMaxPositionSizePct / 100);
+          if (
+            walletDecision.size_usd &&
+            walletMaxPositionSizeUsd > 0 &&
+            walletDecision.size_usd > walletMaxPositionSizeUsd * 1.01
+          ) {
+            return {
+              walletId: walletId ?? null,
+              walletLabel: wallet.label,
+              address: wallet.hyperliquidAddress,
+              success: false,
+              blockedBy: "size_cap",
+              validation,
+              sizeUsd: walletDecision.size_usd,
+              leverage: walletDecision.leverage ?? null,
+            };
+          }
+          if (walletDecision.leverage && walletDecision.leverage > bot.maxLeverage) {
+            return {
+              walletId: walletId ?? null,
+              walletLabel: wallet.label,
+              address: wallet.hyperliquidAddress,
+              success: false,
+              blockedBy: "leverage_cap",
+              validation,
+              sizeUsd: walletDecision.size_usd ?? null,
+              leverage: walletDecision.leverage,
+            };
+          }
+
+          await executeOpen(ctx, api, bot, wallet, walletDecision, walletAccountState, {
+            wallet,
+            executionGroupId,
+          });
+
+          return {
+            walletId: walletId ?? null,
+            walletLabel: wallet.label,
+            address: wallet.hyperliquidAddress,
+            success: true,
+            blockedBy: null,
+            sizeUsd: walletDecision.size_usd ?? null,
+            leverage: walletDecision.leverage ?? null,
+          };
+        }
+
+        if (walletDecision.decision === "CLOSE") {
+          const closeResult = await executeClose(ctx, api, bot, wallet, walletDecision, {
+            wallet,
+            executionGroupId,
+            countCircuitBreakerLoss: false,
+          });
+
+          return {
+            walletId: walletId ?? null,
+            walletLabel: wallet.label,
+            address: wallet.hyperliquidAddress,
+            success: true,
+            blockedBy: null,
+            pnl: closeResult?.pnl ?? null,
+            pnlPct: closeResult?.pnlPct ?? null,
+            txHash: closeResult?.txHash ?? null,
+          };
+        }
+
+        return {
+          walletId: walletId ?? null,
+          walletLabel: wallet.label,
+          address: wallet.hyperliquidAddress,
+          success: false,
+          blockedBy: "unsupported_decision",
+        };
+      } catch (error) {
+        await ctx.runMutation(api.mutations.saveSystemLog, {
+          userId: bot.userId,
+          level: "ERROR",
+          message: `Wallet execution error: ${decision.decision} on ${decision.symbol}`,
+          data: {
+            walletId: walletId ?? null,
+            walletLabel: wallet.label,
+            error: error instanceof Error ? error.message : String(error),
+            decision: walletDecision,
+          },
+        });
+
+        return {
+          walletId: walletId ?? null,
+          walletLabel: wallet.label,
+          address: wallet.hyperliquidAddress,
+          success: false,
+          blockedBy: "execution_error",
+          error: error instanceof Error ? error.message : String(error),
+          validation,
+          sizeUsd: walletDecision.size_usd ?? null,
+          leverage: walletDecision.leverage ?? null,
+        };
+      } finally {
+        if (walletDecision.decision === "OPEN_LONG" || walletDecision.decision === "OPEN_SHORT") {
+          await ctx.runMutation(api.mutations.releaseSymbolTradeLock, {
+            userId: bot.userId,
+            ...(walletId ? { walletId } : {}),
+            symbol: walletDecision.symbol,
+          }).catch(() => null);
+        }
+      }
+    })
+  );
+
+  if (decision.decision === "CLOSE") {
+    const successfulCloseResults = walletResults.filter((result: any) => result.success);
+    if (successfulCloseResults.length > 0) {
+      const aggregatePnl = successfulCloseResults.reduce((sum: number, result: any) => {
+        return sum + (typeof result.pnl === "number" ? result.pnl : 0);
+      }, 0);
+      const tradeOutcomeState = recordTradeOutcome(
+        {
+          circuitBreakerState: bot.circuitBreakerState,
+          consecutiveAiFailures: bot.consecutiveAiFailures,
+          consecutiveLosses: bot.consecutiveLosses,
+          circuitBreakerTrippedAt: bot.circuitBreakerTrippedAt,
+        },
+        {
+          maxConsecutiveLosses: bot.maxConsecutiveLosses,
+        },
+        aggregatePnl >= 0
+      );
+
+      await ctx.runMutation(api.mutations.updateCircuitBreakerState, {
+        userId: bot.userId,
+        circuitBreakerState: tradeOutcomeState.circuitBreakerState,
+        consecutiveLosses: tradeOutcomeState.consecutiveLosses,
+        circuitBreakerTrippedAt: tradeOutcomeState.circuitBreakerTrippedAt,
+      });
     }
-  } catch (error) {
-    console.error("❌ Error executing trade:", error);
-    await ctx.runMutation(api.mutations.saveSystemLog, {
-      userId: bot.userId,
-      level: "ERROR",
-      message: "Trade execution error",
-      data: { error: String(error), decision },
-    });
-    return {
-      executed: false,
-      blockedBy: "execution_error",
-      regimeValidation: regimeResult,
-      trendValidation: trendResult,
-      positionValidation: null,
-    };
   }
 
+  const successfulWallets = walletResults.filter((result: any) => result.success);
+
   return {
-    executed: true,
-    blockedBy: null,
+    executed: successfulWallets.length > 0,
+    blockedBy: successfulWallets.length > 0 ? null : walletResults[0]?.blockedBy ?? "execution_error",
     regimeValidation: regimeResult,
     trendValidation: trendResult,
-    positionValidation: null,
+    positionValidation:
+      walletResults.find((result: any) => result.validation)?.validation ?? null,
+    executionGroupId,
+    requestedWalletCount: executionWallets.length,
+    executedWalletCount: successfulWallets.length,
+    failedWalletCount: walletResults.length - successfulWallets.length,
+    walletResults,
   };
 }

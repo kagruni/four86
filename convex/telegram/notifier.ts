@@ -16,6 +16,7 @@ import {
 export const notifyTradeOpened = internalAction({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
     side: v.string(),
     sizeUsd: v.number(),
@@ -32,8 +33,15 @@ export const notifyTradeOpened = internalAction({
         internal.telegram.telegramQueries.getSettingsByUserId,
         { userId: args.userId }
       );
+      const mainWallet = await ctx.runQuery(
+        internal.wallets.queries.getTelegramMainWalletInternal,
+        { userId: args.userId }
+      );
 
       if (!settings?.isLinked || !settings?.isEnabled || !settings?.notifyTradeOpened) {
+        return;
+      }
+      if (String(mainWallet?.walletId ?? null) !== String(args.walletId ?? null)) {
         return;
       }
 
@@ -66,6 +74,7 @@ export const notifyTradeOpened = internalAction({
 export const notifyTradeClosed = internalAction({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
     side: v.string(),
     entryPrice: v.number(),
@@ -80,8 +89,15 @@ export const notifyTradeClosed = internalAction({
         internal.telegram.telegramQueries.getSettingsByUserId,
         { userId: args.userId }
       );
+      const mainWallet = await ctx.runQuery(
+        internal.wallets.queries.getTelegramMainWalletInternal,
+        { userId: args.userId }
+      );
 
       if (!settings?.isLinked || !settings?.isEnabled || !settings?.notifyTradeClosed) {
+        return;
+      }
+      if (String(mainWallet?.walletId ?? null) !== String(args.walletId ?? null)) {
         return;
       }
 

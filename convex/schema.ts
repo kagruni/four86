@@ -21,6 +21,21 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
 
+  // Connected execution wallets
+  connectedWallets: defineTable({
+    userId: v.string(),
+    label: v.string(),
+    hyperliquidAddress: v.string(),
+    hyperliquidPrivateKey: v.string(),
+    hyperliquidTestnet: v.boolean(),
+    isActive: v.boolean(),
+    isPrimary: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"])
+    .index("by_userId_active", ["userId", "isActive"])
+    .index("by_userId_primary", ["userId", "isPrimary"]),
+
   // Bot configuration and status
   botConfig: defineTable({
     userId: v.string(), // Clerk user ID
@@ -108,6 +123,7 @@ export default defineSchema({
   // Trading positions
   positions: defineTable({
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(), // "BTC"
     side: v.string(), // "LONG" or "SHORT"
     size: v.number(),
@@ -141,11 +157,15 @@ export default defineSchema({
     openedAt: v.number(),
     lastUpdated: v.number(),
   }).index("by_userId", ["userId"])
-    .index("by_symbol", ["userId", "symbol"]),
+    .index("by_symbol", ["userId", "symbol"])
+    .index("by_userId_walletId", ["userId", "walletId"])
+    .index("by_userId_walletId_symbol", ["userId", "walletId", "symbol"]),
 
   // Trade history
   trades: defineTable({
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
+    executionGroupId: v.optional(v.string()),
     symbol: v.string(),
     action: v.string(), // "OPEN" or "CLOSE"
     side: v.string(), // "LONG" or "SHORT"
@@ -173,7 +193,8 @@ export default defineSchema({
 
     executedAt: v.number(),
   }).index("by_userId", ["userId"])
-    .index("by_userId_time", ["userId", "executedAt"]),
+    .index("by_userId_time", ["userId", "executedAt"])
+    .index("by_userId_walletId_time", ["userId", "walletId", "executedAt"]),
 
   // AI reasoning logs
   aiLogs: defineTable({
@@ -206,6 +227,7 @@ export default defineSchema({
   // Account snapshots (for performance tracking)
   accountSnapshots: defineTable({
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     accountValue: v.number(),
     totalPnl: v.number(),
     totalPnlPct: v.number(),
@@ -217,7 +239,8 @@ export default defineSchema({
 
     timestamp: v.number(),
   }).index("by_userId", ["userId"])
-    .index("by_userId_time", ["userId", "timestamp"]),
+    .index("by_userId_time", ["userId", "timestamp"])
+    .index("by_userId_walletId_time", ["userId", "walletId", "timestamp"]),
 
   // Market research and sentiment data
   marketResearch: defineTable({
@@ -259,11 +282,13 @@ export default defineSchema({
   // Per-symbol trade locks (prevents rapid duplicate orders on same symbol)
   symbolTradeLocks: defineTable({
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     symbol: v.string(),
     side: v.string(), // "LONG" or "SHORT"
     attemptedAt: v.number(), // When the trade was attempted
     expiresAt: v.number(), // Lock expires after 60 seconds
   }).index("by_userId_symbol", ["userId", "symbol"])
+    .index("by_userId_walletId_symbol", ["userId", "walletId", "symbol"])
     .index("by_expiresAt", ["expiresAt"]),
 
   // Backtest run configurations and results
@@ -360,6 +385,7 @@ export default defineSchema({
   // Telegram bot integration settings
   telegramSettings: defineTable({
     userId: v.string(),
+    telegramMainWalletId: v.optional(v.id("connectedWallets")),
     chatId: v.optional(v.string()),
     isLinked: v.boolean(),
     isEnabled: v.boolean(),

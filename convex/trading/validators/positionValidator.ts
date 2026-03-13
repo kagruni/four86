@@ -50,7 +50,11 @@ export async function validateOpenPosition(
   bot: any,
   credentials: any,
   decision: any,
-  accountState: any
+  accountState: any,
+  walletContext?: {
+    walletId?: any;
+    walletKey?: string;
+  }
 ): Promise<ValidationResult> {
   const log = createLogger("VALIDATOR", undefined, bot.userId);
 
@@ -60,11 +64,14 @@ export async function validateOpenPosition(
   }
 
   const requestedSide = decision.decision === "OPEN_LONG" ? "LONG" : "SHORT";
-  const symbolKey = `${decision.symbol}-${requestedSide}`;
+  const walletKey = walletContext?.walletKey || String(walletContext?.walletId ?? credentials.hyperliquidAddress ?? "legacy");
+  const walletId = walletContext?.walletId;
+  const symbolKey = `${walletKey}:${decision.symbol}-${requestedSide}`;
 
   // ✅ CHECK #-2: DATABASE SYMBOL LOCK (prevents rapid duplicate orders)
   const symbolLockResult = await ctx.runMutation(api.mutations.acquireSymbolTradeLock, {
     userId: bot.userId,
+    ...(walletId ? { walletId } : {}),
     symbol: decision.symbol!,
     side: requestedSide,
   });
@@ -176,6 +183,7 @@ export async function validateOpenPosition(
   // Get FRESH positions from database
   const currentPositions = await ctx.runQuery(api.queries.getPositions, {
     userId: bot.userId,
+    ...(walletId ? { walletId } : {}),
   });
 
   // ✅ CHECK #1: Duplicate position on same symbol
@@ -242,6 +250,7 @@ export async function validateOpenPosition(
   // ✅ CHECK #5: Recent trade cooldown (configurable, applies after opens and closes)
   const recentTrades = await ctx.runQuery(api.queries.getRecentTrades, {
     userId: bot.userId,
+    ...(walletId ? { walletId } : {}),
     limit: 50,
   });
 

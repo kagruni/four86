@@ -32,3 +32,17 @@ export const runHybridSelectionDefaultsMigration = action({
     return result;
   },
 });
+
+export const runConnectedWalletBackfillMigration = action({
+  handler: async (ctx) => {
+    console.log("[migration] Running connected wallet backfill migration...");
+
+    const result = await ctx.runMutation(
+      internal.migrations.backfillConnectedWallets.backfillConnectedWallets
+    );
+
+    console.log("[migration] Migration result:", result);
+
+    return result;
+  },
+});

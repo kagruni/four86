@@ -8,7 +8,11 @@ import { api, internal } from "./fnRefs";
  */
 function buildPositionsFromHyperliquid(
   hlPositions: any[],
-  marketData: Record<string, any>
+  marketData: Record<string, any>,
+  wallet?: {
+    walletId?: any;
+    label?: string;
+  }
 ): any[] {
   const positions: any[] = [];
 
@@ -38,6 +42,8 @@ function buildPositionsFromHyperliquid(
 
     positions.push({
       _id: `hl_${coin}`, // Synthetic ID for rendering
+      walletId: wallet?.walletId ?? null,
+      walletLabel: wallet?.label,
       symbol: coin,
       side: isLong ? "LONG" : "SHORT",
       size: positionValue,
@@ -79,32 +85,37 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 // Get live positions with real-time prices from Hyperliquid
 // Overall timeout: 30s — prevents the 600s runaway issue
 export const getLivePositions = action({
-  args: { userId: v.string() },
+  args: {
+    userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
+  },
   handler: async (ctx, args) => {
     // Wrap the entire handler in a 30s timeout
     return withTimeout(
       (async () => {
-        // Get user credentials first - needed for all paths
-        const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        const selectedWallet = await ctx.runQuery(internal.wallets.queries.resolveSelectedWalletInternal, {
           userId: args.userId,
+          ...(args.walletId ? { walletId: args.walletId } : {}),
         });
+        const effectiveWalletId = selectedWallet?.walletId ?? undefined;
 
-        if (!credentials || !credentials.hyperliquidAddress) {
-          // No credentials — can only return DB positions
+        if (!selectedWallet || !selectedWallet.hyperliquidAddress) {
           const positions = await ctx.runQuery(api.queries.getPositions, {
             userId: args.userId,
+            ...(effectiveWalletId ? { walletId: effectiveWalletId } : {}),
           });
           return positions || [];
         }
 
-        const testnet = credentials.hyperliquidTestnet ?? true;
+        const testnet = selectedWallet.hyperliquidTestnet ?? true;
 
         // Fetch DB positions and Hyperliquid positions in parallel
         const dbPositionsPromise = ctx.runQuery(api.queries.getPositions, {
           userId: args.userId,
+          ...(effectiveWalletId ? { walletId: effectiveWalletId } : {}),
         });
         const hlPositionsPromise = ctx.runAction(api.hyperliquid.client.getUserPositions, {
-          address: credentials.hyperliquidAddress,
+          address: selectedWallet.hyperliquidAddress,
           testnet,
         }).catch((error: any) => {
           console.log("[getLivePositions] Could not fetch Hyperliquid positions:", error instanceof Error ? error.message : String(error));
@@ -151,7 +162,7 @@ export const getLivePositions = action({
           }
 
           console.log(`[getLivePositions] DB empty, built ${activeHlPositions.length} position(s) from Hyperliquid`);
-          return buildPositionsFromHyperliquid(activeHlPositions, marketData);
+          return buildPositionsFromHyperliquid(activeHlPositions, marketData, selectedWallet);
         }
 
         // DB has positions — merge with live Hyperliquid data
@@ -208,6 +219,8 @@ export const getLivePositions = action({
 
           return {
             ...position,
+            walletId: position.walletId ?? selectedWallet.walletId ?? null,
+            walletLabel: selectedWallet.label,
             leverage: actualLeverage,
             currentPrice: livePrice,
             unrealizedPnl,
@@ -232,7 +245,11 @@ export const getLivePositions = action({
 
         if (missingFromDb.length > 0) {
           console.log(`[getLivePositions] Found ${missingFromDb.length} position(s) on Hyperliquid not in DB`);
-          const extraPositions = buildPositionsFromHyperliquid(missingFromDb, marketData);
+          const extraPositions = buildPositionsFromHyperliquid(
+            missingFromDb,
+            marketData,
+            selectedWallet
+          );
           livePositions.push(...extraPositions);
         }
 

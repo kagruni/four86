@@ -8,7 +8,6 @@ import {
   formatOrders,
   formatUsd,
 } from "./messageTemplates";
-import { buildCloseTradeFields, resolveCloseSettlement } from "../trading/closeSettlement";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,6 +37,53 @@ async function reply(
 
 function inlineKeyboard(rows: { text: string; callback_data: string }[][]): string {
   return JSON.stringify({ inline_keyboard: rows });
+}
+
+async function getTelegramMainWallet(ctx: any, userId: string) {
+  return ctx.runQuery(internal.wallets.queries.getTelegramMainWalletInternal, {
+    userId,
+  });
+}
+
+function walletArgs(wallet: any) {
+  return wallet?.walletId ? { walletId: wallet.walletId } : {};
+}
+
+function walletScopeLabel(wallet: any) {
+  return wallet?.label ? ` (${wallet.label})` : "";
+}
+
+function formatManualCloseSummary(result: any): string {
+  if (!result) {
+    return "No result returned.";
+  }
+
+  const lines = [
+    `Closed *${result.symbol}* on *${result.closedWalletCount}/${result.requestedWalletCount}* wallet(s)`,
+  ];
+
+  const failures = (result.results || []).filter((entry: any) => !entry.success);
+  if (failures.length > 0) {
+    lines.push("");
+    lines.push(...failures.map((entry: any) => `- ${entry.address}: ${entry.error || "failed"}`));
+  }
+
+  return lines.join("\n");
+}
+
+function formatCloseAllSummary(result: any): string {
+  if (!result || !result.results || result.results.length === 0) {
+    return "No open positions to close.";
+  }
+
+  return [
+    `Processed *${result.symbolCount}* symbol(s) across all active wallets.`,
+    "",
+    ...result.results.map(
+      (entry: any) =>
+        `- ${entry.symbol}: ${entry.closedWalletCount}/${entry.requestedWalletCount} wallet(s) closed`
+    ),
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -74,8 +120,10 @@ async function handlePositions(
   chatId: string,
   userId: string
 ): Promise<void> {
+  const wallet = await getTelegramMainWallet(ctx, userId);
   const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
     userId,
+    ...walletArgs(wallet),
   });
 
   const formatted = formatPositions(
@@ -91,7 +139,7 @@ async function handlePositions(
     }))
   );
 
-  await reply(ctx, chatId, formatted);
+  await reply(ctx, chatId, `*Positions${walletScopeLabel(wallet)}*\n\n${formatted}`);
 }
 
 async function handleStatus(
@@ -106,21 +154,17 @@ async function handleStatus(
     return;
   }
 
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidAddress) {
+  const wallet = await getTelegramMainWallet(ctx, userId);
+  if (!wallet?.hyperliquidAddress) {
     await reply(ctx, chatId, "No Hyperliquid credentials configured.");
     return;
   }
 
-  const testnet = credentials.hyperliquidTestnet ?? true;
+  const testnet = wallet.hyperliquidTestnet ?? true;
 
   const accountState = await ctx.runAction(
     api.hyperliquid.client.getAccountState,
-    { address: credentials.hyperliquidAddress, testnet }
+    { address: wallet.hyperliquidAddress, testnet }
   );
 
   const formatted = formatStatus(
@@ -137,7 +181,7 @@ async function handleStatus(
     }
   );
 
-  await reply(ctx, chatId, formatted);
+  await reply(ctx, chatId, `*Status${walletScopeLabel(wallet)}*\n\n${formatted}`);
 }
 
 async function handlePnl(
@@ -145,8 +189,10 @@ async function handlePnl(
   chatId: string,
   userId: string
 ): Promise<void> {
+  const wallet = await getTelegramMainWallet(ctx, userId);
   const trades = await ctx.runQuery(api.queries.getRecentTrades, {
     userId,
+    ...walletArgs(wallet),
     limit: 50,
   });
 
@@ -165,7 +211,7 @@ async function handlePnl(
     }))
   );
 
-  await reply(ctx, chatId, formatted);
+  await reply(ctx, chatId, `*P&L${walletScopeLabel(wallet)}*\n\n${formatted}`);
 }
 
 async function handleBalance(
@@ -173,21 +219,17 @@ async function handleBalance(
   chatId: string,
   userId: string
 ): Promise<void> {
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidAddress) {
+  const wallet = await getTelegramMainWallet(ctx, userId);
+  if (!wallet?.hyperliquidAddress) {
     await reply(ctx, chatId, "No Hyperliquid credentials configured.");
     return;
   }
 
-  const testnet = credentials.hyperliquidTestnet ?? true;
+  const testnet = wallet.hyperliquidTestnet ?? true;
 
   const accountState = await ctx.runAction(
     api.hyperliquid.client.getAccountState,
-    { address: credentials.hyperliquidAddress, testnet }
+    { address: wallet.hyperliquidAddress, testnet }
   );
 
   const formatted = formatBalance({
@@ -196,7 +238,7 @@ async function handleBalance(
     withdrawable: accountState.withdrawable,
   });
 
-  await reply(ctx, chatId, formatted);
+  await reply(ctx, chatId, `*Balance${walletScopeLabel(wallet)}*\n\n${formatted}`);
 }
 
 async function handleOrders(
@@ -204,21 +246,17 @@ async function handleOrders(
   chatId: string,
   userId: string
 ): Promise<void> {
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidAddress) {
+  const wallet = await getTelegramMainWallet(ctx, userId);
+  if (!wallet?.hyperliquidAddress) {
     await reply(ctx, chatId, "No Hyperliquid credentials configured.");
     return;
   }
 
-  const testnet = credentials.hyperliquidTestnet ?? true;
+  const testnet = wallet.hyperliquidTestnet ?? true;
 
   const orders = await ctx.runAction(
     api.hyperliquid.client.getFrontendOpenOrders,
-    { address: credentials.hyperliquidAddress, testnet }
+    { address: wallet.hyperliquidAddress, testnet }
   );
 
   const formatted = formatOrders(
@@ -235,7 +273,7 @@ async function handleOrders(
     }))
   );
 
-  await reply(ctx, chatId, formatted);
+  await reply(ctx, chatId, `*Open Orders${walletScopeLabel(wallet)}*\n\n${formatted}`);
 }
 
 async function handleCancel(
@@ -243,21 +281,17 @@ async function handleCancel(
   chatId: string,
   userId: string
 ): Promise<void> {
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidAddress) {
+  const wallet = await getTelegramMainWallet(ctx, userId);
+  if (!wallet?.hyperliquidAddress || !wallet?.hyperliquidPrivateKey) {
     await reply(ctx, chatId, "No Hyperliquid credentials configured.");
     return;
   }
 
-  const testnet = credentials.hyperliquidTestnet ?? true;
+  const testnet = wallet.hyperliquidTestnet ?? true;
 
   const orders = await ctx.runAction(
     api.hyperliquid.client.getFrontendOpenOrders,
-    { address: credentials.hyperliquidAddress, testnet }
+    { address: wallet.hyperliquidAddress, testnet }
   );
 
   if (!orders || orders.length === 0) {
@@ -313,8 +347,10 @@ async function handleCloseAll(
   chatId: string,
   userId: string
 ): Promise<void> {
+  const wallet = await getTelegramMainWallet(ctx, userId);
   const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
     userId,
+    ...walletArgs(wallet),
   });
 
   if (!positions || positions.length === 0) {
@@ -332,7 +368,7 @@ async function handleCloseAll(
   await reply(
     ctx,
     chatId,
-    `\u{26A0}\u{FE0F} *Close ALL positions?*\n\n${positionList}\n\nThis cannot be undone.`,
+    `\u{26A0}\u{FE0F} *Close ALL tracked symbols across all active wallets?*\n\nMain wallet view${walletScopeLabel(wallet)}:\n${positionList}\n\nThis cannot be undone.`,
     inlineKeyboard([
       [
         { text: "\u{2705} Yes, close all", callback_data: "claY" },
@@ -348,8 +384,10 @@ async function handleClose(
   userId: string,
   text: string
 ): Promise<void> {
+  const wallet = await getTelegramMainWallet(ctx, userId);
   const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
     userId,
+    ...walletArgs(wallet),
   });
 
   if (!positions || positions.length === 0) {
@@ -374,7 +412,7 @@ async function handleClose(
     await reply(
       ctx,
       chatId,
-      `${dir} Close *${symbol}* ${pos.side?.toUpperCase()} position?\n\nCurrent P&L: \`${pnl}\``,
+      `${dir} Close *${symbol}* across all active wallets?\n\nMain wallet position: ${pos.side?.toUpperCase()}\nCurrent P&L: \`${pnl}\``,
       inlineKeyboard([
         [
           { text: `\u{2705} Yes, close ${symbol}`, callback_data: `clsY_${symbol}` },
@@ -398,7 +436,7 @@ async function handleClose(
   await reply(
     ctx,
     chatId,
-    `\u{1F4CA} *Close Position*\n\nSelect a position to close:`,
+    `\u{1F4CA} *Close Position*\n\nMain wallet view${walletScopeLabel(wallet)}. Selecting a symbol closes it across all active wallets:`,
     inlineKeyboard(buttons)
   );
 }
@@ -455,203 +493,43 @@ async function handleConfirm(
     { userId }
   );
 
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
-    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
-    return;
-  }
-
-  const testnet = credentials.hyperliquidTestnet ?? true;
-
   if (action === "closeall") {
-    // Close all positions
-    const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    const result = await ctx.runAction(api.trading.manualCloseService.closeAllSymbolsAcrossWallets, {
       userId,
+      source: "telegram_confirm",
     });
 
-    if (!positions || positions.length === 0) {
+    if (!result?.results || result.results.length === 0) {
       await reply(ctx, chatId, "No open positions to close.");
       return;
     }
-
-    const results: string[] = [];
-
-    for (const pos of positions) {
-      try {
-        await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
-          privateKey: credentials.hyperliquidPrivateKey,
-          address: credentials.hyperliquidAddress,
-          symbol: pos.symbol,
-          testnet,
-        });
-        await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
-          privateKey: credentials.hyperliquidPrivateKey,
-          address: credentials.hyperliquidAddress,
-          symbol: pos.symbol,
-          testnet,
-        });
-
-        const closeSubmittedAt = Date.now();
-        const closeResult = await ctx.runAction(api.hyperliquid.client.closePosition, {
-          privateKey: credentials.hyperliquidPrivateKey,
-          address: credentials.hyperliquidAddress,
-          symbol: pos.symbol,
-          size: pos.size / pos.entryPrice, // Convert USD to coin size
-          isBuy: pos.side === "SHORT", // Opposite side to close
-          testnet,
-        });
-
-        if (closeResult.status !== "filled") {
-          throw new Error(`Close order was not filled immediately (status: ${closeResult.status})`);
-        }
-
-        const settlement = await resolveCloseSettlement(ctx, api, {
-          userId,
-          address: credentials.hyperliquidAddress,
-          testnet,
-          symbol: pos.symbol,
-          side: pos.side || "LONG",
-          entryPrice: pos.entryPrice,
-          position: pos,
-          closeResult,
-          submittedAt: closeSubmittedAt,
-        });
-
-        await ctx.runMutation(api.mutations.saveTrade, {
-          userId,
-          ...buildCloseTradeFields({
-            position: {
-              symbol: pos.symbol,
-              side: pos.side || "LONG",
-              leverage: pos.leverage || 1,
-            },
-            settlement,
-            aiReasoning: "Manual close all via Telegram",
-            aiModel: "manual",
-            confidence: 1,
-            txHash: closeResult.txHash || "telegram-closeall",
-          }),
-        });
-
-        // Remove from database
-        await ctx.runMutation(api.mutations.closePosition, {
-          userId,
-          symbol: pos.symbol,
-        });
-
-        if (settlement.pnl !== undefined) {
-          const pnlSign = settlement.pnl >= 0 ? "+" : "";
-          results.push(`${pos.symbol}: closed (${pnlSign}$${settlement.pnl.toFixed(2)})`);
-        } else {
-          results.push(`${pos.symbol}: closed (P&L pending settlement sync)`);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        results.push(`${pos.symbol}: failed - ${msg}`);
-      }
-    }
-
-    await reply(ctx, chatId, `*Close All Results:*\n\n${results.join("\n")}`);
+    await reply(ctx, chatId, formatCloseAllSummary(result));
   } else if (action.startsWith("close_")) {
-    // Close a specific symbol
     const symbol = action.replace("close_", "");
-
-    const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+    const result = await ctx.runAction(api.trading.manualCloseService.closeSymbolAcrossWallets, {
       userId,
+      symbol,
+      source: "telegram_confirm",
     });
-
-    const position = (positions || []).find(
-      (p: any) => p.symbol === symbol
-    );
-
-    if (!position) {
-      await reply(ctx, chatId, `No open position for *${symbol}*.`);
+    await reply(ctx, chatId, formatManualCloseSummary(result));
+  } else if (action.startsWith("cancelorder_")) {
+    const wallet = await getTelegramMainWallet(ctx, userId);
+    if (!wallet?.hyperliquidPrivateKey || !wallet?.hyperliquidAddress) {
+      await reply(ctx, chatId, "No Hyperliquid credentials configured.");
       return;
     }
 
-    await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
-      privateKey: credentials.hyperliquidPrivateKey,
-      address: credentials.hyperliquidAddress,
-      symbol: position.symbol,
-      testnet,
-    });
-    await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
-      privateKey: credentials.hyperliquidPrivateKey,
-      address: credentials.hyperliquidAddress,
-      symbol: position.symbol,
-      testnet,
-    });
-
-    const closeSubmittedAt = Date.now();
-    const closeResult = await ctx.runAction(api.hyperliquid.client.closePosition, {
-      privateKey: credentials.hyperliquidPrivateKey,
-      address: credentials.hyperliquidAddress,
-      symbol: position.symbol,
-      size: position.size / position.entryPrice,
-      isBuy: position.side === "SHORT",
-      testnet,
-    });
-
-    if (closeResult.status !== "filled") {
-      throw new Error(`Close order was not filled immediately (status: ${closeResult.status})`);
-    }
-
-    const settlement = await resolveCloseSettlement(ctx, api, {
-      userId,
-      address: credentials.hyperliquidAddress,
-      testnet,
-      symbol: position.symbol,
-      side: position.side || "LONG",
-      entryPrice: position.entryPrice,
-      position,
-      closeResult,
-      submittedAt: closeSubmittedAt,
-    });
-
-    await ctx.runMutation(api.mutations.saveTrade, {
-      userId,
-      ...buildCloseTradeFields({
-        position: {
-          symbol: position.symbol,
-          side: position.side || "LONG",
-          leverage: position.leverage || 1,
-        },
-        settlement,
-        aiReasoning: "Manual close via Telegram",
-        aiModel: "manual",
-        confidence: 1,
-        txHash: closeResult.txHash || "telegram-close",
-      }),
-    });
-
-    // Remove from database
-    await ctx.runMutation(api.mutations.closePosition, {
-      userId,
-      symbol,
-    });
-
-    if (settlement.pnl !== undefined && settlement.pnlPct !== undefined) {
-      const pnlSign = settlement.pnl >= 0 ? "+" : "";
-      await reply(ctx, chatId, `*${symbol}* position closed.\nP&L: \`${pnlSign}$${settlement.pnl.toFixed(2)}\` (${settlement.pnlPct.toFixed(2)}%)`);
-    } else {
-      await reply(ctx, chatId, `*${symbol}* position closed.\nP&L is pending exchange settlement sync.`);
-    }
-  } else if (action.startsWith("cancelorder_")) {
     // action format: "cancelorder_BTC_12345"
     const actionParts = action.split("_");
     const symbol = actionParts[1];
     const oid = parseInt(actionParts[2], 10);
 
     await ctx.runAction(api.hyperliquid.client.cancelOrder, {
-      privateKey: credentials.hyperliquidPrivateKey,
-      address: credentials.hyperliquidAddress,
+      privateKey: wallet.hyperliquidPrivateKey,
+      address: wallet.hyperliquidAddress,
       symbol,
       orderId: oid,
-      testnet,
+      testnet: wallet.hyperliquidTestnet ?? true,
     });
 
     await reply(ctx, chatId, `Order \`${oid}\` for *${symbol}* cancelled.`);
@@ -698,7 +576,7 @@ async function handleNotifications(
 
   await ctx.runAction(internal.telegram.telegramApi.sendMessage, {
     chatId,
-    text: `\u{1F514} *Position Update Notifications*\n\nCurrent: \`${label}\`\n\nSelect how often you want position updates:`,
+    text: `\u{1F514} *Position Update Notifications*\n\nCurrent: \`${label}\`\nUpdates use your Telegram main wallet.\n\nSelect how often you want position updates:`,
     replyMarkup,
   });
 }
@@ -760,9 +638,11 @@ async function handleCloseSelectCallback(
   data: string
 ): Promise<void> {
   const symbol = data.replace("cls_", "");
+  const wallet = await getTelegramMainWallet(ctx, userId);
 
   const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
     userId,
+    ...walletArgs(wallet),
   });
 
   const pos = (positions || []).find((p: any) => p.symbol === symbol);
@@ -785,7 +665,7 @@ async function handleCloseSelectCallback(
   await reply(
     ctx,
     chatId,
-    `${dir} Close *${symbol}* ${pos.side?.toUpperCase()} position?\n\nCurrent P&L: \`${pnl}\``,
+    `${dir} Close *${symbol}* across all active wallets?\n\nMain wallet position: ${pos.side?.toUpperCase()}\nCurrent P&L: \`${pnl}\``,
     inlineKeyboard([
       [
         { text: `\u{2705} Yes, close ${symbol}`, callback_data: `clsY_${symbol}` },
@@ -809,96 +689,13 @@ async function handleCloseConfirmCallback(
     callbackQueryId,
     text: `Closing ${symbol}...`,
   });
-
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
-    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
-    return;
-  }
-
-  const testnet = credentials.hyperliquidTestnet ?? true;
-
-  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
-    userId,
-  });
-
-  const position = (positions || []).find((p: any) => p.symbol === symbol);
-
-  if (!position) {
-    await reply(ctx, chatId, `No open position for *${symbol}*.`);
-    return;
-  }
-
-  await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
-    privateKey: credentials.hyperliquidPrivateKey,
-    address: credentials.hyperliquidAddress,
-    symbol: position.symbol,
-    testnet,
-  });
-  await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
-    privateKey: credentials.hyperliquidPrivateKey,
-    address: credentials.hyperliquidAddress,
-    symbol: position.symbol,
-    testnet,
-  });
-
-  const closeSubmittedAt = Date.now();
-  const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
-    privateKey: credentials.hyperliquidPrivateKey,
-    address: credentials.hyperliquidAddress,
-    symbol: position.symbol,
-    size: position.size / position.entryPrice,
-    isBuy: position.side === "SHORT",
-    testnet,
-  });
-
-  if (result.status !== "filled") {
-    throw new Error(`Close order was not filled immediately (status: ${result.status})`);
-  }
-
-  const settlement = await resolveCloseSettlement(ctx, api, {
-    userId,
-    address: credentials.hyperliquidAddress,
-    testnet,
-    symbol: position.symbol,
-    side: position.side || "LONG",
-    entryPrice: position.entryPrice,
-    position,
-    closeResult: result,
-    submittedAt: closeSubmittedAt,
-  });
-
-  await ctx.runMutation(api.mutations.saveTrade, {
-    userId,
-    ...buildCloseTradeFields({
-      position: {
-        symbol: position.symbol,
-        side: position.side || "LONG",
-        leverage: position.leverage || 1,
-      },
-      settlement,
-      aiReasoning: "Manual close via Telegram",
-      aiModel: "manual",
-      confidence: 1,
-      txHash: result.txHash || "telegram-close",
-    }),
-  });
-
-  await ctx.runMutation(api.mutations.closePosition, {
+  const result = await ctx.runAction(api.trading.manualCloseService.closeSymbolAcrossWallets, {
     userId,
     symbol,
+    source: "telegram_callback",
   });
 
-  if (settlement.pnl !== undefined && settlement.pnlPct !== undefined) {
-    const pnlSign = settlement.pnl >= 0 ? "+" : "";
-    await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.\nP&L: \`${pnlSign}$${settlement.pnl.toFixed(2)}\` (${settlement.pnlPct.toFixed(2)}%)`);
-  } else {
-    await reply(ctx, chatId, `\u{2705} *${symbol}* position closed.\nP&L is pending exchange settlement sync.`);
-  }
+  await reply(ctx, chatId, formatManualCloseSummary(result));
 }
 
 // ---------------------------------------------------------------------------
@@ -915,105 +712,12 @@ async function handleCloseAllConfirmCallback(
     callbackQueryId,
     text: "Closing all positions...",
   });
-
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
-
-  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
-    await reply(ctx, chatId, "No Hyperliquid credentials configured.");
-    return;
-  }
-
-  const testnet = credentials.hyperliquidTestnet ?? true;
-
-  const positions = await ctx.runAction(api.liveQueries.getLivePositions, {
+  const result = await ctx.runAction(api.trading.manualCloseService.closeAllSymbolsAcrossWallets, {
     userId,
+    source: "telegram_callback",
   });
 
-  if (!positions || positions.length === 0) {
-    await reply(ctx, chatId, "No open positions to close.");
-    return;
-  }
-
-  const results: string[] = [];
-
-  for (const pos of positions) {
-    try {
-      await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
-        privateKey: credentials.hyperliquidPrivateKey,
-        address: credentials.hyperliquidAddress,
-        symbol: pos.symbol,
-        testnet,
-      });
-      await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
-        privateKey: credentials.hyperliquidPrivateKey,
-        address: credentials.hyperliquidAddress,
-        symbol: pos.symbol,
-        testnet,
-      });
-
-      const closeSubmittedAt = Date.now();
-      const result = await ctx.runAction(api.hyperliquid.client.closePosition, {
-        privateKey: credentials.hyperliquidPrivateKey,
-        address: credentials.hyperliquidAddress,
-        symbol: pos.symbol,
-        size: pos.size / pos.entryPrice,
-        isBuy: pos.side === "SHORT",
-        testnet,
-      });
-
-      if (result.status !== "filled") {
-        throw new Error(`Close order was not filled immediately (status: ${result.status})`);
-      }
-
-      const settlement = await resolveCloseSettlement(ctx, api, {
-        userId,
-        address: credentials.hyperliquidAddress,
-        testnet,
-        symbol: pos.symbol,
-        side: pos.side || "LONG",
-        entryPrice: pos.entryPrice,
-        position: pos,
-        closeResult: result,
-        submittedAt: closeSubmittedAt,
-      });
-
-      await ctx.runMutation(api.mutations.saveTrade, {
-        userId,
-        ...buildCloseTradeFields({
-          position: {
-            symbol: pos.symbol,
-            side: pos.side || "LONG",
-            leverage: pos.leverage || 1,
-          },
-          settlement,
-          aiReasoning: "Manual close all via Telegram",
-          aiModel: "manual",
-          confidence: 1,
-          txHash: result.txHash || "telegram-closeall",
-        }),
-      });
-
-      await ctx.runMutation(api.mutations.closePosition, {
-        userId,
-        symbol: pos.symbol,
-      });
-
-      if (settlement.pnl !== undefined) {
-        const pnlSign = settlement.pnl >= 0 ? "+" : "";
-        results.push(`\u{2705} ${pos.symbol}: closed (${pnlSign}$${settlement.pnl.toFixed(2)})`);
-      } else {
-        results.push(`\u{2705} ${pos.symbol}: closed (P&L pending settlement sync)`);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      results.push(`\u{274C} ${pos.symbol}: ${msg}`);
-    }
-  }
-
-  await reply(ctx, chatId, `*Close All Results:*\n\n${results.join("\n")}`);
+  await reply(ctx, chatId, formatCloseAllSummary(result));
 }
 
 // ---------------------------------------------------------------------------
@@ -1067,24 +771,19 @@ async function handleCancelConfirmCallback(
     text: `Cancelling ${coin} order...`,
   });
 
-  const credentials = await ctx.runQuery(
-    internal.queries.getFullUserCredentials,
-    { userId }
-  );
+  const wallet = await getTelegramMainWallet(ctx, userId);
 
-  if (!credentials?.hyperliquidPrivateKey || !credentials?.hyperliquidAddress) {
+  if (!wallet?.hyperliquidPrivateKey || !wallet?.hyperliquidAddress) {
     await reply(ctx, chatId, "No Hyperliquid credentials configured.");
     return;
   }
 
-  const testnet = credentials.hyperliquidTestnet ?? true;
-
   await ctx.runAction(api.hyperliquid.client.cancelOrder, {
-    privateKey: credentials.hyperliquidPrivateKey,
-    address: credentials.hyperliquidAddress,
+    privateKey: wallet.hyperliquidPrivateKey,
+    address: wallet.hyperliquidAddress,
     symbol: coin,
     orderId: oid,
-    testnet,
+    testnet: wallet.hyperliquidTestnet ?? true,
   });
 
   await reply(ctx, chatId, `\u{2705} Order \`${oid}\` for *${coin}* cancelled.`);

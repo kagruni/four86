@@ -25,6 +25,7 @@ import type * as ai_tools_tradingTools from "../ai/tools/tradingTools.js";
 import type * as backtesting_backtestActions from "../backtesting/backtestActions.js";
 import type * as backtesting_backtestEngine from "../backtesting/backtestEngine.js";
 import type * as crons from "../crons.js";
+import type * as dashboard_state from "../dashboard/state.js";
 import type * as fnRefs from "../fnRefs.js";
 import type * as http from "../http.js";
 import type * as hyperliquid_candles from "../hyperliquid/candles.js";
@@ -33,6 +34,7 @@ import type * as hyperliquid_detailedMarketData from "../hyperliquid/detailedMar
 import type * as hyperliquid_sdk from "../hyperliquid/sdk.js";
 import type * as indicators_technicalIndicators from "../indicators/technicalIndicators.js";
 import type * as liveQueries from "../liveQueries.js";
+import type * as migrations_backfillConnectedWallets from "../migrations/backfillConnectedWallets.js";
 import type * as migrations_removeStopLossEnabled from "../migrations/removeStopLossEnabled.js";
 import type * as migrations_runMigration from "../migrations/runMigration.js";
 import type * as migrations_updateHybridSelectionDefaults from "../migrations/updateHybridSelectionDefaults.js";
@@ -74,6 +76,7 @@ import type * as trading_hybridSelectionConfig from "../trading/hybridSelectionC
 import type * as trading_logger from "../trading/logger.js";
 import type * as trading_managedExitMonitor from "../trading/managedExitMonitor.js";
 import type * as trading_managedExitUtils from "../trading/managedExitUtils.js";
+import type * as trading_manualCloseService from "../trading/manualCloseService.js";
 import type * as trading_performanceMetrics from "../trading/performanceMetrics.js";
 import type * as trading_pnlCalculator from "../trading/pnlCalculator.js";
 import type * as trading_positionSync from "../trading/positionSync.js";
@@ -81,6 +84,10 @@ import type * as trading_tradingLoop from "../trading/tradingLoop.js";
 import type * as trading_validators_positionValidator from "../trading/validators/positionValidator.js";
 import type * as trading_validators_regimeValidator from "../trading/validators/regimeValidator.js";
 import type * as trading_validators_trendGuard from "../trading/validators/trendGuard.js";
+import type * as wallets_mutations from "../wallets/mutations.js";
+import type * as wallets_queries from "../wallets/queries.js";
+import type * as wallets_resolver from "../wallets/resolver.js";
+import type * as wallets_strategyState from "../wallets/strategyState.js";
 
 import type {
   ApiFromModules,
@@ -114,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   "backtesting/backtestActions": typeof backtesting_backtestActions;
   "backtesting/backtestEngine": typeof backtesting_backtestEngine;
   crons: typeof crons;
+  "dashboard/state": typeof dashboard_state;
   fnRefs: typeof fnRefs;
   http: typeof http;
   "hyperliquid/candles": typeof hyperliquid_candles;
@@ -122,6 +130,7 @@ declare const fullApi: ApiFromModules<{
   "hyperliquid/sdk": typeof hyperliquid_sdk;
   "indicators/technicalIndicators": typeof indicators_technicalIndicators;
   liveQueries: typeof liveQueries;
+  "migrations/backfillConnectedWallets": typeof migrations_backfillConnectedWallets;
   "migrations/removeStopLossEnabled": typeof migrations_removeStopLossEnabled;
   "migrations/runMigration": typeof migrations_runMigration;
   "migrations/updateHybridSelectionDefaults": typeof migrations_updateHybridSelectionDefaults;
@@ -163,6 +172,7 @@ declare const fullApi: ApiFromModules<{
   "trading/logger": typeof trading_logger;
   "trading/managedExitMonitor": typeof trading_managedExitMonitor;
   "trading/managedExitUtils": typeof trading_managedExitUtils;
+  "trading/manualCloseService": typeof trading_manualCloseService;
   "trading/performanceMetrics": typeof trading_performanceMetrics;
   "trading/pnlCalculator": typeof trading_pnlCalculator;
   "trading/positionSync": typeof trading_positionSync;
@@ -170,6 +180,10 @@ declare const fullApi: ApiFromModules<{
   "trading/validators/positionValidator": typeof trading_validators_positionValidator;
   "trading/validators/regimeValidator": typeof trading_validators_regimeValidator;
   "trading/validators/trendGuard": typeof trading_validators_trendGuard;
+  "wallets/mutations": typeof wallets_mutations;
+  "wallets/queries": typeof wallets_queries;
+  "wallets/resolver": typeof wallets_resolver;
+  "wallets/strategyState": typeof wallets_strategyState;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

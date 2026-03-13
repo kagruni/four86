@@ -27,72 +27,74 @@ export const takeAccountSnapshots = internalAction({
 
     for (const bot of activeBots) {
       try {
-        // Get credentials
-        const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
+        const wallets = await ctx.runQuery(internal.wallets.queries.getActiveConnectedWalletsInternal, {
           userId: bot.userId,
         });
 
-        if (!credentials || !credentials.hyperliquidAddress) {
-          console.log(`[snapshot] Skipping user ${bot.userId} — no credentials`);
+        if (!wallets || wallets.length === 0) {
+          console.log(`[snapshot] Skipping user ${bot.userId} — no active wallets`);
           continue;
         }
 
-        // Fetch live account state from Hyperliquid
-        const accountState = await ctx.runAction(api.hyperliquid.client.getAccountState, {
-          address: credentials.hyperliquidAddress,
-          testnet: credentials.hyperliquidTestnet,
-        });
+        for (const wallet of wallets) {
+          const walletId = wallet.walletId ?? undefined;
 
-        // Fetch closed trades to compute stats
-        const trades = await ctx.runQuery(api.queries.getRecentTrades, {
-          userId: bot.userId,
-          limit: 1000,
-        });
+          const [accountState, trades] = await Promise.all([
+            ctx.runAction(api.hyperliquid.client.getAccountState, {
+              address: wallet.hyperliquidAddress,
+              testnet: wallet.hyperliquidTestnet,
+            }),
+            ctx.runQuery(api.queries.getRecentTrades, {
+              userId: bot.userId,
+              ...(walletId ? { walletId } : {}),
+              limit: 1000,
+            }),
+          ]);
 
-        const closedTrades = trades.filter((t: any) => t.action === "CLOSE");
-        const numTrades = closedTrades.length;
+          const closedTrades = trades.filter((trade: any) => trade.action === "CLOSE");
+          const numTrades = closedTrades.length;
 
-        let totalPnl = 0;
-        let wins = 0;
-        for (const t of closedTrades) {
-          const pnl = t.pnl ?? 0;
-          totalPnl += pnl;
-          if (pnl > 0) wins++;
+          let totalPnl = 0;
+          let wins = 0;
+          for (const trade of closedTrades) {
+            const pnl = trade.pnl ?? 0;
+            totalPnl += pnl;
+            if (pnl > 0) wins++;
+          }
+
+          const winRate = numTrades > 0 ? (wins / numTrades) * 100 : 0;
+          const totalPnlPct =
+            accountState.accountValue > 0
+              ? (totalPnl / accountState.accountValue) * 100
+              : 0;
+
+          const positions = (accountState.positions || [])
+            .filter((position: any) => {
+              const szi = position.position?.szi || position.szi || "0";
+              return parseFloat(szi) !== 0;
+            })
+            .map((position: any) => ({
+              coin: position.position?.coin || position.coin,
+              size: position.position?.szi || position.szi || "0",
+              entryPrice: position.position?.entryPx || position.entryPx || "0",
+              unrealizedPnl: position.position?.unrealizedPnl || position.unrealizedPnl || "0",
+            }));
+
+          await ctx.runMutation(api.mutations.saveAccountSnapshot, {
+            userId: bot.userId,
+            ...(walletId ? { walletId } : {}),
+            accountValue: accountState.accountValue,
+            totalPnl,
+            totalPnlPct,
+            numTrades,
+            winRate,
+            positions,
+          });
+
+          console.log(
+            `[snapshot] Saved snapshot for ${bot.userId}/${wallet.label}: $${accountState.accountValue.toFixed(2)} | PnL $${totalPnl.toFixed(2)} | ${numTrades} trades | ${winRate.toFixed(1)}% win`
+          );
         }
-
-        const winRate = numTrades > 0 ? (wins / numTrades) * 100 : 0;
-        const totalPnlPct =
-          accountState.accountValue > 0
-            ? (totalPnl / accountState.accountValue) * 100
-            : 0;
-
-        // Build simplified positions array for the snapshot
-        const positions = (accountState.positions || [])
-          .filter((p: any) => {
-            const szi = p.position?.szi || p.szi || "0";
-            return parseFloat(szi) !== 0;
-          })
-          .map((p: any) => ({
-            coin: p.position?.coin || p.coin,
-            size: p.position?.szi || p.szi || "0",
-            entryPrice: p.position?.entryPx || p.entryPx || "0",
-            unrealizedPnl: p.position?.unrealizedPnl || p.unrealizedPnl || "0",
-          }));
-
-        // Save snapshot
-        await ctx.runMutation(api.mutations.saveAccountSnapshot, {
-          userId: bot.userId,
-          accountValue: accountState.accountValue,
-          totalPnl,
-          totalPnlPct,
-          numTrades,
-          winRate,
-          positions,
-        });
-
-        console.log(
-          `[snapshot] Saved snapshot for ${bot.userId}: $${accountState.accountValue.toFixed(2)} | PnL $${totalPnl.toFixed(2)} | ${numTrades} trades | ${winRate.toFixed(1)}% win`
-        );
       } catch (error) {
         console.error(
           `[snapshot] Error for user ${bot.userId}:`,

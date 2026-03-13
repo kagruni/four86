@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { Suspense, useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -38,6 +38,8 @@ import {
   X,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import WalletSelector from "@/components/wallets/WalletSelector";
+import { useWalletSelection } from "@/hooks/use-wallet-selection";
 import {
   AreaChart,
   Area,
@@ -378,9 +380,15 @@ function ConfidenceTooltip({ active, payload, label }: any) {
 // MAIN PAGE COMPONENT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export default function AnalyticsPage() {
+function AnalyticsPageContent() {
   const { user } = useUser();
   const userId = user?.id || "";
+  const {
+    wallets,
+    selectedWalletToken,
+    selectedWalletArgs,
+    setSelectedWalletToken,
+  } = useWalletSelection(userId);
 
   // ── Local state ───────────────────────────────────────────────────────────
   const [timeframe, setTimeframe] = useState<TimeframeKey>("30D");
@@ -390,6 +398,7 @@ export default function AnalyticsPage() {
   const botConfig = useQuery(api.queries.getBotConfig, { userId });
   const rawTrades = useQuery(api.queries.getRecentTrades, {
     userId,
+    ...selectedWalletArgs,
     limit: 200,
   }) as Trade[] | undefined;
   const snapshotSince = useMemo(() => {
@@ -398,6 +407,7 @@ export default function AnalyticsPage() {
   }, [timeframe]);
   const rawSnapshots = useQuery(api.queries.getAccountSnapshots, {
     userId,
+    ...selectedWalletArgs,
     ...(snapshotSince ? { since: snapshotSince } : { limit: 10000 }),
   });
   const rawAiLogs = useQuery(api.queries.getRecentAILogs, {
@@ -639,11 +649,19 @@ export default function AnalyticsPage() {
     >
       {/* Header */}
       <motion.div variants={itemVariants}>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Analytics</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Performance analytics and trading insights
-          </p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Analytics</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Performance analytics and trading insights
+            </p>
+          </div>
+          <WalletSelector
+            wallets={wallets}
+            selectedWalletToken={selectedWalletToken}
+            onChange={setSelectedWalletToken}
+            className="w-full border-border md:w-[240px]"
+          />
         </div>
       </motion.div>
 
@@ -1394,5 +1412,19 @@ export default function AnalyticsPage() {
         </Card>
       </motion.div>
     </motion.div>
+  );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-[calc(100vh-200px)] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-foreground" />
+        </div>
+      }
+    >
+      <AnalyticsPageContent />
+    </Suspense>
   );
 }

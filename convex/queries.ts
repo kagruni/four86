@@ -193,6 +193,8 @@ function serializeTrade(trade: any) {
 
   return {
     _id: trade._id,
+    walletId: trade.walletId ?? null,
+    executionGroupId: trade.executionGroupId ?? null,
     symbol: trade.symbol,
     action: trade.action,
     side: trade.side,
@@ -341,8 +343,20 @@ export const getActiveBots = query({
 
 // Get current positions
 export const getPositions = query({
-  args: { userId: v.string() },
+  args: {
+    userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
+  },
   handler: async (ctx, args) => {
+    if (args.walletId) {
+      return await ctx.db
+        .query("positions")
+        .withIndex("by_userId_walletId", (q) =>
+          q.eq("userId", args.userId).eq("walletId", args.walletId)
+        )
+        .collect();
+    }
+
     return await ctx.db
       .query("positions")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
@@ -354,10 +368,21 @@ export const getPositions = query({
 export const getRecentTrades = query({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 20;
+    if (args.walletId) {
+      return await ctx.db
+        .query("trades")
+        .withIndex("by_userId_walletId_time", (q) =>
+          q.eq("userId", args.userId).eq("walletId", args.walletId)
+        )
+        .order("desc")
+        .take(limit);
+    }
+
     return await ctx.db
       .query("trades")
       .withIndex("by_userId_time", (q) => q.eq("userId", args.userId))
@@ -482,6 +507,7 @@ export const getRecentTradeDebugExport = query({
 export const getAccountSnapshots = query({
   args: {
     userId: v.string(),
+    walletId: v.optional(v.id("connectedWallets")),
     limit: v.optional(v.number()),
     since: v.optional(v.number()), // timestamp cutoff – return only snapshots >= this
   },
@@ -490,6 +516,16 @@ export const getAccountSnapshots = query({
 
     if (args.since) {
       // Use the compound index to filter server-side by timestamp range
+      if (args.walletId) {
+        return await ctx.db
+          .query("accountSnapshots")
+          .withIndex("by_userId_walletId_time", (q) =>
+            q.eq("userId", args.userId).eq("walletId", args.walletId).gte("timestamp", args.since!)
+          )
+          .order("asc")
+          .collect();
+      }
+
       return await ctx.db
         .query("accountSnapshots")
         .withIndex("by_userId_time", (q) =>
@@ -497,6 +533,16 @@ export const getAccountSnapshots = query({
         )
         .order("asc")
         .collect();
+    }
+
+    if (args.walletId) {
+      return await ctx.db
+        .query("accountSnapshots")
+        .withIndex("by_userId_walletId_time", (q) =>
+          q.eq("userId", args.userId).eq("walletId", args.walletId)
+        )
+        .order("desc")
+        .take(limit);
     }
 
     return await ctx.db

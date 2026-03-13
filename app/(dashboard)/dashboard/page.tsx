@@ -44,10 +44,12 @@ import { useMutation } from "convex/react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useWalletSelection } from "@/hooks/use-wallet-selection";
 import PositionChart from "./PositionChart";
 import LiveChart from "./LiveChart";
 import TradeDebugExportCard from "./TradeDebugExportCard";
 import PreFlightPanel from "@/components/preflight/PreFlightPanel";
+import WalletSelector from "@/components/wallets/WalletSelector";
 
 function formatDebugJson(value: unknown) {
   if (value === undefined) {
@@ -61,15 +63,22 @@ function formatDebugJson(value: unknown) {
   }
 }
 
-export default function DashboardPage() {
+function DashboardPageContent() {
   const { user } = useUser();
   const userId = user?.id || "";
+  const {
+    wallets,
+    selectedWallet,
+    selectedWalletToken,
+    selectedWalletArgs,
+    setSelectedWalletToken,
+  } = useWalletSelection(userId);
 
   // Fetch data from Convex
   const botConfig = useQuery(api.queries.getBotConfig, { userId });
-  const userCredentials = useQuery(api.queries.getUserCredentials, { userId });
   const recentTrades = useQuery(api.queries.getRecentTrades, {
     userId,
+    ...selectedWalletArgs,
     limit: 50
   });
   const allAiLogs = useQuery(api.queries.getRecentAILogs, {
@@ -89,13 +98,9 @@ export default function DashboardPage() {
   const [positions, setPositions] = useState<any[]>([]);
   const [isLoadingPositions, setIsLoadingPositions] = useState(false);
 
-  // Fetch open orders from Hyperliquid
-  const getUserOpenOrders = useAction(api.hyperliquid.client.getUserOpenOrders);
+  const getSelectedWalletDashboardState = useAction(api.dashboard.state.getSelectedWalletDashboardState);
   const [openOrders, setOpenOrders] = useState<any[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
-
-  // Fetch live account state from Hyperliquid
-  const getAccountState = useAction(api.hyperliquid.client.getAccountState);
   const [accountState, setAccountState] = useState<any>(null);
   const [isLoadingAccount, setIsLoadingAccount] = useState(false);
 
@@ -109,7 +114,8 @@ export default function DashboardPage() {
   const [isResettingCB, setIsResettingCB] = useState(false);
 
   // Manual close position action
-  const manualClosePosition = useAction(api.testing.manualTrigger.manualClosePosition);
+  const closeSymbolAcrossWallets = useAction(api.trading.manualCloseService.closeSymbolAcrossWallets);
+  const closeAllSymbolsAcrossWallets = useAction(api.trading.manualCloseService.closeAllSymbolsAcrossWallets);
   const [sellingPosition, setSellingPosition] = useState<string | null>(null);
 
   // Close all positions state
@@ -123,21 +129,15 @@ export default function DashboardPage() {
   // Expanded position chart state
   const [expandedPosition, setExpandedPosition] = useState<string | null>(null);
 
-  // Extract stable values from userCredentials
-  const hyperliquidAddress = userCredentials?.hyperliquidAddress;
-  const hyperliquidTestnet = userCredentials?.hyperliquidTestnet ?? true;
-
   // Fetch live positions, open orders, and account state on mount and every 15 seconds
   // Uses a ref guard to prevent overlapping calls from stacking up
   const isFetchingRef = React.useRef(false);
 
   useEffect(() => {
-    if (!userId || !hyperliquidAddress) {
-      console.log("[Dashboard] Skipping data fetch:", { userId: !!userId, hyperliquidAddress: !!hyperliquidAddress });
+    if (!userId || !selectedWallet) {
+      console.log("[Dashboard] Skipping data fetch:", { userId: !!userId, selectedWallet: !!selectedWallet });
       return;
     }
-
-    console.log("[Dashboard] Fetching live data for address:", hyperliquidAddress);
 
     const fetchLiveData = async () => {
       // Skip if a previous fetch is still in progress
@@ -152,25 +152,18 @@ export default function DashboardPage() {
       setIsLoadingAccount(true);
       try {
         // Fetch positions, orders, and account state in parallel
-        const [livePositions, orders, account] = await Promise.all([
-          getLivePositions({ userId }),
-          getUserOpenOrders({
-            address: hyperliquidAddress,
-            testnet: hyperliquidTestnet,
-          }),
-          getAccountState({
-            address: hyperliquidAddress,
-            testnet: hyperliquidTestnet,
-          }),
+        const [livePositions, dashboardState] = await Promise.all([
+          getLivePositions({ userId, ...selectedWalletArgs }),
+          getSelectedWalletDashboardState({ userId, ...selectedWalletArgs }),
         ]);
         console.log("[Dashboard] Fetched data:", {
           positions: Array.isArray(livePositions) ? livePositions.length : 0,
-          orders: Array.isArray(orders) ? orders.length : 0,
-          accountValue: account?.accountValue || 0
+          orders: Array.isArray(dashboardState?.openOrders) ? dashboardState.openOrders.length : 0,
+          accountValue: dashboardState?.accountState?.accountValue || 0
         });
         setPositions(Array.isArray(livePositions) ? livePositions : []);
-        setOpenOrders(Array.isArray(orders) ? orders : []);
-        setAccountState(account || null);
+        setOpenOrders(Array.isArray(dashboardState?.openOrders) ? dashboardState.openOrders : []);
+        setAccountState(dashboardState?.accountState || null);
       } catch (error) {
         // Silently handle errors - use console.log to avoid triggering error overlay
         console.log("[Dashboard] Could not fetch live data, using defaults:", error instanceof Error ? error.message : String(error));
@@ -190,7 +183,7 @@ export default function DashboardPage() {
     const interval = setInterval(fetchLiveData, 15000);
 
     return () => clearInterval(interval);
-  }, [userId, hyperliquidAddress, hyperliquidTestnet, getLivePositions, getUserOpenOrders, getAccountState]);
+  }, [getLivePositions, getSelectedWalletDashboardState, selectedWallet, selectedWalletArgs, userId]);
 
   // Calculate P&L using live account value from Hyperliquid
   const liveAccountValue = accountState?.accountValue || 0;
@@ -207,7 +200,7 @@ export default function DashboardPage() {
   }, []);
   const todaySnapshots = useQuery(
     api.queries.getAccountSnapshots,
-    userId ? { userId, since: todayStart } : "skip"
+    userId ? { userId, ...selectedWalletArgs, since: todayStart } : "skip"
   );
   const startOfDayValue = todaySnapshots && todaySnapshots.length > 0
     ? todaySnapshots[0].accountValue
@@ -352,12 +345,19 @@ export default function DashboardPage() {
   const handleRefreshPositions = async () => {
     if (!userId) return;
     setIsLoadingPositions(true);
+    setIsLoadingOrders(true);
+    setIsLoadingAccount(true);
     try {
-      const livePositions = await getLivePositions({ userId });
+      const [livePositions, dashboardState] = await Promise.all([
+        getLivePositions({ userId, ...selectedWalletArgs }),
+        getSelectedWalletDashboardState({ userId, ...selectedWalletArgs }),
+      ]);
       setPositions(livePositions);
+      setOpenOrders(Array.isArray(dashboardState?.openOrders) ? dashboardState.openOrders : []);
+      setAccountState(dashboardState?.accountState || null);
       toast({
         title: "Refreshed",
-        description: "Live positions updated from Hyperliquid",
+        description: `Wallet data updated${selectedWallet ? ` for ${selectedWallet.label}` : ""}`,
       });
     } catch (error) {
       console.log("Error refreshing positions:", error instanceof Error ? error.message : String(error));
@@ -368,6 +368,8 @@ export default function DashboardPage() {
       });
     } finally {
       setIsLoadingPositions(false);
+      setIsLoadingOrders(false);
+      setIsLoadingAccount(false);
     }
   };
 
@@ -376,24 +378,23 @@ export default function DashboardPage() {
 
     setSellingPosition(position.symbol);
     try {
-      const result = await manualClosePosition({
+      const result = await closeSymbolAcrossWallets({
         userId,
         symbol: position.symbol,
-        size: position.sizeInCoins || position.size / position.entryPrice, // Size in coins
-        side: position.side,
+        source: "dashboard",
       });
 
-      if (result.success) {
+      if ((result?.closedWalletCount ?? 0) > 0) {
         toast({
           title: "Position Closed",
-          description: `Successfully closed ${position.symbol} position`,
+          description: `Closed ${position.symbol} on ${result.closedWalletCount}/${result.requestedWalletCount} wallet(s)`,
         });
         // Refresh positions after closing
         await handleRefreshPositions();
       } else {
         toast({
           title: "Error",
-          description: result.error || "Failed to close position",
+          description: result?.error || `Failed to close ${position.symbol} on any wallet`,
           variant: "destructive",
         });
       }
@@ -415,36 +416,27 @@ export default function DashboardPage() {
     setClosingAll(true);
     setCloseAllConfirm(false);
 
-    let successCount = 0;
-    let failCount = 0;
+    const result = await closeAllSymbolsAcrossWallets({
+      userId,
+      source: "dashboard",
+    });
 
-    for (const position of positions) {
-      try {
-        const result = await manualClosePosition({
-          userId,
-          symbol: position.symbol,
-          size: position.sizeInCoins || position.size / position.entryPrice,
-          side: position.side,
-        });
-        if (result.success) {
-          successCount++;
-        } else {
-          failCount++;
-        }
-      } catch {
-        failCount++;
-      }
-    }
+    const successCount = (result?.results || []).filter(
+      (entry: any) => (entry.closedWalletCount ?? 0) > 0
+    ).length;
+    const failCount = (result?.results || []).filter(
+      (entry: any) => (entry.closedWalletCount ?? 0) === 0
+    ).length;
 
-    if (failCount === 0) {
+    if (failCount === 0 && successCount > 0) {
       toast({
         title: "All Positions Closed",
-        description: `Successfully closed ${successCount} position${successCount !== 1 ? "s" : ""}`,
+        description: `Processed ${successCount} symbol${successCount !== 1 ? "s" : ""} across all active wallets`,
       });
     } else {
       toast({
         title: "Close All Completed",
-        description: `Closed ${successCount}, failed ${failCount}`,
+        description: `Processed ${successCount} symbol(s), ${failCount} failed`,
         variant: failCount > 0 ? "destructive" : "default",
       });
     }
@@ -469,14 +461,11 @@ export default function DashboardPage() {
           title: "Order Cancelled",
           description: `Cancelled ${coin} order #${orderId}`,
         });
-        // Refresh orders after cancelling
-        if (hyperliquidAddress) {
-          const orders = await getUserOpenOrders({
-            address: hyperliquidAddress,
-            testnet: hyperliquidTestnet,
-          });
-          setOpenOrders(Array.isArray(orders) ? orders : []);
-        }
+        const dashboardState = await getSelectedWalletDashboardState({
+          userId,
+          ...selectedWalletArgs,
+        });
+        setOpenOrders(Array.isArray(dashboardState?.openOrders) ? dashboardState.openOrders : []);
       } else {
         toast({
           title: "Error",
@@ -514,7 +503,14 @@ export default function DashboardPage() {
             Monitor your AI trading bot performance
           </p>
         </div>
-        <div className="flex items-center space-x-2 sm:space-x-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:space-x-4">
+          <WalletSelector
+            wallets={wallets}
+            selectedWalletToken={selectedWalletToken}
+            onChange={setSelectedWalletToken}
+            className="w-full min-w-[220px] border-foreground text-foreground sm:w-[240px]"
+          />
+          <div className="flex items-center space-x-2 sm:space-x-4">
           <Badge
             variant={isBotActive ? "default" : "outline"}
             className={
@@ -569,6 +565,7 @@ export default function DashboardPage() {
               </>
             )}
           </Button>
+          </div>
         </div>
       </div>
 
@@ -654,7 +651,7 @@ export default function DashboardPage() {
       {botConfig && (
         <PreFlightPanel
           symbols={botConfig.symbols || ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]}
-          testnet={userCredentials?.hyperliquidTestnet ?? true}
+          testnet={selectedWallet?.hyperliquidTestnet ?? true}
           botActive={isBotActive}
         />
       )}
@@ -810,7 +807,7 @@ export default function DashboardPage() {
         <LiveChart
           positions={positions}
           trades={recentTrades ?? []}
-          testnet={hyperliquidTestnet}
+          testnet={selectedWallet?.hyperliquidTestnet ?? true}
         />
       </motion.div>
 
@@ -1016,7 +1013,7 @@ export default function DashboardPage() {
                                   takeProfit={position.takeProfit}
                                   liquidationPrice={position.liquidationPrice}
                                   side={position.side}
-                                  testnet={hyperliquidTestnet}
+                                  testnet={selectedWallet?.hyperliquidTestnet ?? true}
                                   exitMode={position.exitMode}
                                 />
                               </div>
@@ -1163,7 +1160,7 @@ export default function DashboardPage() {
                                           takeProfit={position.takeProfit}
                                           liquidationPrice={position.liquidationPrice}
                                           side={position.side}
-                                          testnet={hyperliquidTestnet}
+                                          testnet={selectedWallet?.hyperliquidTestnet ?? true}
                                           exitMode={position.exitMode}
                                         />
                                       </div>
@@ -1588,5 +1585,19 @@ export default function DashboardPage() {
         <TradeDebugExportCard userId={userId} />
       </motion.div>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex h-[calc(100vh-200px)] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-foreground" />
+        </div>
+      }
+    >
+      <DashboardPageContent />
+    </React.Suspense>
   );
 }

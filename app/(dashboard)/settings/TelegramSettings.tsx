@@ -35,11 +35,20 @@ export default function TelegramSettings() {
     api.telegram.telegramQueries.getSettings,
     userId ? { userId } : "skip"
   );
+  const connectedWallets = useQuery(
+    api.wallets.queries.getActiveConnectedWallets,
+    userId ? { userId } : "skip"
+  );
+  const telegramMainWallet = useQuery(
+    api.wallets.queries.getEffectiveTelegramMainWallet,
+    userId ? { userId } : "skip"
+  );
 
   // Mutations
   const generateCode = useMutation(api.telegram.telegramMutations.generateVerificationCode);
   const unlinkTelegram = useMutation(api.telegram.telegramMutations.unlinkTelegram);
   const updatePrefs = useMutation(api.telegram.telegramMutations.updateNotificationPrefs);
+  const setTelegramMainWallet = useMutation(api.wallets.mutations.setTelegramMainWallet);
   const sendTest = useAction(api.telegram.notifier.sendTestNotification);
 
   // Local state
@@ -128,6 +137,25 @@ export default function TelegramSettings() {
       });
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleMainWalletChange = async (value: string) => {
+    try {
+      await setTelegramMainWallet({
+        userId,
+        ...(value === "legacy" ? {} : { walletId: value as any }),
+      });
+      toast({
+        title: "Main wallet updated",
+        description: "Telegram reads and trade notifications will use the selected wallet.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update Telegram main wallet.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -243,6 +271,32 @@ export default function TelegramSettings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label className="text-foreground">Telegram Main Wallet</Label>
+                <p className="text-sm text-muted-foreground">
+                  Reads, position updates, daily summaries, and trade notifications use this wallet.
+                </p>
+              </div>
+              <Select
+                value={telegramMainWallet?.walletId ? String(telegramMainWallet.walletId) : "legacy"}
+                onValueChange={handleMainWalletChange}
+              >
+                <SelectTrigger className="w-[220px] border-border text-foreground">
+                  <SelectValue placeholder="Select wallet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(connectedWallets || []).map((wallet) => (
+                    <SelectItem key={wallet.walletId ? String(wallet.walletId) : "legacy"} value={wallet.walletId ? String(wallet.walletId) : "legacy"}>
+                      {wallet.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator className="bg-border" />
+
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-foreground">Trade Opened</Label>

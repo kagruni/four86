@@ -6,15 +6,24 @@ export async function reconcilePositionsWithExchange(
   ctx: any,
   params: {
     userId: string;
+    walletId?: any;
     hyperliquidSymbols: string[];
     address: string;
     testnet: boolean;
     aiModel?: string;
   }
 ) {
-  const { userId, hyperliquidSymbols, address, testnet, aiModel = "system_sync" } = params;
+  const {
+    userId,
+    walletId,
+    hyperliquidSymbols,
+    address,
+    testnet,
+    aiModel = "system_sync",
+  } = params;
   const dbPositions = await ctx.runQuery(api.queries.getPositions, {
     userId,
+    ...(walletId ? { walletId } : {}),
   });
   const now = Date.now();
   const GRACE_PERIOD_MS = 3 * 60 * 1000;
@@ -39,6 +48,7 @@ export async function reconcilePositionsWithExchange(
 
     await ctx.runMutation(api.mutations.saveTrade, {
       userId,
+      ...(walletId ? { walletId } : {}),
       ...buildCloseTradeFields({
         position,
         settlement,
@@ -53,6 +63,7 @@ export async function reconcilePositionsWithExchange(
 
     await ctx.runMutation(api.mutations.closePosition, {
       userId,
+      ...(walletId ? { walletId } : {}),
       symbol: position.symbol,
     });
   }
@@ -79,7 +90,7 @@ export const syncAllPositions = internalAction({
         return;
       }
 
-      // Group positions by userId
+      // Group positions by userId, then walletId inside each user.
       const userIds = [...new Set(allPositions.map((p: any) => p.userId))];
       console.log(`[positionSync] Syncing positions for ${userIds.length} user(s)`);
 
@@ -95,75 +106,86 @@ export const syncAllPositions = internalAction({
         }
 
         try {
-          // Get user credentials
-          const credentials = await ctx.runQuery(internal.queries.getFullUserCredentials, {
-            userId,
-          });
-
-          if (!credentials || !credentials.hyperliquidAddress || !credentials.hyperliquidPrivateKey) {
-            console.log(`[positionSync] Skipping user ${userId} - missing credentials`);
-            continue;
+          const userPositions = allPositions.filter((position: any) => position.userId === userId);
+          const walletGroups = new Map<string, any[]>();
+          for (const position of userPositions) {
+            const walletKey = String(position.walletId ?? "legacy");
+            const positionsForWallet = walletGroups.get(walletKey) || [];
+            positionsForWallet.push(position);
+            walletGroups.set(walletKey, positionsForWallet);
           }
 
-          // Fetch actual positions from Hyperliquid
-          const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
-            address: credentials.hyperliquidAddress,
-            testnet: credentials.hyperliquidTestnet,
-          });
+          for (const walletPositions of walletGroups.values()) {
+            const walletId = walletPositions[0]?.walletId;
+            const wallet = await ctx.runQuery(internal.wallets.queries.resolveSelectedWalletInternal, {
+              userId,
+              ...(walletId ? { walletId } : {}),
+            });
 
-          // Extract symbols of actual positions on Hyperliquid (only non-zero size)
-          console.log(`[positionSync] Raw Hyperliquid positions:`, JSON.stringify(hyperliquidPositions, null, 2));
-
-          const hyperliquidSymbols = hyperliquidPositions
-            .map((p: any, index: number) => {
-              const coin = p.position?.coin || p.coin;
-              const szi = p.position?.szi || p.szi || "0";
-              const sziNumber = parseFloat(szi);
-              console.log(`[positionSync]   Position ${index}: coin=${coin}, szi=${szi}, parsed=${sziNumber}, isNonZero=${sziNumber !== 0}`);
-              return sziNumber !== 0 ? coin : null;
-            })
-            .filter((s: string | null): s is string => s !== null);
-
-          console.log(`[positionSync] User ${userId}: Hyperliquid has [${hyperliquidSymbols.join(", ") || "none"}]`);
-
-          const dbPositions = await ctx.runQuery(api.queries.getPositions, {
-            userId,
-          });
-          const now = Date.now();
-          const GRACE_PERIOD_MS = 3 * 60 * 1000;
-          const staleSymbols = (dbPositions || [])
-            .filter((dbPos: any) => !hyperliquidSymbols.includes(dbPos.symbol) && now - dbPos.openedAt > GRACE_PERIOD_MS)
-            .map((dbPos: any) => dbPos.symbol);
-
-          for (const symbol of staleSymbols) {
-            try {
-              const regularCancelResult = await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
-                privateKey: credentials.hyperliquidPrivateKey,
-                address: credentials.hyperliquidAddress,
-                symbol,
-                testnet: credentials.hyperliquidTestnet,
-              });
-              const triggerCancelResult = await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
-                privateKey: credentials.hyperliquidPrivateKey,
-                address: credentials.hyperliquidAddress,
-                symbol,
-                testnet: credentials.hyperliquidTestnet,
-              });
-              const cancelledCount = regularCancelResult.cancelledCount + triggerCancelResult.cancelledCount;
-              if (cancelledCount > 0) {
-                console.log(`[positionSync] Cancelled ${cancelledCount} stale order(s) for ${symbol} before DB reconciliation`);
-              }
-            } catch (cancelError) {
-              console.warn(`[positionSync] Failed to cancel stale orders for ${symbol}:`, cancelError instanceof Error ? cancelError.message : String(cancelError));
+            if (!wallet?.hyperliquidAddress || !wallet?.hyperliquidPrivateKey) {
+              console.log(`[positionSync] Skipping user ${userId} wallet ${walletId ?? "legacy"} - missing wallet credentials`);
+              continue;
             }
-          }
 
-          await reconcilePositionsWithExchange(ctx, {
-            userId,
-            hyperliquidSymbols,
-            address: credentials.hyperliquidAddress,
-            testnet: credentials.hyperliquidTestnet,
-          });
+            const hyperliquidPositions = await ctx.runAction(api.hyperliquid.client.getUserPositions, {
+              address: wallet.hyperliquidAddress,
+              testnet: wallet.hyperliquidTestnet,
+            });
+
+            const hyperliquidSymbols = hyperliquidPositions
+              .map((position: any) => {
+                const nextPosition = position.position || position;
+                const szi = parseFloat(nextPosition.szi || "0");
+                return szi !== 0 ? nextPosition.coin : null;
+              })
+              .filter((symbol: string | null): symbol is string => symbol !== null);
+
+            const now = Date.now();
+            const GRACE_PERIOD_MS = 3 * 60 * 1000;
+            const staleSymbols = (walletPositions || [])
+              .filter(
+                (position: any) =>
+                  !hyperliquidSymbols.includes(position.symbol) &&
+                  now - position.openedAt > GRACE_PERIOD_MS
+              )
+              .map((position: any) => position.symbol);
+
+            for (const symbol of staleSymbols) {
+              try {
+                const regularCancelResult = await ctx.runAction(api.hyperliquid.client.cancelAllOrdersForSymbol, {
+                  privateKey: wallet.hyperliquidPrivateKey,
+                  address: wallet.hyperliquidAddress,
+                  symbol,
+                  testnet: wallet.hyperliquidTestnet,
+                });
+                const triggerCancelResult = await ctx.runAction(api.hyperliquid.client.cancelTriggerOrdersForSymbol, {
+                  privateKey: wallet.hyperliquidPrivateKey,
+                  address: wallet.hyperliquidAddress,
+                  symbol,
+                  testnet: wallet.hyperliquidTestnet,
+                });
+                const cancelledCount = regularCancelResult.cancelledCount + triggerCancelResult.cancelledCount;
+                if (cancelledCount > 0) {
+                  console.log(
+                    `[positionSync] Cancelled ${cancelledCount} stale order(s) for ${symbol} on wallet ${wallet.label}`
+                  );
+                }
+              } catch (cancelError) {
+                console.warn(
+                  `[positionSync] Failed to cancel stale orders for ${symbol} on wallet ${wallet.label}:`,
+                  cancelError instanceof Error ? cancelError.message : String(cancelError)
+                );
+              }
+            }
+
+            await reconcilePositionsWithExchange(ctx, {
+              userId,
+              ...(walletId ? { walletId } : {}),
+              hyperliquidSymbols,
+              address: wallet.hyperliquidAddress,
+              testnet: wallet.hyperliquidTestnet,
+            });
+          }
 
         } catch (error) {
           console.error(`[positionSync] Error syncing user ${userId}:`, error);
