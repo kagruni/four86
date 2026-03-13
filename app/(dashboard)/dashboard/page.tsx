@@ -627,7 +627,7 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
-            {(cbIsTripped || cbIsCooldown) && (
+            {(cbIsTripped || cbIsCooldown || (botConfig?.consecutiveLosses ?? 0) > 0 || (botConfig?.consecutiveAiFailures ?? 0) > 0) && (
               <Button
                 variant={cbIsTripped ? "secondary" : "outline"}
                 size="sm"
@@ -643,7 +643,7 @@ export default function DashboardPage() {
                 ) : (
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                 )}
-                {isResettingCB ? "Resetting..." : "Reset"}
+                {isResettingCB ? "Resetting..." : cbIsTripped || cbIsCooldown ? "Reset" : "Reset Counters"}
               </Button>
             )}
           </CardContent>
