@@ -30,27 +30,75 @@ import { DEFAULT_MANAGED_EXIT_RULES } from "@/convex/trading/managedExitUtils";
 import { DEFAULT_HYBRID_SELECTION_RULES } from "@/convex/trading/hybridSelectionConfig";
 
 const AI_MODELS = [
-  { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Recommended)" },
+  // Anthropic
+  { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6" },
+  { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6" },
+  { value: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
+  // OpenAI
+  { value: "openai/gpt-5.4", label: "GPT-5.4" },
+  { value: "openai/gpt-5.4-pro", label: "GPT-5.4 Pro" },
+  { value: "openai/gpt-5.2", label: "GPT-5.2" },
+  { value: "openai/gpt-5.1", label: "GPT-5.1" },
   { value: "openai/gpt-5", label: "GPT-5" },
   { value: "openai/gpt-5-mini", label: "GPT-5 Mini" },
   { value: "openai/gpt-4.1", label: "GPT-4.1" },
+  { value: "openai/o3", label: "OpenAI o3" },
+  { value: "openai/o4-mini", label: "OpenAI o4-mini" },
+  { value: "openai/o4-mini-high", label: "OpenAI o4-mini High" },
+  { value: "openai/gpt-oss-120b", label: "GPT-OSS 120B" },
+  // Google
+  { value: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "google/gemini-3-pro", label: "Gemini 3 Pro" },
   { value: "google/gemini-3-flash-preview", label: "Gemini 3 Flash" },
   { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  { value: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2 (Alpha Arena Winner)" },
-  { value: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat V3.1" },
+  { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  // DeepSeek
+  { value: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2" },
   { value: "deepseek/deepseek-v3.2-speciale", label: "DeepSeek V3.2 Speciale" },
+  { value: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat V3.1" },
   { value: "deepseek/deepseek-r1", label: "DeepSeek R1" },
-  { value: "qwen/qwen3-max", label: "Qwen3 Max (Alpha Arena #2)" },
+  // Qwen (Alibaba)
+  { value: "qwen/qwen3.5-plus-02-15", label: "Qwen 3.5 Plus" },
+  { value: "qwen/qwen3.5-122b-a10b", label: "Qwen 3.5 122B" },
+  { value: "qwen/qwen3-max", label: "Qwen 3 Max" },
+  { value: "qwen/qwen3-max-thinking", label: "Qwen 3 Max Thinking" },
+  // ZhipuAI (GLM)
+  { value: "z-ai/glm-5", label: "GLM-5" },
+  { value: "z-ai/glm-4.7", label: "GLM-4.7" },
+  { value: "z-ai/glm-4.6", label: "GLM-4.6" },
+  // ByteDance (Seed)
+  { value: "bytedance-seed/seed-2.0-lite", label: "Seed 2.0 Lite" },
+  { value: "bytedance-seed/seed-2.0-mini", label: "Seed 2.0 Mini" },
+  { value: "bytedance-seed/seed-1.6", label: "Seed 1.6" },
+  // MiniMax
+  { value: "minimax/minimax-m2.5", label: "MiniMax M2.5" },
+  { value: "minimax/minimax-m2.1", label: "MiniMax M2.1" },
+  // Moonshot (Kimi)
+  { value: "moonshotai/kimi-k2.5", label: "Kimi K2.5" },
+  { value: "moonshotai/kimi-k2-thinking", label: "Kimi K2 Thinking" },
+  // Baidu (ERNIE)
+  { value: "baidu/ernie-4.5-300b-a47b", label: "ERNIE 4.5 300B" },
+  { value: "baidu/ernie-4.5-21b-a3b-thinking", label: "ERNIE 4.5 Thinking" },
+  // StepFun
+  { value: "stepfun/step-3.5-flash", label: "Step 3.5 Flash" },
+  // Tencent (Hunyuan)
+  { value: "tencent/hunyuan-a13b-instruct", label: "Hunyuan A13B" },
+  // xAI
+  { value: "x-ai/grok-4.20-beta", label: "Grok 4.20 Beta" },
   { value: "x-ai/grok-4.1-fast", label: "Grok 4.1 Fast" },
   { value: "x-ai/grok-4-fast", label: "Grok 4 Fast" },
   { value: "x-ai/grok-code-fast-1", label: "Grok Code Fast 1" },
-  { value: "z-ai/glm-4.7", label: "GLM-4.7" },
-  { value: "z-ai/glm-4.6", label: "GLM-4.6" },
-  { value: "moonshotai/kimi-k2.5", label: "Kimi K2.5" },
-  { value: "moonshotai/kimi-k2-thinking", label: "Kimi K2 Thinking" },
+  // Mistral
+  { value: "mistralai/mistral-large-2512", label: "Mistral Large 3" },
+  // Meta
   { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick" },
-  { value: "openai/gpt-oss-120b", label: "GPT-OSS 120B" },
+  { value: "meta-llama/llama-4-scout", label: "Llama 4 Scout" },
+  // Nvidia
+  { value: "nvidia/nemotron-3-super-120b-a12b", label: "Nemotron 3 Super 120B" },
+  // Perplexity
+  { value: "perplexity/sonar-pro", label: "Perplexity Sonar Pro" },
+  // Cohere
+  { value: "cohere/command-r-plus-08-2024", label: "Command R+" },
 ] as const;
 
 const TRADING_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"] as const;
@@ -670,34 +718,34 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="credentials" className="w-full">
-          <TabsList className="bg-muted p-1 w-full grid grid-cols-5">
+          <TabsList className="bg-muted p-1 w-full flex overflow-x-auto scrollbar-none sm:grid sm:grid-cols-5">
             <TabsTrigger
               value="credentials"
-              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
+              className="shrink-0 data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground text-xs sm:text-sm"
             >
               Credentials
             </TabsTrigger>
             <TabsTrigger
               value="risk-strategy"
-              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
+              className="shrink-0 data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground text-xs sm:text-sm"
             >
               Risk & Strategy
             </TabsTrigger>
             <TabsTrigger
               value="advanced"
-              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
+              className="shrink-0 data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground text-xs sm:text-sm"
             >
               Advanced
             </TabsTrigger>
             <TabsTrigger
               value="telegram"
-              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
+              className="shrink-0 data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground text-xs sm:text-sm"
             >
               Telegram
             </TabsTrigger>
             <TabsTrigger
               value="appearance"
-              className="data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground"
+              className="shrink-0 data-[state=active]:bg-foreground data-[state=active]:text-background text-muted-foreground text-xs sm:text-sm"
             >
               Appearance
             </TabsTrigger>
